@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
 
 import type { ReaderSearchHit, ReaderSection, ReaderSettings } from './api';
 import type { DocumentLocator } from '../../lib/generated/document';
@@ -24,6 +24,8 @@ interface ReaderLayoutProps {
     limit: number,
   ): Promise<ReaderSearchHit[]>;
   onNavigate?(locator: DocumentLocator): Promise<boolean>;
+  readerContainerRef?: RefObject<HTMLDivElement | null>;
+  markerHistoryRef?: RefObject<HTMLDivElement | null>;
 }
 
 export function ReaderLayout(props: ReaderLayoutProps) {
@@ -39,6 +41,8 @@ export function ReaderLayout(props: ReaderLayoutProps) {
     currentSectionId,
     search,
     onNavigate,
+    readerContainerRef,
+    markerHistoryRef,
   } = props;
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -95,11 +99,26 @@ export function ReaderLayout(props: ReaderLayoutProps) {
           {selectionActive && (
             <output aria-label="已选择文本">已选择文本</output>
           )}
-          <p>阅读器将在打开教材后载入内容。</p>
+          {readerContainerRef ? (
+            <div
+              ref={readerContainerRef}
+              className="reader-document"
+              role="region"
+              aria-label="阅读文档"
+            />
+          ) : (
+            <p>阅读器将在打开教材后载入内容。</p>
+          )}
         </main>
         {rightOpen && (
           <div>
             <ReaderPanel content={panelContent} />
+            {markerHistoryRef && (
+              <aside className="reader-panel" aria-label="标记历史">
+                <h2>标记历史</h2>
+                <div ref={markerHistoryRef} />
+              </aside>
+            )}
             {bookId && search && (
               <ReaderSearch
                 bookId={bookId}

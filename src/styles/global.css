@@ -88,6 +88,9 @@ main {
   font-size: calc(1rem * var(--reader-font-scale, 1));
   line-height: var(--reader-line-height, var(--line-height-base));
 }
+.reader-document {
+  min-height: min(75vh, 56rem);
+}
 .reader-settings label {
   display: grid;
   gap: var(--space-1);

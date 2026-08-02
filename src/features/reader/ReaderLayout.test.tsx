@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
@@ -5,6 +6,27 @@ import { describe, expect, it } from 'vitest';
 import { ReaderLayout } from './ReaderLayout';
 
 describe('ReaderLayout', () => {
+  it('mounts the document adapter and marker history in separate accessible regions', () => {
+    const readerContainerRef = createRef<HTMLDivElement>();
+    const markerHistoryRef = createRef<HTMLDivElement>();
+
+    const { unmount } = render(
+      <ReaderLayout
+        title="Fixture"
+        readerContainerRef={readerContainerRef}
+        markerHistoryRef={markerHistoryRef}
+      />,
+    );
+
+    expect(screen.getByRole('region', { name: '阅读文档' })).toBe(
+      readerContainerRef.current,
+    );
+    expect(
+      screen.getByRole('complementary', { name: '标记历史' }),
+    ).toContainElement(markerHistoryRef.current);
+    unmount();
+  });
+
   it('provides collapsible TOC and panel regions with accessible toolbar controls', async () => {
     const user = userEvent.setup();
     render(<ReaderLayout title="Fixture" />);
