@@ -1,3 +1,4 @@
+pub mod providers;
 pub mod settings;
 
 use std::{path::Path, time::Duration};

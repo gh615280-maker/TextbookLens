@@ -1,11 +1,11 @@
-use std::{collections::HashSet, fs, path::PathBuf};
+use std::{collections::HashSet, fs, path::PathBuf, sync::Arc};
 
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
 use tracing_appender::non_blocking::WorkerGuard;
 use uuid::Uuid;
 
-use crate::{db::Database, errors::AppResult};
+use crate::{credentials::CredentialStore, db::Database, errors::AppResult};
 
 #[derive(Clone, Debug)]
 pub struct AppPaths {
@@ -44,16 +44,23 @@ pub struct AppState {
     pub import_cancellations: Mutex<HashSet<Uuid>>,
     pub learning_cancellations: Mutex<HashSet<Uuid>>,
     pub log_guard: WorkerGuard,
+    pub credential_store: Arc<dyn CredentialStore>,
 }
 
 impl AppState {
-    pub fn new(db: Database, paths: AppPaths, log_guard: WorkerGuard) -> Self {
+    pub fn new(
+        db: Database,
+        paths: AppPaths,
+        log_guard: WorkerGuard,
+        credential_store: Arc<dyn CredentialStore>,
+    ) -> Self {
         Self {
             db,
             paths,
             import_cancellations: Mutex::new(HashSet::new()),
             learning_cancellations: Mutex::new(HashSet::new()),
             log_guard,
+            credential_store,
         }
     }
 }
