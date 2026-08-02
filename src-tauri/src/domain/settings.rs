@@ -29,3 +29,13 @@ pub struct AppSettingsDto {
     pub context_mode: ContextMode,
     pub ui_language: String,
 }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "settings.ts")]
+pub struct ReaderSettingsDto {
+    pub font_scale: f64,
+    pub line_height: f64,
+    pub reader_width: f64,
+    pub pdf_zoom: f64,
+}

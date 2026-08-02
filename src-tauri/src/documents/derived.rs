@@ -72,6 +72,12 @@ pub fn require_document_html(paths: &AppPaths, book_id: Uuid) -> AppResult<()> {
     Ok(())
 }
 
+pub fn read_document_html(paths: &AppPaths, book_id: Uuid) -> AppResult<String> {
+    require_document_html(paths, book_id)?;
+    fs::read_to_string(owned_derived_directory(paths, book_id)?.join(DOCUMENT_HTML))
+        .map_err(AppError::from)
+}
+
 fn owned_derived_directory(paths: &AppPaths, book_id: Uuid) -> AppResult<PathBuf> {
     let books = fs::canonicalize(&paths.books)?;
     let requested_book = paths.books.join(book_id.to_string());

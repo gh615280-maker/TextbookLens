@@ -44,6 +44,7 @@ pub fn run() {
             commands::books::delete_failed_import,
             commands::documents::begin_import,
             commands::documents::read_book_source,
+            commands::documents::read_derived_text,
             commands::documents::begin_parse,
             commands::documents::append_parsed_sections,
             commands::documents::write_derived_text,
@@ -51,7 +52,11 @@ pub fn run() {
             commands::documents::cancel_import,
             commands::documents::mark_import_failed,
             commands::documents::retry_import,
-            commands::documents::search_book
+            commands::documents::search_book,
+            commands::settings::get_reader_bootstrap,
+            commands::settings::save_reading_progress,
+            commands::settings::get_reader_settings,
+            commands::settings::update_reader_settings
         ])
         .run(tauri::generate_context!())
         .expect("failed to run TextbookLens");

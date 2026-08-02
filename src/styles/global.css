@@ -58,6 +58,37 @@ main {
 .reader-column {
   max-width: var(--reader-column-width);
 }
+.reader-three-pane {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) minmax(14rem, 20rem);
+  gap: var(--space-4);
+  align-items: start;
+}
+.reader-toolbar,
+.reader-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.reader-sidebar,
+.reader-panel,
+.reader-settings {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-3);
+}
+.reader-main {
+  width: min(100%, var(--reader-width, var(--reader-column-width)));
+  margin-inline: auto;
+  font-size: calc(1rem * var(--reader-font-scale, 1));
+  line-height: var(--reader-line-height, var(--line-height-base));
+}
+.reader-settings label {
+  display: grid;
+  gap: var(--space-1);
+}
 .skip-link {
   position: absolute;
   left: var(--space-4);
@@ -211,13 +242,18 @@ button:disabled {
   }
 
   .library-page__header,
-  .book-card {
+  .book-card,
+  .reader-three-pane {
     align-items: stretch;
     grid-template-columns: 1fr;
   }
 
   .library-page__header {
     flex-direction: column;
+  }
+
+  .reader-three-pane {
+    grid-template-columns: 1fr;
   }
 
   .book-card__cover {

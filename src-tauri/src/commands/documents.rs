@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     documents::{
-        derived::{remove_document_html, write_document_html},
+        derived::{read_document_html, remove_document_html, write_document_html},
         import::{
             BeginImportOutcome, BeginImportRequest, ImportEvent, ImportService, ImportStage,
             ParsedBookMetadata,
@@ -63,6 +63,26 @@ pub async fn read_book_source(
         .read_book_source(book_id)
         .await
         .map(Response::new)
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn read_derived_text(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+    name: DerivedTextName,
+) -> Result<String, AppErrorDto> {
+    let book = crate::book_repository::get(state.db.pool(), book_id)
+        .await
+        .map_err(AppErrorDto::from)?;
+    if book.summary.format != BookFormat::Docx {
+        return Err(AppError::new(AppErrorCode::InvalidInput).into());
+    }
+    let DerivedTextName::DocumentHtml = name;
+    let paths = state.paths.clone();
+    tokio::task::spawn_blocking(move || read_document_html(&paths, book_id))
+        .await
+        .map_err(|_| AppError::new(AppErrorCode::LocalIoError))?
         .map_err(AppErrorDto::from)
 }
 
