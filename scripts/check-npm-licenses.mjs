@@ -18,65 +18,104 @@ const allowed = new Set([
   'Zlib',
 ]);
 const packageExceptions = new Map([['tslib@2.8.1', new Set(['0BSD'])]]);
+const packageLicenseAliases = new Map([
+  [
+    'duck@0.1.12',
+    new Map([
+      // The package metadata says "BSD*"; its bundled LICENSE is the
+      // two-clause BSD text. Keep this normalization version-specific.
+      ['BSD*', 'BSD-2-Clause'],
+    ]),
+  ],
+]);
 const rootManifest = JSON.parse(
   readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
 );
 const rootPackageKey = `${rootManifest.name}@${rootManifest.version}`;
 
-const result = spawnSync(
-  process.execPath,
-  [licenseChecker, '--production', '--json', '--start', projectRoot],
-  { cwd: projectRoot, encoding: 'utf8' },
-);
-if (result.error) {
-  throw result.error;
-}
-if (result.status !== 0) {
-  process.stderr.write(result.stderr);
-  process.exit(result.status ?? 1);
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  runLicenseCheck();
 }
 
-const packages = JSON.parse(result.stdout);
-const rejected = [];
-for (const [dependency, metadata] of Object.entries(packages)) {
-  if (dependency === rootPackageKey) continue;
-  const expressions = Array.isArray(metadata.licenses)
-    ? metadata.licenses
-    : [metadata.licenses];
-  for (const expression of expressions) {
-    try {
-      const identifiers = parseSpdxExpression(expression);
-      const exception = packageExceptions.get(dependency) ?? new Set();
-      const denied = identifiers.filter(
-        (identifier) => !allowed.has(identifier) && !exception.has(identifier),
-      );
-      if (denied.length > 0) {
-        rejected.push({ dependency, expression, denied });
-      }
-    } catch {
-      rejected.push({
+function runLicenseCheck() {
+  const result = spawnSync(
+    process.execPath,
+    [licenseChecker, '--production', '--json', '--start', projectRoot],
+    { cwd: projectRoot, encoding: 'utf8' },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr);
+    process.exit(result.status ?? 1);
+  }
+
+  const packages = JSON.parse(result.stdout);
+  const rejected = [];
+  for (const [dependency, metadata] of Object.entries(packages)) {
+    if (dependency === rootPackageKey) continue;
+    const expressions = Array.isArray(metadata.licenses)
+      ? metadata.licenses
+      : [metadata.licenses];
+    for (const reportedExpression of expressions) {
+      const expression = normalizeLicenseExpression(
         dependency,
-        expression,
-        denied: ['invalid-or-non-SPDX'],
-      });
+        reportedExpression,
+      );
+      try {
+        const packageAllowed = packageExceptions.get(dependency) ?? new Set();
+        if (!isLicenseExpressionAllowed(expression, allowed, packageAllowed)) {
+          const permitted = new Set([...allowed, ...packageAllowed]);
+          const denied = collectLicenseIdentifiers(
+            parseSpdxExpression(expression),
+          ).filter((identifier) => !permitted.has(identifier));
+          rejected.push({
+            dependency,
+            expression: reportedExpression,
+            denied: denied.length > 0 ? denied : ['expression-not-allowed'],
+          });
+        }
+      } catch {
+        rejected.push({
+          dependency,
+          expression: reportedExpression,
+          denied: ['invalid-or-non-SPDX'],
+        });
+      }
     }
   }
-}
 
-if (rejected.length > 0) {
-  for (const item of rejected) {
-    console.error(
-      `${item.dependency}: ${String(item.expression)} (${item.denied.join(', ')})`,
+  if (rejected.length > 0) {
+    for (const item of rejected) {
+      console.error(
+        `${item.dependency}: ${String(item.expression)} (${item.denied.join(', ')})`,
+      );
+    }
+    process.exitCode = 1;
+  } else {
+    console.log(
+      `npm license policy passed for ${Object.keys(packages).length} packages.`,
     );
   }
-  process.exitCode = 1;
-} else {
-  console.log(
-    `npm license policy passed for ${Object.keys(packages).length} packages.`,
-  );
 }
 
-function parseSpdxExpression(expression) {
+export function normalizeLicenseExpression(dependency, expression) {
+  if (typeof expression !== 'string') return expression;
+  return packageLicenseAliases.get(dependency)?.get(expression) ?? expression;
+}
+
+export function isLicenseExpressionAllowed(
+  expression,
+  globallyAllowed,
+  packageAllowed = new Set(),
+) {
+  const permitted = new Set([...globallyAllowed, ...packageAllowed]);
+  return evaluateLicenseExpression(parseSpdxExpression(expression), permitted);
+}
+
+export function parseSpdxExpression(expression) {
   if (typeof expression !== 'string' || expression.trim() === '') {
     throw new Error('missing license expression');
   }
@@ -92,49 +131,76 @@ function parseSpdxExpression(expression) {
   }
 
   let position = 0;
-  const identifiers = [];
   const peek = () => tokens[position];
   const take = () => tokens[position++];
 
   function primary() {
     if (peek() === '(') {
       take();
-      expressionNode();
+      const node = expressionNode();
       if (take() !== ')') throw new Error('missing closing parenthesis');
-      return;
+      return node;
     }
     const identifier = take();
     if (!identifier || ['AND', 'OR', 'WITH', ')'].includes(identifier)) {
       throw new Error('expected license identifier');
     }
-    identifiers.push(identifier);
+    let exception;
     if (peek() === 'WITH') {
       take();
-      const exception = take();
+      exception = take();
       if (!exception || ['AND', 'OR', 'WITH', '(', ')'].includes(exception)) {
         throw new Error('expected SPDX exception');
       }
-      identifiers.push(exception);
     }
+    return { type: 'license', identifier, exception };
   }
 
   function andNode() {
-    primary();
+    const nodes = [primary()];
     while (peek() === 'AND') {
       take();
-      primary();
+      nodes.push(primary());
     }
+    return nodes.length === 1 ? nodes[0] : { type: 'and', nodes };
   }
 
   function expressionNode() {
-    andNode();
+    const nodes = [andNode()];
     while (peek() === 'OR') {
       take();
-      andNode();
+      nodes.push(andNode());
     }
+    return nodes.length === 1 ? nodes[0] : { type: 'or', nodes };
   }
 
-  expressionNode();
+  const root = expressionNode();
   if (position !== tokens.length) throw new Error('trailing SPDX tokens');
-  return identifiers;
+  return root;
+}
+
+function evaluateLicenseExpression(node, permitted) {
+  if (node.type === 'license') {
+    return (
+      permitted.has(node.identifier) &&
+      (node.exception === undefined || permitted.has(node.exception))
+    );
+  }
+  if (node.type === 'and') {
+    return node.nodes.every((child) =>
+      evaluateLicenseExpression(child, permitted),
+    );
+  }
+  return node.nodes.some((child) =>
+    evaluateLicenseExpression(child, permitted),
+  );
+}
+
+function collectLicenseIdentifiers(node) {
+  if (node.type === 'license') {
+    return node.exception
+      ? [node.identifier, node.exception]
+      : [node.identifier];
+  }
+  return node.nodes.flatMap(collectLicenseIdentifiers);
 }

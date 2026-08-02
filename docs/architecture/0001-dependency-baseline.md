@@ -43,6 +43,15 @@ permissive license with no attribution or source-disclosure obligation. The npm
 license check accepts 0BSD only for that exact package and version; 0BSD is not
 added to the general allowlist.
 
+Phase 2 adds two dependencies with SPDX choice expressions: DOMPurify 3.4.12 is
+`MPL-2.0 OR Apache-2.0`, and JSZip 3.10.1 is
+`MIT OR GPL-3.0-or-later`. TextbookLens selects the already-allowed Apache-2.0
+and MIT branches respectively; the license checker evaluates `OR` as a choice
+and does not add MPL or GPL to the general allowlist. The locked transitive
+`duck@0.1.12` declares the non-standard value `BSD`, which the metadata tool
+reports as `BSD*`; its bundled `LICENSE` is the two-clause BSD text. The checker
+normalizes that value to `BSD-2-Clause` only for this exact package and version.
+
 Tauri's locked Rust graph contains five MPL-2.0 crates: `cssparser@0.36.0`,
 `cssparser-macros@0.6.1`, `dtoa-short@0.3.5`, `option-ext@0.2.0`, and
 `selectors@0.36.1`. They are package/version-specific cargo-deny exceptions,
