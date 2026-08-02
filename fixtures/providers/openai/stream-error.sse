@@ -1,0 +1,4 @@
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp_fixture_failed","status":"failed","error":{"code":"server_error","message":"Synthetic provider failure."}}}
+
+: fixture stream terminator

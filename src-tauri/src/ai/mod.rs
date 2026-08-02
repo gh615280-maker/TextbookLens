@@ -1,5 +1,6 @@
 pub mod error;
 pub mod provider;
+pub mod providers;
 pub mod registry;
 pub mod stream;
 pub mod transport;

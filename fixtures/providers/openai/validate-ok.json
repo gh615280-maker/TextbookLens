@@ -1,0 +1,6 @@
+{
+  "id": "fixture-openai/model?edition#1",
+  "object": "model",
+  "created": 1700000000,
+  "owned_by": "fixture-openai-owner"
+}
