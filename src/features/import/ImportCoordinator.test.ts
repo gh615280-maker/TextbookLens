@@ -23,6 +23,7 @@ function book(overrides: Partial<BookSummary> = {}): BookSummary {
   return {
     id: BOOK_ID,
     title: 'Fixture',
+    originalFilename: 'fixture.pdf',
     author: null,
     language: null,
     format: 'pdf',
@@ -106,6 +107,7 @@ class FakeImportIpc implements ImportIpc {
   readonly batches: NormalizedSectionInput[][] = [];
   outcome: BeginImportOutcome = { outcome: 'created', book: book() };
   binary: Uint8Array | ArrayBuffer = new Uint8Array([1, 2, 3]);
+  beginGate: Promise<void> | undefined;
   appendError: unknown;
   appendGate: Promise<void> | undefined;
   onCancel: (() => void) | undefined;
@@ -117,6 +119,7 @@ class FakeImportIpc implements ImportIpc {
     void _sourcePath;
     void _onProgress;
     this.calls.push('begin_import');
+    if (this.beginGate) await this.beginGate;
     return this.outcome;
   }
 
@@ -183,6 +186,16 @@ class FakeImportIpc implements ImportIpc {
     void _code;
     this.calls.push('mark_import_failed');
   }
+
+  async retryImport(
+    _bookId: string,
+    _replacementSourcePath: string | null,
+  ): Promise<BeginImportOutcome> {
+    void _bookId;
+    void _replacementSourcePath;
+    this.calls.push('retry_import');
+    return this.outcome;
+  }
 }
 
 function parser(
@@ -247,6 +260,55 @@ describe('ImportCoordinator', () => {
     expect(result.id).toBe(BOOK_ID);
     expect(parse).not.toHaveBeenCalled();
     expect(ipc.calls).toEqual(['begin_import']);
+  });
+
+  it('retries through Rust and identifies the replacement before parsing', async () => {
+    const ipc = new FakeImportIpc();
+    const identified = vi.fn();
+    const parse = parser(async (_context, sink) => {
+      await sink.begin(metadata());
+      await sink.append([section(0)]);
+    });
+
+    await coordinator(ipc, parse).retryDocument(
+      BOOK_ID,
+      'C:/replacement.pdf',
+      vi.fn(),
+      identified,
+    );
+
+    expect(identified).toHaveBeenCalledWith(
+      expect.objectContaining({ id: BOOK_ID }),
+    );
+    expect(ipc.calls[0]).toBe('retry_import');
+    expect(ipc.calls).not.toContain('begin_import');
+    expect(ipc.calls).toContain('finalize_import');
+  });
+
+  it('cancels a pending copy and cleans a Rust id returned after cancellation', async () => {
+    const ipc = new FakeImportIpc();
+    let releaseBegin!: () => void;
+    ipc.beginGate = new Promise<void>((resolve) => {
+      releaseBegin = resolve;
+    });
+    const parse = vi.fn<DocumentParser['parse']>();
+    const identified = vi.fn();
+    const activeCoordinator = coordinator(ipc, parser(parse));
+
+    const operation = activeCoordinator.importDocument(
+      'C:/private-source.pdf',
+      vi.fn(),
+      identified,
+    );
+    expect(activeCoordinator.activeJobCount).toBe(1);
+    activeCoordinator.cancelPending();
+    releaseBegin();
+
+    await expect(operation).rejects.toMatchObject({ code: 'IMPORT_CANCELLED' });
+    expect(ipc.calls).toEqual(['begin_import', 'cancel_import']);
+    expect(identified).not.toHaveBeenCalled();
+    expect(parse).not.toHaveBeenCalled();
+    expect(activeCoordinator.activeJobCount).toBe(0);
   });
 
   it('owns duplicate registration and unsupported-format errors without placeholders', () => {

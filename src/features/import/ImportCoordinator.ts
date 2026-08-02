@@ -5,6 +5,7 @@ import type { ImportIpc } from '../../lib/ipc';
 import { toOwnedArrayBuffer } from '../../lib/ipc';
 import { stableBlockId, stableSectionId } from './id';
 import type {
+  BeginImportOutcome,
   DocumentParser,
   ImportEvent,
   ImportStage,
@@ -19,11 +20,27 @@ const MAX_BATCH_BLOCKS = 500;
 interface ActiveImport {
   controller: AbortController;
   parser: DocumentParser | undefined;
-  source: ArrayBuffer | undefined;
 }
 
-export class ImportCoordinator {
+export interface ImportCoordinatorPort {
+  importDocument(
+    sourcePath: string,
+    onProgress: (event: ImportEvent) => void,
+    onBookIdentified: (book: BookSummary) => void,
+  ): Promise<BookSummary>;
+  retryDocument(
+    bookId: string,
+    replacementSourcePath: string,
+    onProgress: (event: ImportEvent) => void,
+    onBookIdentified: (book: BookSummary) => void,
+  ): Promise<BookSummary>;
+  cancel(bookId: string): Promise<void>;
+  cancelPending(): void;
+}
+
+export class ImportCoordinator implements ImportCoordinatorPort {
   readonly #activeImports = new Map<string, ActiveImport>();
+  readonly #pendingImports = new Set<AbortController>();
 
   constructor(
     private readonly ipc: ImportIpc,
@@ -31,30 +48,78 @@ export class ImportCoordinator {
   ) {}
 
   get activeJobCount(): number {
-    return this.#activeImports.size;
+    return this.#activeImports.size + this.#pendingImports.size;
   }
 
   async importDocument(
     sourcePath: string,
     onProgress: (event: ImportEvent) => void = () => {},
+    onBookIdentified: (book: BookSummary) => void = () => {},
   ): Promise<BookSummary> {
-    let outcome;
+    const controller = new AbortController();
+    this.#pendingImports.add(controller);
+    let outcome: BeginImportOutcome;
     try {
-      outcome = await this.ipc.beginImport(sourcePath, onProgress);
+      const begin = this.ipc.beginImport(sourcePath, onProgress);
+      sourcePath = '';
+      outcome = await begin;
     } catch (error) {
+      if (controller.signal.aborted) throw cancelledError();
       throw toUserError(error);
+    } finally {
+      this.#pendingImports.delete(controller);
+    }
+    if (controller.signal.aborted) {
+      if (outcome.outcome === 'created')
+        await this.cancelRustImport(outcome.book.id);
+      throw cancelledError();
     }
     if (outcome.outcome === 'duplicate') return outcome.book;
+    onBookIdentified(outcome.book);
+    return this.runCreatedImport(outcome.book, controller, onProgress);
+  }
 
-    const { book } = outcome;
+  async retryDocument(
+    bookId: string,
+    replacementSourcePath: string,
+    onProgress: (event: ImportEvent) => void = () => {},
+    onBookIdentified: (book: BookSummary) => void = () => {},
+  ): Promise<BookSummary> {
+    const controller = new AbortController();
+    this.#pendingImports.add(controller);
+    let outcome: BeginImportOutcome;
+    try {
+      const retry = this.ipc.retryImport(bookId, replacementSourcePath);
+      replacementSourcePath = '';
+      outcome = await retry;
+    } catch (error) {
+      if (controller.signal.aborted) throw cancelledError();
+      throw toUserError(error);
+    } finally {
+      this.#pendingImports.delete(controller);
+    }
+    if (controller.signal.aborted) {
+      if (outcome.outcome === 'created')
+        await this.cancelRustImport(outcome.book.id);
+      throw cancelledError();
+    }
+    if (outcome.outcome === 'duplicate') return outcome.book;
+    onBookIdentified(outcome.book);
+    return this.runCreatedImport(outcome.book, controller, onProgress);
+  }
+
+  private async runCreatedImport(
+    book: BookSummary,
+    controller: AbortController,
+    onProgress: (event: ImportEvent) => void,
+  ): Promise<BookSummary> {
     if (this.#activeImports.has(book.id)) {
       throw contractError('REQUEST_CONFLICT');
     }
 
     const active: ActiveImport = {
-      controller: new AbortController(),
+      controller,
       parser: undefined,
-      source: undefined,
     };
     this.#activeImports.set(book.id, active);
     let binary: Uint8Array | ArrayBuffer | undefined;
@@ -67,7 +132,7 @@ export class ImportCoordinator {
       binary = await this.ipc.readBookSource(book.id);
       assertNotAborted(active.controller.signal);
       source = toOwnedArrayBuffer(binary);
-      active.source = source;
+      binary = undefined;
       selectedParser = this.parsers.get(book.format);
       active.parser = selectedParser;
 
@@ -108,10 +173,13 @@ export class ImportCoordinator {
       }
       throw userError;
     } finally {
-      active.source = undefined;
       active.parser = undefined;
       this.#activeImports.delete(book.id);
     }
+  }
+
+  cancelPending(): void {
+    for (const pending of this.#pendingImports) pending.abort();
   }
 
   async cancel(bookId: string): Promise<void> {

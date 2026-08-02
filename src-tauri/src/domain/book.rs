@@ -39,6 +39,7 @@ pub enum ImportErrorStage {
 pub struct BookSummary {
     pub id: Uuid,
     pub title: String,
+    pub original_filename: String,
     pub author: Option<String>,
     pub language: Option<String>,
     pub format: BookFormat,

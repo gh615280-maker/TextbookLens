@@ -277,6 +277,7 @@ fn row_to_record(row: &SqliteRow) -> AppResult<BookRecord> {
         summary: BookSummary {
             id,
             title: row.try_get("title")?,
+            original_filename: row.try_get("original_filename")?,
             author: row.try_get("author")?,
             language: row.try_get("language")?,
             format,

@@ -71,3 +71,156 @@ main {
 .error-boundary {
   padding: var(--space-6);
 }
+
+.library-page {
+  width: min(100%, 72rem);
+  margin-inline: auto;
+}
+
+.library-page__header,
+.button-row,
+.book-card__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.library-page__header {
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.library-page__header h1,
+.book-card h2,
+.import-progress h2 {
+  margin-block: 0;
+}
+
+button {
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 600;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-2);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--color-link);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.library-page__header > button {
+  color: var(--color-surface);
+  background: var(--color-link);
+  border-color: var(--color-link);
+}
+
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--space-4);
+}
+
+.book-card,
+.import-progress,
+.inline-error,
+.empty-state {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-3);
+}
+
+.book-card {
+  display: grid;
+  grid-template-columns: 4rem 1fr;
+  gap: var(--space-4);
+}
+
+.book-card__cover {
+  display: grid;
+  height: 5.5rem;
+  place-items: center;
+  font-size: 2rem;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-border);
+  border-radius: var(--space-2);
+}
+
+.book-card__format,
+.status-label {
+  color: var(--color-muted-text);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.book-card__progress {
+  flex-wrap: wrap;
+  margin-block: var(--space-3);
+}
+
+.book-card__progress progress,
+.import-progress progress {
+  accent-color: var(--color-link);
+}
+
+.book-card__failure,
+.import-progress {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.book-card__failure p,
+.import-progress p {
+  margin: 0;
+}
+
+.import-progress {
+  margin-bottom: var(--space-6);
+}
+
+.import-stages {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  padding: 0;
+  list-style-position: inside;
+}
+
+.import-stages [aria-current='step'] {
+  color: var(--color-link);
+  font-weight: 700;
+}
+
+.inline-error {
+  margin-bottom: var(--space-4);
+  border-color: var(--annotation-note);
+}
+
+@media (max-width: 40rem) {
+  main {
+    padding: var(--space-4);
+  }
+
+  .library-page__header,
+  .book-card {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .library-page__header {
+    flex-direction: column;
+  }
+
+  .book-card__cover {
+    width: 4rem;
+  }
+}

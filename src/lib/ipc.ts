@@ -26,6 +26,7 @@ const bookSummarySchema = z
   .object({
     id: z.uuid(),
     title: z.string(),
+    originalFilename: z.string().min(1),
     author: z.string().nullable(),
     language: z.string().nullable(),
     format: bookFormatSchema,
@@ -87,6 +88,10 @@ export interface ImportIpc {
     stage: ImportStage,
     code: ImportErrorCode,
   ): Promise<void>;
+  retryImport(
+    bookId: string,
+    replacementSourcePath: string | null,
+  ): Promise<BeginImportOutcome>;
 }
 
 export class TauriImportIpc implements ImportIpc {
@@ -166,6 +171,25 @@ export class TauriImportIpc implements ImportIpc {
       code,
     });
   }
+
+  async retryImport(
+    bookId: string,
+    replacementSourcePath: string | null,
+  ): Promise<BeginImportOutcome> {
+    const outcome = await invoke<unknown>('retry_import', {
+      bookId,
+      replacementSourcePath,
+    });
+    return beginImportOutcomeSchema.parse(outcome) as BeginImportOutcome;
+  }
+}
+
+export function parseBookSummary(value: unknown): BookSummary {
+  return bookSummarySchema.parse(value) as BookSummary;
+}
+
+export function parseBookSummaries(value: unknown): BookSummary[] {
+  return z.array(bookSummarySchema).parse(value) as BookSummary[];
 }
 
 export function toOwnedArrayBuffer(
