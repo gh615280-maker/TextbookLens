@@ -6,8 +6,8 @@ use tracing_appender::non_blocking::WorkerGuard;
 use uuid::Uuid;
 
 use crate::{
-    credentials::CredentialStore, db::Database, documents::import::ImportCancellationRegistry,
-    errors::AppResult,
+    ai::registry::ProviderCapabilityRegistry, credentials::CredentialStore, db::Database,
+    documents::import::ImportCancellationRegistry, errors::AppResult,
 };
 
 #[derive(Clone, Debug)]
@@ -48,6 +48,7 @@ pub struct AppState {
     pub learning_cancellations: Mutex<HashSet<Uuid>>,
     pub log_guard: WorkerGuard,
     pub credential_store: Arc<dyn CredentialStore>,
+    pub provider_capabilities: ProviderCapabilityRegistry,
 }
 
 impl AppState {
@@ -56,6 +57,7 @@ impl AppState {
         paths: AppPaths,
         log_guard: WorkerGuard,
         credential_store: Arc<dyn CredentialStore>,
+        provider_capabilities: ProviderCapabilityRegistry,
     ) -> Self {
         Self {
             db,
@@ -64,6 +66,7 @@ impl AppState {
             learning_cancellations: Mutex::new(HashSet::new()),
             log_guard,
             credential_store,
+            provider_capabilities,
         }
     }
 }

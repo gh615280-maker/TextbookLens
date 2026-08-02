@@ -24,6 +24,7 @@
     }
   },
   "bundle": {
-    "active": false
+    "active": false,
+    "resources": ["resources/provider-models.json"]
   }
 }

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use tauri::Manager;
 
+pub mod ai;
 pub mod app_state;
 #[allow(dead_code)]
 #[path = "db/books.rs"]
@@ -20,6 +21,8 @@ pub mod retrieval;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let provider_capabilities = ai::registry::ProviderCapabilityRegistry::load_embedded()
+        .expect("provider capability registry must be valid before opening a window");
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -33,13 +36,16 @@ pub fn run() {
                 paths,
                 log_guard,
                 credential_store,
+                provider_capabilities,
             ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::annotations::list_annotation_markers,
-            commands::credentials::list_provider_profiles,
-            commands::credentials::delete_provider_profile,
+            commands::providers::list_provider_capabilities,
+            commands::providers::list_provider_profiles,
+            commands::providers::set_active_provider_profile,
+            commands::providers::delete_provider_profile,
             commands::books::list_books,
             commands::books::get_book,
             commands::books::delete_failed_import,

@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
-    AnnotationDto, AppSettingsDto, BlockKind, BookSummary, ConversationDto, DocumentLocator,
-    LearningEvent, LearningRequest, NormalizedBookInput, NormalizedRect, ProviderProfileDto,
-    UnifiedChatRequest, UnifiedStreamEvent, ValidationResult, stable_block_id, stable_section_id,
+    AnnotationDto, AppSettingsDto, BlockKind, BookSummary, ConversationDto, CredentialStatus,
+    DocumentLocator, LearningEvent, LearningRequest, NormalizedBookInput, NormalizedRect,
+    ProviderCapability, ProviderModelCapability, ProviderProfileSummary, UnifiedChatRequest,
+    UnifiedStreamEvent, ValidationResult, stable_block_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -86,7 +87,10 @@ fn export_bindings() {
     ConversationDto::export_all(&config).unwrap();
     LearningRequest::export_all(&config).unwrap();
     LearningEvent::export_all(&config).unwrap();
-    ProviderProfileDto::export_all(&config).unwrap();
+    ProviderModelCapability::export_all(&config).unwrap();
+    ProviderCapability::export_all(&config).unwrap();
+    CredentialStatus::export_all(&config).unwrap();
+    ProviderProfileSummary::export_all(&config).unwrap();
     ValidationResult::export_all(&config).unwrap();
     UnifiedChatRequest::export_all(&config).unwrap();
     UnifiedStreamEvent::export_all(&config).unwrap();

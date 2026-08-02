@@ -1,0 +1,74 @@
+{
+  "providers": [
+    {
+      "kind": "openai",
+      "display_name": "OpenAI",
+      "default_model": "gpt-5.6",
+      "models": [
+        {
+          "id": "gpt-5.6",
+          "display_name": "GPT-5.6",
+          "context_window_tokens": 1050000,
+          "default_max_output_tokens": 4096,
+          "vendor_max_output_tokens": 128000
+        }
+      ]
+    },
+    {
+      "kind": "gemini",
+      "display_name": "Gemini",
+      "default_model": "gemini-3.6-flash",
+      "models": [
+        {
+          "id": "gemini-3.6-flash",
+          "display_name": "Gemini 3.6 Flash",
+          "context_window_tokens": 1048576,
+          "default_max_output_tokens": 4096,
+          "vendor_max_output_tokens": 65536
+        }
+      ]
+    },
+    {
+      "kind": "anthropic",
+      "display_name": "Anthropic",
+      "default_model": "claude-sonnet-5",
+      "models": [
+        {
+          "id": "claude-sonnet-5",
+          "display_name": "Claude Sonnet 5",
+          "context_window_tokens": 1000000,
+          "default_max_output_tokens": 4096,
+          "vendor_max_output_tokens": 128000
+        }
+      ]
+    },
+    {
+      "kind": "deepseek",
+      "display_name": "DeepSeek",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "display_name": "DeepSeek V4 Flash",
+          "context_window_tokens": 1000000,
+          "default_max_output_tokens": 4096,
+          "vendor_max_output_tokens": 393216
+        }
+      ]
+    },
+    {
+      "kind": "kimi",
+      "display_name": "Kimi",
+      "default_model": "kimi-k3",
+      "models": [
+        {
+          "id": "kimi-k3",
+          "display_name": "Kimi K3",
+          "context_window_tokens": 1048576,
+          "default_max_output_tokens": 4096,
+          "vendor_max_output_tokens": 1048576
+        }
+      ]
+    }
+  ]
+}

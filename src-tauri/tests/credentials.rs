@@ -174,6 +174,73 @@ fn deleting_active_and_final_profiles_reassigns_then_clears_active_profile() {
     });
 }
 
+#[test]
+fn setting_active_profile_is_transactional_and_profile_summaries_are_safe_metadata() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let database = Database::open(temp_dir.path().join("library.sqlite3")).unwrap();
+    let store = MemoryCredentialStore::new();
+    let first_id = Uuid::new_v4();
+    let second_id = Uuid::new_v4();
+
+    tauri::async_runtime::block_on(async {
+        insert_profile(database.pool(), first_id, true).await;
+        insert_profile(database.pool(), second_id, false).await;
+        let second_key = providers::credential_key(second_id);
+        let duplicate_active =
+            sqlx::query("UPDATE provider_profiles SET is_active = 1 WHERE id = ?")
+                .bind(second_id.to_string())
+                .execute(database.pool())
+                .await;
+        assert!(
+            duplicate_active.is_err(),
+            "the partial unique index must reject two active profiles"
+        );
+        let stored_second_key: String =
+            sqlx::query_scalar("SELECT credential_key FROM provider_profiles WHERE id = ?")
+                .bind(second_id.to_string())
+                .fetch_one(database.pool())
+                .await
+                .unwrap();
+        assert_eq!(stored_second_key, second_key);
+        providers::set_active_provider_profile(database.pool(), second_id)
+            .await
+            .unwrap();
+
+        let active_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM provider_profiles WHERE is_active = 1")
+                .fetch_one(database.pool())
+                .await
+                .unwrap();
+        assert_eq!(active_count, 1);
+        assert_eq!(active_profile(database.pool()).await, Some(second_id));
+
+        let summaries = providers::list_provider_profiles(database.pool(), &store)
+            .await
+            .unwrap();
+        let json = serde_json::to_string(&summaries).unwrap();
+        assert!(json.contains("credentialStatus"));
+        assert!(json.contains("validatedAt"));
+        for forbidden in [
+            "credentialKey",
+            "baseUrl",
+            "target",
+            "path",
+            "createdAt",
+            "updatedAt",
+        ] {
+            assert!(
+                !json.contains(forbidden),
+                "profile summary leaked {forbidden}"
+            );
+        }
+        assert!(
+            summaries
+                .iter()
+                .all(|summary| summary.credential_status == providers::CredentialStatus::Missing)
+        );
+    });
+}
+
 #[cfg(target_os = "windows")]
 #[test]
 #[ignore = "manual disposable Windows Credential Manager smoke check"]

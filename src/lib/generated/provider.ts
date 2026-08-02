@@ -4,9 +4,15 @@ export type ChatMessage = { role: string, content: string, };
 
 export type ContextCitation = { sectionId: string, locatorJson: string, text: string, };
 
+export type CredentialStatus = "available" | "missing";
+
+export type ProviderCapability = { kind: ProviderKind, displayName: string, defaultModel: string, models: Array<ProviderModelCapability>, };
+
 export type ProviderKind = "openai" | "gemini" | "anthropic" | "deepseek" | "kimi";
 
-export type ProviderProfileDto = { id: string, providerKind: ProviderKind, displayName: string, modelId: string, contextWindowTokens: number, isActive: boolean, createdAt: string, updatedAt: string, };
+export type ProviderModelCapability = { id: string, displayName: string, contextWindowTokens: number, defaultMaxOutputTokens: number, };
+
+export type ProviderProfileSummary = { id: string, kind: ProviderKind, displayName: string, modelId: string, contextWindowTokens: number, isActive: boolean, credentialStatus: CredentialStatus, validatedAt: string | null, };
 
 export type UnifiedChatRequest = { systemInstruction: string, model: string, targetLanguage: string, messages: Array<ChatMessage>, context: Array<ContextCitation>, };
 

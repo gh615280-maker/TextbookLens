@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { accessSync, constants } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -28,4 +29,5 @@ run('cargo', [
   '--',
   '--nocapture',
 ]);
+accessSync(new URL('../src/lib/generated/provider.ts', import.meta.url), constants.R_OK);
 run('git', ['diff', '--exit-code', '--', 'src/lib/generated']);
