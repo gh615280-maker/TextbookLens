@@ -18,6 +18,8 @@
     "check:generated": "node scripts/check-generated.mjs",
     "check:licenses": "node scripts/check-npm-licenses.mjs",
     "check:sensitive": "node scripts/check-sensitive-files.mjs",
+    "fixtures:build": "node scripts/build-fixtures.mjs",
+    "fixtures:verify": "node scripts/build-fixtures.mjs --verify",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -32,6 +34,7 @@
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",
     "@eslint/js": "10.0.1",
+    "@pdf-lib/fontkit": "1.1.1",
     "@playwright/test": "1.62.1",
     "@tauri-apps/cli": "2.11.4",
     "@testing-library/dom": "10.4.1",
@@ -41,12 +44,16 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.0.5",
+    "docx": "9.7.1",
     "eslint": "10.8.0",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
     "jsdom": "30.0.1",
+    "jszip": "3.10.1",
     "license-checker-rseidelsohn": "5.0.1",
+    "pdf-lib": "1.17.1",
+    "pngjs": "7.0.0",
     "prettier": "3.9.6",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",

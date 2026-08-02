@@ -1,0 +1,28 @@
+{
+  "title": "TextbookLens 测试教材",
+  "author": "TextbookLens Contributors",
+  "language": "zh-CN",
+  "sections": [
+    {
+      "title": "第一章 线性关系",
+      "paragraphs": [
+        "线性关系描述变量之间按固定比例变化的情况。A linear relation has a constant rate of change.",
+        "示例公式：y = 2x + 1。"
+      ],
+      "list": ["确定斜率", "确定截距"],
+      "table": [
+        ["x", "y"],
+        ["0", "1"],
+        ["2", "5"]
+      ]
+    },
+    {
+      "title": "第二章 能量",
+      "paragraphs": [
+        "质能关系可以写为 E = mc²。",
+        "公式中的 E 表示能量，m 表示质量，c 表示光速。"
+      ],
+      "caption": "图 2-1：自制能量关系示意图"
+    }
+  ]
+}
