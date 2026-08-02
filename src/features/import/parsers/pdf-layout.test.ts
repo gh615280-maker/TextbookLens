@@ -31,5 +31,9 @@ describe('normalizePdfPage', () => {
 });
 
 function item(text: string, x: number, y: number) {
-  return { str: text, transform: [12, 0, 0, 12, x, y] as const, width: text.length * 6 };
+  return {
+    str: text,
+    transform: [12, 0, 0, 12, x, y] as const,
+    width: text.length * 6,
+  };
 }

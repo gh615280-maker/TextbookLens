@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const projectRoot = fileURLToPath(new URL('..', import.meta.url));
+const moduleFile = import.meta.url.startsWith('file:')
+  ? fileURLToPath(import.meta.url)
+  : path.join(process.cwd(), 'scripts', 'check-npm-licenses.mjs');
+const projectRoot = path.resolve(path.dirname(moduleFile), '..');
 const licenseChecker = path.join(
   projectRoot,
   'node_modules/license-checker-rseidelsohn/bin/license-checker-rseidelsohn.js',
@@ -33,10 +36,7 @@ const rootManifest = JSON.parse(
 );
 const rootPackageKey = `${rootManifest.name}@${rootManifest.version}`;
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-) {
+if (process.argv[1] && path.resolve(process.argv[1]) === moduleFile) {
   runLicenseCheck();
 }
 
