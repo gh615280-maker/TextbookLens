@@ -75,7 +75,8 @@ pub async fn read_derived_text(
     let book = crate::book_repository::get(state.db.pool(), book_id)
         .await
         .map_err(AppErrorDto::from)?;
-    if book.summary.format != BookFormat::Docx || book.summary.import_status != ImportStatus::Ready {
+    if book.summary.format != BookFormat::Docx || book.summary.import_status != ImportStatus::Ready
+    {
         return Err(AppError::new(AppErrorCode::InvalidInput).into());
     }
     let DerivedTextName::DocumentHtml = name;
