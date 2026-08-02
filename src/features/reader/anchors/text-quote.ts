@@ -17,25 +17,50 @@ function occurrences(text: string, exact: string): number[] {
   return indexes;
 }
 
-function contextScore(text: string, startUtf16: number, exact: string, quote: TextQuote): [number, number] {
-  const suffixMatches = quote.suffix.length > 0 && text.startsWith(quote.suffix, startUtf16 + exact.length);
-  const prefixMatches = quote.prefix.length > 0 && text.slice(0, startUtf16).endsWith(quote.prefix);
+function contextScore(
+  text: string,
+  startUtf16: number,
+  exact: string,
+  quote: TextQuote,
+): [number, number] {
+  const suffixMatches =
+    quote.suffix.length > 0 &&
+    text.startsWith(quote.suffix, startUtf16 + exact.length);
+  const prefixMatches =
+    quote.prefix.length > 0 && text.slice(0, startUtf16).endsWith(quote.prefix);
   return [Number(suffixMatches), Number(prefixMatches)];
 }
 
-export function createTextQuote(text: string, startCp: number, endCp: number): TextQuote {
+export function createTextQuote(
+  text: string,
+  startCp: number,
+  endCp: number,
+): TextQuote {
   const points = codePoints(text);
-  if (!Number.isInteger(startCp) || !Number.isInteger(endCp) || startCp < 0 || endCp > points.length || startCp >= endCp) {
-    throw new RangeError('Quote offsets must describe a non-empty code-point range within the text');
+  if (
+    !Number.isInteger(startCp) ||
+    !Number.isInteger(endCp) ||
+    startCp < 0 ||
+    endCp > points.length ||
+    startCp >= endCp
+  ) {
+    throw new RangeError(
+      'Quote offsets must describe a non-empty code-point range within the text',
+    );
   }
   return {
     exact: points.slice(startCp, endCp).join(''),
-    prefix: points.slice(Math.max(0, startCp - CONTEXT_LIMIT), startCp).join(''),
+    prefix: points
+      .slice(Math.max(0, startCp - CONTEXT_LIMIT), startCp)
+      .join(''),
     suffix: points.slice(endCp, endCp + CONTEXT_LIMIT).join(''),
   };
 }
 
-export function findTextQuote(text: string, quote: TextQuote): QuoteMatch | null {
+export function findTextQuote(
+  text: string,
+  quote: TextQuote,
+): QuoteMatch | null {
   if (quote.exact.length === 0) {
     return null;
   }
@@ -46,13 +71,21 @@ export function findTextQuote(text: string, quote: TextQuote): QuoteMatch | null
   let chosen = matches;
   let confidence: QuoteMatch['confidence'] = 'exact_unique';
   if (matches.length > 1) {
-    const scored = matches.map((startUtf16) => ({ startUtf16, score: contextScore(text, startUtf16, quote.exact, quote) }));
+    const scored = matches.map((startUtf16) => ({
+      startUtf16,
+      score: contextScore(text, startUtf16, quote.exact, quote),
+    }));
     const bestScore = scored.reduce<[number, number]>(
-      (best, { score }) => score[0] > best[0] || (score[0] === best[0] && score[1] > best[1]) ? score : best,
+      (best, { score }) =>
+        score[0] > best[0] || (score[0] === best[0] && score[1] > best[1])
+          ? score
+          : best,
       [0, 0],
     );
     chosen = scored
-      .filter(({ score }) => score[0] === bestScore[0] && score[1] === bestScore[1])
+      .filter(
+        ({ score }) => score[0] === bestScore[0] && score[1] === bestScore[1],
+      )
       .map(({ startUtf16 }) => startUtf16);
     if ((bestScore[0] === 0 && bestScore[1] === 0) || chosen.length !== 1) {
       return null;

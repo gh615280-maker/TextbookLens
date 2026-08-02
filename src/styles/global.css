@@ -60,7 +60,10 @@ main {
 }
 .reader-three-pane {
   display: grid;
-  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) minmax(14rem, 20rem);
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) minmax(
+      14rem,
+      20rem
+    );
   gap: var(--space-4);
   align-items: start;
 }

@@ -1,3 +1,15 @@
-.docx-reader { position: relative; overflow: auto; height: 100%; }
-.docx-marker-overlay { pointer-events: none; position: absolute; inset: 0; }
-.docx-marker-overlay span { position: absolute; background: color-mix(in srgb, #ffd54f 45%, transparent); outline: 1px solid #b7791f; }
+.docx-reader {
+  position: relative;
+  overflow: auto;
+  height: 100%;
+}
+.docx-marker-overlay {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+.docx-marker-overlay span {
+  position: absolute;
+  background: color-mix(in srgb, #ffd54f 45%, transparent);
+  outline: 1px solid #b7791f;
+}

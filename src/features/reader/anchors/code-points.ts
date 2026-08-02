@@ -8,7 +8,11 @@ function boundaries(text: string): number[] {
   return result;
 }
 
-function requireIntegerInRange(offset: number, maximum: number, name: string): void {
+function requireIntegerInRange(
+  offset: number,
+  maximum: number,
+  name: string,
+): void {
   if (!Number.isInteger(offset) || offset < 0 || offset > maximum) {
     throw new RangeError(`${name} must be an integer boundary within the text`);
   }
@@ -26,6 +30,10 @@ export function toCodePointOffset(text: string, utf16Offset: number): number {
 
 export function toUtf16Offset(text: string, codePointOffset: number): number {
   const utf16Boundaries = boundaries(text);
-  requireIntegerInRange(codePointOffset, utf16Boundaries.length - 1, 'Code-point offset');
+  requireIntegerInRange(
+    codePointOffset,
+    utf16Boundaries.length - 1,
+    'Code-point offset',
+  );
   return utf16Boundaries[codePointOffset];
 }
