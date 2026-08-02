@@ -1,0 +1,19 @@
+import type { DocumentLocator } from '../../../lib/generated/document';
+import type { NavigationResult, ReaderAdapter, ReaderAdapterEvents, ReaderSource, ReadingProgress, SelectionSnapshot } from '../contracts';
+import { snapshotDocxRange, rangeFromDocxLocator } from './docx-selection';
+import './docx-reader.css';
+
+/** Renders only the imported, sanitized derived HTML and never reparses it as executable content. */
+export class DocxReaderAdapter implements ReaderAdapter {
+  readonly format = 'docx' as const; #selection: SelectionSnapshot | null = null; #onMouseUp = () => this.captureSelection();
+  constructor(private readonly container: HTMLElement, private readonly events: ReaderAdapterEvents) {}
+  async open(source: ReaderSource, initial?: DocumentLocator | null): Promise<void> { if (source.kind !== 'sanitized_html') throw new TypeError('DOCX reader requires derived HTML'); this.dispose(); this.container.classList.add('docx-reader'); renderSafeHtml(this.container, source.html); this.container.addEventListener('mouseup', this.#onMouseUp); if (initial?.format === 'docx') await this.navigate(initial); }
+  getSelectionSnapshot(): SelectionSnapshot | null { return this.#selection; }
+  async navigate(locator: DocumentLocator): Promise<NavigationResult> { if (locator.format !== 'docx') return { found: false }; const range = rangeFromDocxLocator(this.container, locator); if (!range) return { found: false }; const target = range.startContainer.parentElement ?? this.container; target.scrollIntoView?.({ block: 'center' }); return { found: true }; }
+  async showAnnotations(items: Parameters<ReaderAdapter['showAnnotations']>[0]): Promise<void> { const bar = Object.assign(document.createElement('div'), { className: 'docx-reader-markers' }); for (const item of items) { const button = Object.assign(document.createElement('button'), { type: 'button', textContent: item.label }); button.setAttribute('aria-label', item.label); button.addEventListener('click', () => this.events.onMarkerActivate(item.id)); bar.append(button); } this.container.querySelector('.docx-reader-markers')?.remove(); this.container.append(bar); }
+  async search(): Promise<[]> { return []; }
+  getProgress(): ReadingProgress { const first = this.container.querySelector<HTMLElement>('[data-block-id]'); return { fraction: this.container.scrollHeight ? this.container.scrollTop / Math.max(1, this.container.scrollHeight - this.container.clientHeight) : 0, locator: first ? { format: 'docx', startBlockId: first.dataset.blockId!, startOffset: 0, endBlockId: first.dataset.blockId!, endOffset: 0 } : null }; }
+  dispose(): void { this.container.removeEventListener('mouseup', this.#onMouseUp); this.#selection = null; this.container.replaceChildren(); this.container.classList.remove('docx-reader'); }
+  private captureSelection(): void { const selection = window.getSelection(); if (!selection?.rangeCount) return; const snapshot = snapshotDocxRange(selection.getRangeAt(0), this.container); if (!snapshot) return; this.#selection = { text: snapshot.text, anchor: { locator: snapshot.locator, quote: snapshot.quote, sectionId: snapshot.sectionId } }; this.events.onSelection(this.#selection); }
+}
+function renderSafeHtml(container: HTMLElement, html: string): void { const parsed = new DOMParser().parseFromString(html, 'text/html'); parsed.querySelectorAll('script,iframe,object,embed,form,link,style').forEach((node) => node.remove()); parsed.querySelectorAll<HTMLElement>('*').forEach((element) => { for (const attribute of [...element.attributes]) if (attribute.name.toLowerCase().startsWith('on') || attribute.name === 'href' || (attribute.name === 'src' && !/^data:image\//iu.test(attribute.value))) element.removeAttribute(attribute.name); }); container.replaceChildren(...[...parsed.body.childNodes].map((node) => document.importNode(node, true))); }

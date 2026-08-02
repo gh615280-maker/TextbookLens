@@ -17,7 +17,7 @@ use crate::{
         },
         storage::noop_progress,
     },
-    domain::{BookFormat, BookSummary, NormalizedSectionInput},
+    domain::{BookFormat, BookSummary, ImportStatus, NormalizedSectionInput},
     errors::{AppError, AppErrorCode, AppErrorDto},
     retrieval::search::{SearchHit, search_book as search_book_repository},
 };
@@ -75,7 +75,7 @@ pub async fn read_derived_text(
     let book = crate::book_repository::get(state.db.pool(), book_id)
         .await
         .map_err(AppErrorDto::from)?;
-    if book.summary.format != BookFormat::Docx {
+    if book.summary.format != BookFormat::Docx || book.summary.import_status != ImportStatus::Ready {
         return Err(AppError::new(AppErrorCode::InvalidInput).into());
     }
     let DerivedTextName::DocumentHtml = name;
