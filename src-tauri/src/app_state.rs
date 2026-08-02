@@ -2,6 +2,7 @@ use std::{collections::HashSet, fs, path::PathBuf};
 
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
+use tracing_appender::non_blocking::WorkerGuard;
 use uuid::Uuid;
 
 use crate::{db::Database, errors::AppResult};
@@ -42,15 +43,17 @@ pub struct AppState {
     pub paths: AppPaths,
     pub import_cancellations: Mutex<HashSet<Uuid>>,
     pub learning_cancellations: Mutex<HashSet<Uuid>>,
+    pub log_guard: WorkerGuard,
 }
 
 impl AppState {
-    pub fn new(db: Database, paths: AppPaths) -> Self {
+    pub fn new(db: Database, paths: AppPaths, log_guard: WorkerGuard) -> Self {
         Self {
             db,
             paths,
             import_cancellations: Mutex::new(HashSet::new()),
             learning_cancellations: Mutex::new(HashSet::new()),
+            log_guard,
         }
     }
 }
