@@ -1,0 +1,3 @@
+.pdf-reader { position: relative; overflow: auto; height: 100%; }
+.pdf-marker-overlay { pointer-events: none; position: absolute; inset: 0; }
+.pdf-marker-rect { position: absolute; background: color-mix(in srgb, #ffd54f 45%, transparent); outline: 1px solid #b7791f; }
