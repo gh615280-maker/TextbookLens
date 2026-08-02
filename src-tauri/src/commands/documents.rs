@@ -17,7 +17,7 @@ use crate::{
         },
         storage::noop_progress,
     },
-    domain::{BookSummary, NormalizedSectionInput},
+    domain::{BookFormat, BookSummary, NormalizedSectionInput},
     errors::{AppError, AppErrorCode, AppErrorDto},
 };
 
@@ -106,6 +106,15 @@ pub async fn write_derived_text(
     crate::book_repository::require_parsing(state.db.pool(), book_id)
         .await
         .map_err(AppErrorDto::from)?;
+    if crate::book_repository::get(state.db.pool(), book_id)
+        .await
+        .map_err(AppErrorDto::from)?
+        .summary
+        .format
+        != BookFormat::Docx
+    {
+        return Err(AppError::new(AppErrorCode::InvalidInput).into());
+    }
 
     let DerivedTextName::DocumentHtml = name;
     let book_directory = state.paths.books.join(book_id.to_string());

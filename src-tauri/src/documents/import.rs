@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{
+    derived::require_document_html,
     source::read_book_source_bytes,
     storage::{
         clear_derived_directory, copy_source, hash_file, remove_book_directory,
@@ -489,6 +490,9 @@ impl ImportService {
         self.ensure_not_cancelled(book_id)?;
         books::require_parsing(&self.pool, book_id).await?;
         let format = books::get(&self.pool, book_id).await?.summary.format;
+        if format == BookFormat::Docx {
+            require_document_html(&self.paths, book_id)?;
+        }
         validate_section_batch(book_id, &format, &sections)?;
         self.ensure_not_cancelled(book_id)
     }
@@ -500,6 +504,9 @@ impl ImportService {
     ) -> AppResult<BookSummary> {
         self.ensure_not_cancelled(book_id)?;
         books::require_parsing(&self.pool, book_id).await?;
+        if books::get(&self.pool, book_id).await?.summary.format == BookFormat::Docx {
+            require_document_html(&self.paths, book_id)?;
+        }
         let attempt_id = self
             .cancellations
             .current_attempt(book_id)
@@ -569,6 +576,8 @@ impl ImportService {
         let clear_owned_source = error_stage == ImportErrorStage::Copying;
         if clear_owned_source {
             remove_book_directory(&self.paths, book_id)?;
+        } else {
+            clear_derived_directory(&self.paths, book_id)?;
         }
         books::mark_failed(
             &self.pool,

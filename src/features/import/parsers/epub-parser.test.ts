@@ -14,8 +14,20 @@ describe('EpubParser', () => {
     const book = ePub({ replacements: 'none' });
     await book.open(toArrayBuffer(source));
     await book.ready;
-    const sections: Array<{ document: Document; load(request?: unknown): Promise<Document>; unload(): void; cfiFromElement(element: Element): string }> = [];
-    book.spine.each((section: { document: Document; load(request?: unknown): Promise<Document>; unload(): void; cfiFromElement(element: Element): string }) => sections.push(section));
+    const sections: Array<{
+      document: Document;
+      load(request?: unknown): Promise<Document>;
+      unload(): void;
+      cfiFromElement(element: Element): string;
+    }> = [];
+    book.spine.each(
+      (section: {
+        document: Document;
+        load(request?: unknown): Promise<Document>;
+        unload(): void;
+        cfiFromElement(element: Element): string;
+      }) => sections.push(section),
+    );
 
     for (const section of sections) {
       const document = await section.load(book.load.bind(book));
@@ -34,22 +46,56 @@ describe('EpubParser', () => {
     const sink = createSink();
 
     await new EpubParser().parse(
-      { bookId, format: 'epub', source: toArrayBuffer(source), signal: new AbortController().signal },
+      {
+        bookId,
+        format: 'epub',
+        source: toArrayBuffer(source),
+        signal: new AbortController().signal,
+      },
       sink,
     );
 
     expect(sink.sections).toHaveLength(2);
-    expect(sink.sections.every((section) => section.locator.format === 'epub')).toBe(true);
-    expect(sink.sections.flatMap((section) => section.blocks).some((block) => block.plainText.includes('linear relation'))).toBe(true);
-    expect(sink.sections.flatMap((section) => section.blocks).some((block) => block.locator.format === 'epub' && block.locator.cfi.startsWith('epubcfi('))).toBe(true);
+    expect(
+      sink.sections.every((section) => section.locator.format === 'epub'),
+    ).toBe(true);
+    expect(
+      sink.sections
+        .flatMap((section) => section.blocks)
+        .some((block) => block.plainText.includes('linear relation')),
+    ).toBe(true);
+    expect(
+      sink.sections
+        .flatMap((section) => section.blocks)
+        .some(
+          (block) =>
+            block.locator.format === 'epub' &&
+            block.locator.cfi.startsWith('epubcfi('),
+        ),
+    ).toBe(true);
+    expect(sink.sections.flatMap((section) => section.blocks)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'equation',
+          plainText: expect.stringContaining('E = mc²'),
+        }),
+      ]),
+    );
   });
 });
 
-function createSink(): ParserSink & { sections: Parameters<ParserSink['append']>[0] } {
+function createSink(): ParserSink & {
+  sections: Parameters<ParserSink['append']>[0];
+} {
   return {
     sections: [],
     begin: vi.fn(),
-    append: vi.fn(async function (this: { sections: Parameters<ParserSink['append']>[0] }, sections) { this.sections.push(...sections); }),
+    append: vi.fn(async function (
+      this: { sections: Parameters<ParserSink['append']>[0] },
+      sections,
+    ) {
+      this.sections.push(...sections);
+    }),
     progress: vi.fn(),
     writeDerivedText: vi.fn(),
   };

@@ -69,6 +69,38 @@ function section(ordinal: number, blockCount = 1): NormalizedSectionInput {
   };
 }
 
+function docxSection(ordinal: number): NormalizedSectionInput {
+  const blockId = stableBlockId(BOOK_ID, ordinal, 0);
+  return {
+    id: stableSectionId(BOOK_ID, ordinal),
+    parentId: null,
+    ordinal,
+    title: `Section ${ordinal}`,
+    locator: {
+      format: 'docx',
+      startBlockId: blockId,
+      startOffset: 0,
+      endBlockId: blockId,
+      endOffset: 5,
+    },
+    blocks: [
+      {
+        id: blockId,
+        ordinal: 0,
+        kind: 'paragraph',
+        plainText: 'Block',
+        locator: {
+          format: 'docx',
+          startBlockId: blockId,
+          startOffset: 0,
+          endBlockId: blockId,
+          endOffset: 5,
+        },
+      },
+    ],
+  };
+}
+
 class FakeImportIpc implements ImportIpc {
   readonly calls: string[] = [];
   readonly batches: NormalizedSectionInput[][] = [];
@@ -369,13 +401,17 @@ describe('ImportCoordinator', () => {
     expect(ipc.calls).not.toContain('finalize_import');
   });
 
-  it('allows derived output only between begin and the first append', async () => {
+  it('requires exactly one DOCX derived write between begin and the first append', async () => {
     const ipc = new FakeImportIpc();
+    ipc.outcome = {
+      outcome: 'created',
+      book: book({ format: 'docx' }),
+    };
     const parse = parser(async (_context, sink) => {
       await sink.begin(metadata());
       await sink.writeDerivedText('document.html', '<p>safe</p>');
-      await sink.append([section(0)]);
-    });
+      await sink.append([docxSection(0)]);
+    }, 'docx');
 
     await coordinator(ipc, parse).importDocument('C:/derived.pdf');
 
@@ -386,6 +422,100 @@ describe('ImportCoordinator', () => {
       ipc.calls.indexOf('append_parsed_sections'),
     );
   });
+
+  it.each([
+    [
+      'missing',
+      async (
+        _context: Parameters<DocumentParser['parse']>[0],
+        sink: Parameters<DocumentParser['parse']>[1],
+      ) => {
+        await sink.begin(metadata());
+        await sink.append([docxSection(0)]);
+      },
+    ],
+    [
+      'duplicate',
+      async (
+        _context: Parameters<DocumentParser['parse']>[0],
+        sink: Parameters<DocumentParser['parse']>[1],
+      ) => {
+        await sink.begin(metadata());
+        await sink.writeDerivedText('document.html', '<p>safe</p>');
+        await sink.writeDerivedText('document.html', '<p>duplicate</p>');
+        await sink.append([docxSection(0)]);
+      },
+    ],
+    [
+      'late',
+      async (
+        _context: Parameters<DocumentParser['parse']>[0],
+        sink: Parameters<DocumentParser['parse']>[1],
+      ) => {
+        await sink.begin(metadata());
+        await sink.writeDerivedText('document.html', '<p>safe</p>');
+        await sink.append([docxSection(0)]);
+        await sink.writeDerivedText('document.html', '<p>late</p>');
+      },
+    ],
+  ])(
+    'rejects a %s DOCX derived write contract and never finalizes',
+    async (_name, parse) => {
+      const ipc = new FakeImportIpc();
+      ipc.outcome = {
+        outcome: 'created',
+        book: book({ format: 'docx' }),
+      };
+
+      await expect(
+        coordinator(ipc, parser(parse, 'docx')).importDocument('C:/bad.docx'),
+      ).rejects.toBeDefined();
+
+      expect(ipc.calls).toContain('mark_import_failed');
+      expect(ipc.calls).not.toContain('finalize_import');
+    },
+  );
+
+  it.each(['pdf', 'epub'] as const)(
+    'does not require derived HTML for %s',
+    async (format) => {
+      const ipc = new FakeImportIpc();
+      ipc.outcome = { outcome: 'created', book: book({ format }) };
+      const formatSection: NormalizedSectionInput = {
+        ...section(0),
+        locator:
+          format === 'pdf'
+            ? section(0).locator
+            : {
+                format: 'epub',
+                cfi: 'epubcfi(/6/2!/4/2)',
+                sectionId: stableSectionId(BOOK_ID, 0),
+              },
+        blocks: section(0).blocks.map((block) => ({
+          ...block,
+          locator:
+            format === 'pdf'
+              ? block.locator
+              : {
+                  format: 'epub' as const,
+                  cfi: 'epubcfi(/6/2!/4/2)',
+                  sectionId: stableSectionId(BOOK_ID, 0),
+                },
+        })),
+      };
+
+      await coordinator(
+        ipc,
+        parser(async (_context, sink) => {
+          await sink.begin(metadata());
+          await sink.append([formatSection]);
+        }, format),
+      ).importDocument(`C:/book.${format}`);
+
+      expect(ipc.calls).toContain('finalize_import');
+      expect(ipc.calls).not.toContain('write_derived_text');
+    },
+  );
 
   it('marks ordinary parser and append IPC failures without finalizing', async () => {
     const parserIpc = new FakeImportIpc();

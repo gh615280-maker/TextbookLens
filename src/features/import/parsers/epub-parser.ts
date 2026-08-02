@@ -1,10 +1,17 @@
 import ePub, { type Book } from 'epubjs';
 
-import type { NormalizedBlockInput, NormalizedSectionInput } from '../../../lib/generated/document';
+import type {
+  NormalizedBlockInput,
+  NormalizedSectionInput,
+} from '../../../lib/generated/document';
 import type { UserFacingError } from '../../../lib/errors';
 import { stableBlockId, stableSectionId } from '../id';
-import type { DocumentParser, ParseContext, ParserSink } from '../parser-contract';
-import { collectHtmlBlocks } from './html-blocks';
+import type {
+  DocumentParser,
+  ParseContext,
+  ParserSink,
+} from '../parser-contract';
+import { collectHtmlBlocks, isEquationText } from './html-blocks';
 
 type EpubSection = {
   index: number;
@@ -19,7 +26,8 @@ class EpubParserError extends Error implements UserFacingError {
   readonly diagnosticId = null;
 
   constructor(
-    readonly code: 'FILE_CORRUPTED' | 'FILE_ENCRYPTED_OR_DRM' | 'NO_EXTRACTABLE_TEXT',
+    readonly code:
+      'FILE_CORRUPTED' | 'FILE_ENCRYPTED_OR_DRM' | 'NO_EXTRACTABLE_TEXT',
     cause?: unknown,
   ) {
     super(code, { cause });
@@ -48,7 +56,8 @@ export class EpubParser implements DocumentParser {
       const spine: EpubSection[] = [];
       book.spine.each((section: EpubSection) => spine.push(section));
       let meaningfulCharacters = 0;
-      for (const [ordinal, section] of spine.entries()) {
+      let normalizedOrdinal = 0;
+      for (const [spineOrdinal, section] of spine.entries()) {
         throwIfAborted(context.signal);
         try {
           const document = await section.load(book.load.bind(book));
@@ -58,16 +67,29 @@ export class EpubParser implements DocumentParser {
             0,
           );
           if (htmlBlocks.length > 0) {
+            const ordinal = normalizedOrdinal;
+            normalizedOrdinal += 1;
             const sectionId = stableSectionId(context.bookId, ordinal);
             const firstCfi = section.cfiFromElement(htmlBlocks[0]!.element);
-            const blocks = htmlBlocks.map((block, blockOrdinal): NormalizedBlockInput => ({
-              id: stableBlockId(context.bookId, ordinal, blockOrdinal),
-              ordinal: blockOrdinal,
-              kind: block.kind,
-              plainText: block.text,
-              locator: { format: 'epub', cfi: section.cfiFromElement(block.element), sectionId },
-            }));
-            const heading = htmlBlocks.find((block) => block.kind === 'heading');
+            const blocks = htmlBlocks.map(
+              (block, blockOrdinal): NormalizedBlockInput => ({
+                id: stableBlockId(context.bookId, ordinal, blockOrdinal),
+                ordinal: blockOrdinal,
+                kind:
+                  block.kind === 'paragraph' && isEquationText(block.text)
+                    ? 'equation'
+                    : block.kind,
+                plainText: block.text,
+                locator: {
+                  format: 'epub',
+                  cfi: section.cfiFromElement(block.element),
+                  sectionId,
+                },
+              }),
+            );
+            const heading = htmlBlocks.find(
+              (block) => block.kind === 'heading',
+            );
             const normalized: NormalizedSectionInput = {
               id: sectionId,
               parentId: null,
@@ -81,9 +103,15 @@ export class EpubParser implements DocumentParser {
         } finally {
           section.unload();
         }
-        sink.progress({ stage: 'parsing', completed: ordinal + 1, total: spine.length, messageKey: 'import.parsing.epub' });
+        sink.progress({
+          stage: 'parsing',
+          completed: spineOrdinal + 1,
+          total: spine.length,
+          messageKey: 'import.parsing.epub',
+        });
       }
-      if (meaningfulCharacters === 0) throw new EpubParserError('NO_EXTRACTABLE_TEXT');
+      if (meaningfulCharacters === 0)
+        throw new EpubParserError('NO_EXTRACTABLE_TEXT');
     } catch (error) {
       if (context.signal.aborted) throw abortError();
       throw classifyEpubError(error);
@@ -94,13 +122,15 @@ export class EpubParser implements DocumentParser {
 }
 
 function countMeaningfulCharacters(value: string): number {
-  return [...value].filter((character) => /[\p{L}\p{N}]/u.test(character)).length;
+  return [...value].filter((character) => /[\p{L}\p{N}]/u.test(character))
+    .length;
 }
 
 function classifyEpubError(error: unknown): Error {
   if (error instanceof EpubParserError) return error;
   const message = error instanceof Error ? error.message : '';
-  if (/drm|encrypted|encryption|password/iu.test(message)) return new EpubParserError('FILE_ENCRYPTED_OR_DRM', error);
+  if (/drm|encrypted|encryption|password/iu.test(message))
+    return new EpubParserError('FILE_ENCRYPTED_OR_DRM', error);
   return new EpubParserError('FILE_CORRUPTED', error);
 }
 

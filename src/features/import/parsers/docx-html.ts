@@ -5,7 +5,7 @@ import type {
   NormalizedSectionInput,
 } from '../../../lib/generated/document';
 import { stableBlockId, stableSectionId } from '../id';
-import { collectHtmlBlocks } from './html-blocks';
+import { collectHtmlBlocks, isEquationText } from './html-blocks';
 
 const allowedTags = [
   'h1',
@@ -44,14 +44,9 @@ const allowedTags = [
   'mfrac',
   'annotation',
 ];
-const allowedAttributes = [
-  'alt',
-  'colspan',
-  'rowspan',
-  'src',
-  'data-section-id',
-  'data-block-id',
-];
+const allowedAttributes = ['alt', 'colspan', 'rowspan', 'src'];
+const safeImageDataUrl =
+  /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/]+={0,2}$/iu;
 
 export interface SanitizedDocx {
   html: string;
@@ -65,10 +60,24 @@ export function sanitizeDocxHtml(input: string, bookId: string): SanitizedDocx {
     ALLOWED_ATTR: allowedAttributes,
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
+    FORBID_TAGS: [
+      'script',
+      'style',
+      'svg',
+      'iframe',
+      'object',
+      'embed',
+      'link',
+      'meta',
+    ],
+    FORBID_ATTR: ['style'],
+    ALLOWED_URI_REGEXP: safeImageDataUrl,
+    SAFE_FOR_XML: true,
+    SANITIZE_NAMED_PROPS: true,
   });
   const document = new DOMParser().parseFromString(sanitized, 'text/html');
   for (const image of document.querySelectorAll('img')) {
-    if (!image.getAttribute('src')?.startsWith('data:image/'))
+    if (!safeImageDataUrl.test(image.getAttribute('src') ?? ''))
       image.removeAttribute('src');
   }
 
@@ -145,8 +154,7 @@ function classifyDocxKind(
   text: string,
 ): NormalizedBlockInput['kind'] {
   if (kind !== 'paragraph') return kind;
-  if (/^(?:图|figure)\s*\d/iu.test(text)) return 'figure_caption';
-  if (/(?:=|[+\-*/×÷]|[⁰¹²³⁴⁵⁶⁷⁸⁹])/u.test(text) && /[\p{L}\p{N}]/u.test(text))
-    return 'code';
+  if (/^(?:图|figure)\s*\d/iu.test(text)) return 'caption';
+  if (isEquationText(text)) return 'equation';
   return kind;
 }

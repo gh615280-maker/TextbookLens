@@ -81,6 +81,42 @@ fn migration_creates_the_local_database_contract() {
         .await
         .unwrap();
 
+        for (ordinal, kind) in [
+            "heading",
+            "paragraph",
+            "list",
+            "table",
+            "caption",
+            "equation",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            sqlx::query(
+                "INSERT INTO blocks (id, book_id, section_id, ordinal, kind, plain_text, locator_json) VALUES (?, ?, ?, ?, ?, 'text', '{}')",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(&book_id)
+            .bind(&section_id)
+            .bind(ordinal as i64)
+            .bind(kind)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        let invalid_block_kind = sqlx::query(
+            "INSERT INTO blocks (id, book_id, section_id, ordinal, kind, plain_text, locator_json) VALUES (?, ?, ?, 99, 'code', 'unsafe legacy kind', '{}')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&book_id)
+        .bind(&section_id)
+        .execute(pool)
+        .await;
+        assert!(
+            invalid_block_kind.is_err(),
+            "blocks.kind must accept only the canonical six kinds"
+        );
+
         let invalid_note = sqlx::query(
             "INSERT INTO annotations (id, book_id, section_id, kind, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'note', '{}', 'selected', ?, ?)",
         )

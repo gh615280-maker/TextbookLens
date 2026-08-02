@@ -35,13 +35,14 @@ describe('DocxParser', () => {
       sink.sections
         .flatMap((section) => section.blocks)
         .map((block) => block.kind),
-    ).toEqual(
-      expect.arrayContaining(['list_item', 'table', 'figure_caption', 'code']),
-    );
+    ).toEqual(expect.arrayContaining(['list', 'table', 'caption', 'equation']));
     expect(
       sink.sections
         .flatMap((section) => section.blocks)
-        .some((block) => block.plainText.includes('E = mc')),
+        .some(
+          (block) =>
+            block.kind === 'equation' && block.plainText.includes('E = mc²'),
+        ),
     ).toBe(true);
     expect(sink.sections[0]?.id).toBe(stableSectionId(bookId, 0));
     expect(sink.sections[0]?.blocks[0]?.id).toBe(stableBlockId(bookId, 0, 0));

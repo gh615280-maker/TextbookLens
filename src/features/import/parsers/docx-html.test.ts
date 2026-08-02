@@ -27,4 +27,44 @@ describe('sanitizeDocxHtml', () => {
       'bad',
     ]);
   });
+
+  it('uses a strict URI/namespace allowlist and ignores attacker-supplied IDs', () => {
+    const input = `<h1 data-section-id="attacker" style="color:red">Safe</h1>
+      <p data-block-id="attacker"><a href="jav&#x61;script:alert(1)">link text</a></p>
+      <img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+">
+      <img src="data:text/html;base64,PHNjcmlwdD5iYWQ8L3NjcmlwdD4=">
+      <img src="data:image/png;base64,iVBORw0KGgo=">
+      <svg><foreignObject><p onclick="alert(1)">namespace text</p></foreignObject></svg>
+      <math><mtext><img src=x onerror=alert(1)></mtext><mi>E</mi><mo>=</mo><mi>mc²</mi></math>`;
+
+    const result = sanitizeDocxHtml(input, bookId);
+
+    expect(result.html).not.toMatch(
+      /attacker|style=|href=|javascript:|svg|foreignObject|onerror|onclick|data:text/iu,
+    );
+    expect(result.html).not.toContain('data:image/svg+xml');
+    expect(result.html).toContain('data:image/png;base64,iVBORw0KGgo=');
+    expect(result.sections[0]?.id).not.toBe('attacker');
+    expect(result.sections[0]?.blocks[0]?.id).not.toBe('attacker');
+  });
+
+  it('measures DOCX offsets in Unicode code points and preserves canonical structure', () => {
+    const result = sanitizeDocxHtml(
+      '<h1>Emoji</h1><p>A😀B</p><ul><li>one</li></ul><table><tr><td>x</td><td>y</td></tr></table><figcaption>图 1 caption</figcaption><p>E = mc²</p>',
+      bookId,
+    );
+    const blocks = result.sections[0]!.blocks;
+    const emoji = blocks.find((block) => block.plainText === 'A😀B')!;
+
+    expect(emoji.locator).toMatchObject({ startOffset: 0, endOffset: 3 });
+    expect(blocks.map((block) => block.kind)).toEqual([
+      'heading',
+      'paragraph',
+      'list',
+      'table',
+      'caption',
+      'equation',
+    ]);
+    expect(blocks.at(-1)?.plainText).toBe('E = mc²');
+  });
 });

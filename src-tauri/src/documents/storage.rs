@@ -146,7 +146,7 @@ pub fn remove_book_directory(paths: &AppPaths, book_id: Uuid) -> AppResult<()> {
     let directory = paths.books.join(book_id.to_string());
     if directory.exists() {
         let metadata = fs::symlink_metadata(&directory)?;
-        if metadata.file_type().is_symlink() {
+        if metadata_is_reparse(&metadata) {
             fs::remove_dir(directory)?;
         } else {
             fs::remove_dir_all(directory)?;
@@ -201,13 +201,52 @@ fn remove_partial_files(directory: &Path) -> AppResult<()> {
 }
 
 pub fn clear_derived_directory(paths: &AppPaths, book_id: Uuid) -> AppResult<()> {
-    let book_directory = paths.books.join(book_id.to_string());
-    let derived = book_directory.join("derived");
-    if derived.exists() {
-        fs::remove_dir_all(&derived)?;
+    let books = fs::canonicalize(&paths.books)?;
+    let requested_book = paths.books.join(book_id.to_string());
+    let requested_metadata = fs::symlink_metadata(&requested_book)?;
+    if metadata_is_reparse(&requested_metadata) {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
     }
-    fs::create_dir_all(derived)?;
+    let book_directory = fs::canonicalize(requested_book)?;
+    if book_directory.parent() != Some(books.as_path()) || !book_directory.starts_with(&books) {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+    let derived = book_directory.join("derived");
+    if let Ok(metadata) = fs::symlink_metadata(&derived) {
+        if metadata_is_reparse(&metadata) {
+            remove_reparse_entry(&derived)?;
+        } else if metadata.is_dir() {
+            fs::remove_dir_all(&derived)?;
+        } else {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
+    }
+    fs::create_dir(&derived)?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn remove_reparse_entry(path: &Path) -> std::io::Result<()> {
+    fs::remove_dir(path)
+        .or_else(|directory_error| fs::remove_file(path).map_err(|_| directory_error))
+}
+
+#[cfg(not(windows))]
+fn remove_reparse_entry(path: &Path) -> std::io::Result<()> {
+    fs::remove_file(path)
+}
+
+#[cfg(windows)]
+fn metadata_is_reparse(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn metadata_is_reparse(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
 }
 
 pub fn resolve_owned_source(

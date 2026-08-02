@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
-    AnnotationDto, AppSettingsDto, BookSummary, ConversationDto, DocumentLocator, LearningEvent,
-    LearningRequest, NormalizedBookInput, NormalizedRect, ProviderProfileDto, UnifiedChatRequest,
-    UnifiedStreamEvent, ValidationResult, stable_block_id, stable_section_id,
+    AnnotationDto, AppSettingsDto, BlockKind, BookSummary, ConversationDto, DocumentLocator,
+    LearningEvent, LearningRequest, NormalizedBookInput, NormalizedRect, ProviderProfileDto,
+    UnifiedChatRequest, UnifiedStreamEvent, ValidationResult, stable_block_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -32,6 +32,34 @@ fn stable_block_id_uses_book_namespace() {
     assert_eq!(
         stable_block_id(book, 3, 7).to_string(),
         "2af8bb3b-d9be-5fb6-9246-86a57e8eec56"
+    );
+}
+
+#[test]
+fn block_kind_serializes_to_the_canonical_parser_contract() {
+    let kinds = [
+        BlockKind::Heading,
+        BlockKind::Paragraph,
+        BlockKind::List,
+        BlockKind::Table,
+        BlockKind::Caption,
+        BlockKind::Equation,
+    ];
+    let serialized = kinds
+        .into_iter()
+        .map(|kind| serde_json::to_string(&kind).unwrap())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        serialized,
+        [
+            "\"heading\"",
+            "\"paragraph\"",
+            "\"list\"",
+            "\"table\"",
+            "\"caption\"",
+            "\"equation\"",
+        ]
     );
 }
 

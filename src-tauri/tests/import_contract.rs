@@ -380,10 +380,17 @@ async fn parse_failure_retries_owned_copy_and_failed_delete_preserves_source() {
             .await
             .unwrap(),
     );
+    let book_directory = service.paths().books.join(book.id.to_string());
+    let derived_directory = book_directory.join("derived");
+    fs::write(derived_directory.join("document.html"), b"derived").unwrap();
+    fs::write(derived_directory.join(".document.html.partial"), b"partial").unwrap();
     service
         .mark_import_failed(book.id, ImportStage::Parsing, AppErrorCode::FileCorrupted)
         .await
         .unwrap();
+    assert!(book_directory.join("original.docx").exists());
+    assert!(!derived_directory.join("document.html").exists());
+    assert!(!derived_directory.join(".document.html.partial").exists());
     let failed_summary = service.get_book(book.id).await.unwrap();
     assert_eq!(
         failed_summary.import_error_stage,
@@ -412,6 +419,45 @@ async fn parse_failure_retries_owned_copy_and_failed_delete_preserves_source() {
         .unwrap();
     assert_eq!(count, 0);
     assert_eq!(fs::read(&source).unwrap(), expected);
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn parse_failure_removes_a_derived_junction_without_touching_its_destination() {
+    let (temp, _database, service) = test_service().await;
+    let source = source_file(&temp, "junction.docx", b"PK\x03\x04junction docx");
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    let book_directory = service.paths().books.join(book.id.to_string());
+    let derived = book_directory.join("derived");
+    fs::remove_dir(&derived).unwrap();
+    let outside = temp.path().join("outside-derived");
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("keep.html"), b"keep").unwrap();
+    let output = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(&derived)
+        .arg(&outside)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    service
+        .mark_import_failed(book.id, ImportStage::Parsing, AppErrorCode::FileCorrupted)
+        .await
+        .unwrap();
+
+    assert_eq!(fs::read(outside.join("keep.html")).unwrap(), b"keep");
+    assert!(derived.is_dir());
+    assert!(fs::read_dir(&derived).unwrap().next().is_none());
+    assert!(book_directory.join("original.docx").exists());
 }
 
 #[tokio::test]

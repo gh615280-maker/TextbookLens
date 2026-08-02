@@ -159,7 +159,11 @@ class CoordinatorSink implements ParserSink {
 
   async append(sections: NormalizedSectionInput[]): Promise<void> {
     assertNotAborted(this.signal);
-    if (!this.#begun || sections.length === 0) {
+    if (
+      !this.#begun ||
+      sections.length === 0 ||
+      (this.format === 'docx' && !this.#derivedWritten)
+    ) {
       throw contractError('INVALID_INPUT');
     }
     for (const section of sections) this.validateSection(section);
@@ -189,6 +193,7 @@ class CoordinatorSink implements ParserSink {
     assertNotAborted(this.signal);
     if (
       !this.#begun ||
+      this.format !== 'docx' ||
       this.#appended ||
       this.#derivedWritten ||
       content.length === 0
@@ -207,7 +212,11 @@ class CoordinatorSink implements ParserSink {
     assertNotAborted(this.signal);
     await this.#derivedWrite;
     await this.#appendChain;
-    if (!this.#begun || !this.#appended) {
+    if (
+      !this.#begun ||
+      !this.#appended ||
+      (this.format === 'docx' && !this.#derivedWritten)
+    ) {
       throw contractError('INVALID_INPUT');
     }
     assertNotAborted(this.signal);

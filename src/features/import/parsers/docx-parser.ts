@@ -34,12 +34,14 @@ export class DocxParser implements DocumentParser {
   async parse(context: ParseContext, sink: ParserSink): Promise<void> {
     throwIfAborted(context.signal);
     try {
-      const converted = await mammoth.convertToHtml(
+      const { value } = await mammoth.convertToHtml(
         mammothInput(context.source),
         { styleMap, externalFileAccess: false },
       );
       throwIfAborted(context.signal);
-      const normalized = sanitizeDocxHtml(converted.value, context.bookId);
+      // Mammoth diagnostics are intentionally not retained or forwarded: they
+      // can contain source-derived text and internal package paths.
+      const normalized = sanitizeDocxHtml(value, context.bookId);
       if (countMeaningfulCharacters(normalized.sections) === 0) {
         throw new DocxParserError('NO_EXTRACTABLE_TEXT');
       }

@@ -142,10 +142,10 @@ pub struct SelectionAnchor {
 pub enum BlockKind {
     Heading,
     Paragraph,
-    ListItem,
+    List,
     Table,
-    FigureCaption,
-    Code,
+    Caption,
+    Equation,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
