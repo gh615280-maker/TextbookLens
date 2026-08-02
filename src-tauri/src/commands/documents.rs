@@ -19,6 +19,7 @@ use crate::{
     },
     domain::{BookFormat, BookSummary, NormalizedSectionInput},
     errors::{AppError, AppErrorCode, AppErrorDto},
+    retrieval::search::{SearchHit, search_book as search_book_repository},
 };
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -186,6 +187,18 @@ pub async fn retry_import(
 ) -> Result<BeginImportOutcome, AppErrorDto> {
     service(&state)
         .retry_import(book_id, replacement_source_path, noop_progress())
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn search_book(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+    query: String,
+    limit: u32,
+) -> Result<Vec<SearchHit>, AppErrorDto> {
+    search_book_repository(state.db.pool(), book_id, &query, limit)
         .await
         .map_err(AppErrorDto::from)
 }

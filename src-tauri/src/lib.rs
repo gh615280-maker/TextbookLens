@@ -4,15 +4,19 @@ use std::sync::Arc;
 use tauri::Manager;
 
 pub mod app_state;
+#[allow(dead_code)]
 #[path = "db/books.rs"]
 mod book_repository;
 pub mod commands;
 pub mod credentials;
 pub mod db;
+#[path = "db/documents.rs"]
+pub mod document_repository;
 pub mod documents;
 pub mod domain;
 pub mod errors;
 pub mod logging;
+pub mod retrieval;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -46,7 +50,8 @@ pub fn run() {
             commands::documents::finalize_import,
             commands::documents::cancel_import,
             commands::documents::mark_import_failed,
-            commands::documents::retry_import
+            commands::documents::retry_import,
+            commands::documents::search_book
         ])
         .run(tauri::generate_context!())
         .expect("failed to run TextbookLens");

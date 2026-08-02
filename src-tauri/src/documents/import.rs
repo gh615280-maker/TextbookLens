@@ -9,10 +9,8 @@ use uuid::Uuid;
 use crate::{
     app_state::AppPaths,
     book_repository::{self as books, HashClaim},
-    domain::{
-        BookFormat, BookSummary, DocumentLocator, ImportErrorStage, ImportStatus,
-        NormalizedSectionInput, stable_block_id, stable_section_id,
-    },
+    document_repository,
+    domain::{BookFormat, BookSummary, ImportErrorStage, ImportStatus, NormalizedSectionInput},
     errors::{AppError, AppErrorCode, AppResult},
 };
 
@@ -317,15 +315,28 @@ impl ImportService {
             {
                 let stage = error_stage_for_status(&record.summary.import_status);
                 let remove_result = remove_book_directory(&self.paths, book_id);
-                books::mark_failed(
+                let failure_result = document_repository::mark_failed_and_clear(
                     &self.pool,
                     book_id,
                     stage,
                     AppErrorCode::ImportCancelled,
                     AppErrorCode::ImportCancelled.user_message(),
                     true,
+                    None,
                 )
-                .await?;
+                .await;
+                if let Err(error) = failure_result {
+                    if record.summary.import_status == ImportStatus::Indexing
+                        && attempt_id.is_some()
+                        && error.code == AppErrorCode::DatabaseError
+                    {
+                        // A final-index transaction may temporarily own SQLite's write lock.
+                        // The cancellation token is already set; that transaction will roll
+                        // back and its owner will perform the failure cleanup exactly once.
+                        return Ok(());
+                    }
+                    return Err(error);
+                }
                 if !matches!(
                     record.summary.import_status,
                     ImportStatus::Queued | ImportStatus::Copying
@@ -472,14 +483,28 @@ impl ImportService {
 
     pub async fn begin_parse(&self, book_id: Uuid, metadata: ParsedBookMetadata) -> AppResult<()> {
         self.ensure_not_cancelled(book_id)?;
-        books::begin_parse(
+        let registered_attempt = if self.cancellations.current_attempt(book_id).is_none() {
+            Some(
+                self.cancellations
+                    .register(book_id, CancellationToken::new()),
+            )
+        } else {
+            None
+        };
+        let result = document_repository::begin_parse(
             &self.pool,
             book_id,
             &metadata.title,
             metadata.author.as_deref(),
             metadata.language.as_deref(),
         )
-        .await
+        .await;
+        if result.is_err()
+            && let Some(attempt_id) = registered_attempt
+        {
+            self.cancellations.remove_if_owner(book_id, attempt_id);
+        }
+        result
     }
 
     pub async fn append_parsed_sections(
@@ -493,7 +518,23 @@ impl ImportService {
         if format == BookFormat::Docx {
             require_document_html(&self.paths, book_id)?;
         }
-        validate_section_batch(book_id, &format, &sections)?;
+        let attempt_id = self.cancellations.current_attempt(book_id);
+        let result =
+            document_repository::append_parsed_sections(&self.pool, book_id, &sections).await;
+        if let Err(error) = result {
+            if matches!(
+                error.code,
+                AppErrorCode::InvalidInput | AppErrorCode::DatabaseError
+            ) && let Some(attempt_id) = attempt_id
+            {
+                if let Some(cancellation) = self.cancellations.token_if_owner(book_id, attempt_id) {
+                    cancellation.cancel();
+                }
+                self.cancellations.remove_if_owner(book_id, attempt_id);
+                let _ = clear_derived_directory(&self.paths, book_id);
+            }
+            return Err(error);
+        }
         self.ensure_not_cancelled(book_id)
     }
 
@@ -527,23 +568,34 @@ impl ImportService {
                 .compensate_cancelled_attempt(book_id, attempt_id, ImportErrorStage::Indexing)
                 .await;
         }
-        let book = match books::finalize(&self.pool, book_id).await {
+        let book = match document_repository::finalize_import(&self.pool, book_id, &cancellation)
+            .await
+        {
             Ok(book) => book,
             Err(_) if cancellation.is_cancelled() => {
-                return Err(AppError::new(AppErrorCode::ImportCancelled));
+                return self
+                    .compensate_cancelled_attempt(book_id, attempt_id, ImportErrorStage::Indexing)
+                    .await;
             }
             Err(error) => return Err(error),
         };
+        progress(ImportEvent {
+            stage: ImportStage::Indexing,
+            completed: 1,
+            total: 1,
+            message_key: "import.indexed".to_owned(),
+        });
         match self.cancellations.take_if_owner(book_id, attempt_id) {
             Some(active) if active.is_cancelled() => {
                 remove_book_directory(&self.paths, book_id)?;
-                books::mark_failed(
+                document_repository::mark_failed_and_clear(
                     &self.pool,
                     book_id,
                     ImportErrorStage::Indexing,
                     AppErrorCode::ImportCancelled,
                     AppErrorCode::ImportCancelled.user_message(),
                     true,
+                    None,
                 )
                 .await?;
                 return Err(AppError::new(AppErrorCode::ImportCancelled));
@@ -579,13 +631,14 @@ impl ImportService {
         } else {
             clear_derived_directory(&self.paths, book_id)?;
         }
-        books::mark_failed(
+        document_repository::mark_failed_and_clear(
             &self.pool,
             book_id,
             error_stage,
             code,
             code.user_message(),
             clear_owned_source,
+            None,
         )
         .await
     }
@@ -628,13 +681,14 @@ impl ImportService {
             return Err(AppError::new(AppErrorCode::ImportCancelled));
         }
         remove_book_directory(&self.paths, book_id)?;
-        books::mark_failed(
+        document_repository::mark_failed_and_clear(
             &self.pool,
             book_id,
             stage,
             AppErrorCode::ImportCancelled,
             AppErrorCode::ImportCancelled.user_message(),
             true,
+            None,
         )
         .await?;
         Err(AppError::new(AppErrorCode::ImportCancelled))
@@ -658,42 +712,4 @@ fn error_stage_for_status(status: &ImportStatus) -> ImportErrorStage {
         ImportStatus::Indexing => ImportErrorStage::Indexing,
         ImportStatus::Ready | ImportStatus::Failed => ImportErrorStage::Parsing,
     }
-}
-
-fn validate_section_batch(
-    book_id: Uuid,
-    format: &BookFormat,
-    sections: &[NormalizedSectionInput],
-) -> AppResult<()> {
-    let block_count = sections
-        .iter()
-        .map(|section| section.blocks.len())
-        .sum::<usize>();
-    if sections.is_empty() || sections.len() > 25 || block_count > 500 {
-        return Err(AppError::new(AppErrorCode::InvalidInput));
-    }
-    for section in sections {
-        if section.id != stable_section_id(book_id, section.ordinal)
-            || !locator_matches_format(&section.locator, format)
-        {
-            return Err(AppError::new(AppErrorCode::InvalidInput));
-        }
-        for block in &section.blocks {
-            if block.id != stable_block_id(book_id, section.ordinal, block.ordinal)
-                || !locator_matches_format(&block.locator, format)
-            {
-                return Err(AppError::new(AppErrorCode::InvalidInput));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn locator_matches_format(locator: &DocumentLocator, format: &BookFormat) -> bool {
-    matches!(
-        (locator, format),
-        (DocumentLocator::Pdf { .. }, BookFormat::Pdf)
-            | (DocumentLocator::Epub { .. }, BookFormat::Epub)
-            | (DocumentLocator::Docx { .. }, BookFormat::Docx)
-    )
 }
