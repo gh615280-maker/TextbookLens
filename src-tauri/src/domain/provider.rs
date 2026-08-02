@@ -52,32 +52,31 @@ pub struct ValidationResult {
     pub context_window_tokens: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
 #[ts(export_to = "provider.ts")]
-pub struct UnifiedChatRequest {
-    pub system_instruction: String,
-    pub model: String,
-    pub target_language: String,
-    pub messages: Vec<ChatMessage>,
-    pub context: Vec<ContextCitation>,
+pub enum UnifiedRole {
+    User,
+    Assistant,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "provider.ts")]
-pub struct ChatMessage {
-    pub role: String,
+pub struct UnifiedMessage {
+    pub role: UnifiedRole,
     pub content: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "provider.ts")]
-pub struct ContextCitation {
-    pub section_id: Uuid,
-    pub locator_json: String,
-    pub text: String,
+pub struct UnifiedChatRequest {
+    pub model: String,
+    pub system: String,
+    pub messages: Vec<UnifiedMessage>,
+    pub max_output_tokens: u32,
+    pub expected_language: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

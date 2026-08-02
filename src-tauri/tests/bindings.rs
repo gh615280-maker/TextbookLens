@@ -4,7 +4,8 @@ use textbooklens_lib::domain::{
     AnnotationDto, AppSettingsDto, BlockKind, BookSummary, ConversationDto, CredentialStatus,
     DocumentLocator, LearningEvent, LearningRequest, NormalizedBookInput, NormalizedRect,
     ProviderCapability, ProviderModelCapability, ProviderProfileSummary, UnifiedChatRequest,
-    UnifiedStreamEvent, ValidationResult, stable_block_id, stable_section_id,
+    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, ValidationResult, stable_block_id,
+    stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -92,6 +93,8 @@ fn export_bindings() {
     CredentialStatus::export_all(&config).unwrap();
     ProviderProfileSummary::export_all(&config).unwrap();
     ValidationResult::export_all(&config).unwrap();
+    UnifiedRole::export_all(&config).unwrap();
+    UnifiedMessage::export_all(&config).unwrap();
     UnifiedChatRequest::export_all(&config).unwrap();
     UnifiedStreamEvent::export_all(&config).unwrap();
     AppSettingsDto::export_all(&config).unwrap();

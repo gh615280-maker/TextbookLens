@@ -134,6 +134,12 @@ impl AppError {
         result
     }
 
+    pub(crate) fn provider_failure(code: AppErrorCode, diagnostic: &'static str) -> Self {
+        let mut result = Self::new(code);
+        result.diagnostic_detail = Some(diagnostic.to_owned());
+        result
+    }
+
     pub fn diagnostic_detail(&self) -> Option<&str> {
         self.diagnostic_detail.as_deref()
     }

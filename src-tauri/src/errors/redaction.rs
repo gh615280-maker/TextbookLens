@@ -27,6 +27,7 @@ pub fn redact(input: &str) -> String {
     let mut ranges = Vec::new();
 
     mark_authorization_values(input, &lower, &mut ranges);
+    mark_json_sensitive_values(input, &lower, &mut ranges);
     for marker in [
         "x-goog-api-key:",
         "x-api-key:",
@@ -38,6 +39,7 @@ pub fn redact(input: &str) -> String {
         "gemini_api_key=",
         "deepseek_api_key=",
         "kimi_api_key=",
+        "key=",
     ] {
         mark_value_after(input, &lower, marker, &mut ranges);
     }
@@ -72,12 +74,79 @@ fn mark_value_after(input: &str, lower: &str, marker: &str, ranges: &mut Vec<(us
     while let Some(relative) = lower[offset..].find(marker) {
         let marker_end = offset + relative + marker.len();
         let value_start = skip_ascii_whitespace(input, marker_end);
-        let value_end = token_end(input, value_start);
+        let value_end = sensitive_value_end(input, value_start);
         if value_start < value_end {
             ranges.push((value_start, value_end));
         }
         offset = marker_end;
     }
+}
+
+fn mark_json_sensitive_values(input: &str, lower: &str, ranges: &mut Vec<(usize, usize)>) {
+    let bytes = input.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if bytes[cursor] != b'"' {
+            cursor += 1;
+            continue;
+        }
+        let Some(key_end) = json_string_end(bytes, cursor + 1) else {
+            break;
+        };
+        let key = lower.get(cursor + 1..key_end).unwrap_or_default();
+        let mut value_cursor = skip_ascii_whitespace(input, key_end + 1);
+        if value_cursor >= bytes.len() || bytes[value_cursor] != b':' {
+            cursor = key_end + 1;
+            continue;
+        }
+        value_cursor = skip_ascii_whitespace(input, value_cursor + 1);
+        if !matches!(
+            key,
+            "authorization"
+                | "proxy-authorization"
+                | "x-api-key"
+                | "x-goog-api-key"
+                | "api-key"
+                | "api_key"
+                | "apikey"
+                | "credential"
+                | "access_token"
+                | "token"
+                | "key"
+        ) {
+            cursor = key_end + 1;
+            continue;
+        }
+
+        if value_cursor < bytes.len() && bytes[value_cursor] == b'"' {
+            let value_start = value_cursor + 1;
+            if let Some(value_end) = json_string_end(bytes, value_start) {
+                if value_start < value_end {
+                    ranges.push((value_start, value_end));
+                }
+                cursor = value_end + 1;
+                continue;
+            }
+        }
+        let value_end = sensitive_value_end(input, value_cursor);
+        if value_cursor < value_end {
+            ranges.push((value_cursor, value_end));
+        }
+        cursor = value_end.max(key_end + 1);
+    }
+}
+
+fn json_string_end(bytes: &[u8], mut cursor: usize) -> Option<usize> {
+    let mut escaped = false;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'"' if !escaped => return Some(cursor),
+            b'\\' if !escaped => escaped = true,
+            _ => escaped = false,
+        }
+        cursor += 1;
+    }
+    None
 }
 
 fn mark_secret_tokens(input: &str, ranges: &mut Vec<(usize, usize)>) {
@@ -115,6 +184,20 @@ fn skip_ascii_whitespace(input: &str, mut index: usize) -> usize {
 fn token_end(input: &str, mut index: usize) -> usize {
     let bytes = input.as_bytes();
     while index < bytes.len() && !bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    index
+}
+
+fn sensitive_value_end(input: &str, mut index: usize) -> usize {
+    let bytes = input.as_bytes();
+    while index < bytes.len()
+        && !bytes[index].is_ascii_whitespace()
+        && !matches!(
+            bytes[index],
+            b'&' | b'#' | b'"' | b'\'' | b',' | b'}' | b']'
+        )
+    {
         index += 1;
     }
     index
