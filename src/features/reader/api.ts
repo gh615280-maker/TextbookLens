@@ -28,6 +28,13 @@ export interface ReaderSearchHit {
   sectionTitle: string | null;
 }
 
+export interface AnnotationMarkerDto {
+  id: string;
+  kind: 'ai_conversation' | 'note';
+  anchor: import('../../lib/generated/document').SelectionAnchor | null;
+  relocationStatus: 'primary' | 'fallback' | 'unresolved';
+}
+
 export interface ReaderBootstrap {
   book: BookSummary;
   lastLocator: DocumentLocator | null;
@@ -39,9 +46,18 @@ export interface ReaderApi {
   readDerivedText(bookId: string, name: 'document.html'): Promise<string>;
   getReaderSettings(): Promise<ReaderSettings>;
   updateReaderSettings(settings: ReaderSettings): Promise<ReaderSettings>;
-  saveReadingProgress(bookId: string, progress: number, locator: DocumentLocator): Promise<void>;
+  saveReadingProgress(
+    bookId: string,
+    progress: number,
+    locator: DocumentLocator,
+  ): Promise<void>;
   listReaderSections(bookId: string): Promise<ReaderSection[]>;
-  searchBook(bookId: string, query: string, limit: number): Promise<ReaderSearchHit[]>;
+  searchBook(
+    bookId: string,
+    query: string,
+    limit: number,
+  ): Promise<ReaderSearchHit[]>;
+  listAnnotationMarkers(bookId: string): Promise<AnnotationMarkerDto[]>;
 }
 
 export class TauriReaderApi implements ReaderApi {
@@ -58,13 +74,18 @@ export class TauriReaderApi implements ReaderApi {
       const source = await invoke<unknown>('read_book_source', { bookId });
       if (source instanceof Uint8Array) return source;
       if (source instanceof ArrayBuffer) return new Uint8Array(source);
-      throw new TypeError('read_book_source returned an invalid binary payload');
+      throw new TypeError(
+        'read_book_source returned an invalid binary payload',
+      );
     } catch (error) {
       throw toUserError(error);
     }
   }
 
-  async readDerivedText(bookId: string, name: 'document.html'): Promise<string> {
+  async readDerivedText(
+    bookId: string,
+    name: 'document.html',
+  ): Promise<string> {
     try {
       return await invoke<string>('read_derived_text', { bookId, name });
     } catch (error) {
@@ -80,15 +101,23 @@ export class TauriReaderApi implements ReaderApi {
     }
   }
 
-  async updateReaderSettings(settings: ReaderSettings): Promise<ReaderSettings> {
+  async updateReaderSettings(
+    settings: ReaderSettings,
+  ): Promise<ReaderSettings> {
     try {
-      return await invoke<ReaderSettings>('update_reader_settings', { settings });
+      return await invoke<ReaderSettings>('update_reader_settings', {
+        settings,
+      });
     } catch (error) {
       throw toUserError(error);
     }
   }
 
-  async saveReadingProgress(bookId: string, progress: number, locator: DocumentLocator): Promise<void> {
+  async saveReadingProgress(
+    bookId: string,
+    progress: number,
+    locator: DocumentLocator,
+  ): Promise<void> {
     try {
       await invoke('save_reading_progress', { bookId, progress, locator });
     } catch (error) {
@@ -97,10 +126,36 @@ export class TauriReaderApi implements ReaderApi {
   }
 
   async listReaderSections(bookId: string): Promise<ReaderSection[]> {
-    try { return await invoke<ReaderSection[]>('list_reader_sections', { bookId }); } catch (error) { throw toUserError(error); }
+    try {
+      return await invoke<ReaderSection[]>('list_reader_sections', { bookId });
+    } catch (error) {
+      throw toUserError(error);
+    }
   }
 
-  async searchBook(bookId: string, query: string, limit: number): Promise<ReaderSearchHit[]> {
-    try { return await invoke<ReaderSearchHit[]>('search_book', { bookId, query, limit: Math.min(50, limit) }); } catch (error) { throw toUserError(error); }
+  async searchBook(
+    bookId: string,
+    query: string,
+    limit: number,
+  ): Promise<ReaderSearchHit[]> {
+    try {
+      return await invoke<ReaderSearchHit[]>('search_book', {
+        bookId,
+        query,
+        limit: Math.min(50, limit),
+      });
+    } catch (error) {
+      throw toUserError(error);
+    }
+  }
+
+  async listAnnotationMarkers(bookId: string): Promise<AnnotationMarkerDto[]> {
+    try {
+      return await invoke<AnnotationMarkerDto[]>('list_annotation_markers', {
+        bookId,
+      });
+    } catch (error) {
+      throw toUserError(error);
+    }
   }
 }

@@ -3,6 +3,11 @@
   overflow: auto;
   height: 100%;
 }
+.pdf-reader .pdf-viewer-container {
+  position: relative;
+  overflow: auto;
+  height: 100%;
+}
 .pdf-marker-overlay {
   pointer-events: none;
   position: absolute;

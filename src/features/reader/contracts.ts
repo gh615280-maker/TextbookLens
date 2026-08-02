@@ -8,7 +8,11 @@ export type ReaderSource =
 
 export interface SelectionSnapshot {
   text: string;
-  anchor: { locator: DocumentLocator; quote: TextQuote; sectionId: string | null };
+  anchor: {
+    locator: DocumentLocator;
+    quote: TextQuote;
+    sectionId: string | null;
+  };
 }
 
 export interface ReadingProgress {
@@ -22,9 +26,17 @@ export interface NavigationResult {
 
 export interface AnnotationMarker {
   id: string;
+  kind: 'ai_conversation' | 'note';
   label: string;
   /** Display-only anchor supplied by a later persistence phase; adapters never rewrite it. */
   anchor?: SelectionSnapshot['anchor'];
+  relocationStatus: MarkerRelocationStatus;
+}
+
+export type MarkerRelocationStatus = 'primary' | 'fallback' | 'unresolved';
+export interface MarkerRelocation {
+  annotationId: string;
+  relocationStatus: MarkerRelocationStatus;
 }
 
 export interface ReaderSearchHit {
@@ -44,10 +56,12 @@ export interface ReaderAdapter {
   open(source: ReaderSource, initial?: DocumentLocator | null): Promise<void>;
   getSelectionSnapshot(): SelectionSnapshot | null;
   navigate(locator: DocumentLocator): Promise<NavigationResult>;
-  showAnnotations(items: AnnotationMarker[]): Promise<void>;
+  showAnnotations(items: AnnotationMarker[]): Promise<MarkerRelocation[]>;
   search(query: string): Promise<ReaderSearchHit[]>;
   getProgress(): ReadingProgress;
   dispose(): void;
 }
 
-export type ReaderAdapterFactory = (events: ReaderAdapterEvents) => ReaderAdapter;
+export type ReaderAdapterFactory = (
+  events: ReaderAdapterEvents,
+) => ReaderAdapter;

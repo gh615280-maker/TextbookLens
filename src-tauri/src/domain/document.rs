@@ -32,7 +32,7 @@ impl NormalizedRect {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(
     tag = "format",
     rename_all = "snake_case",
@@ -55,6 +55,74 @@ pub enum DocumentLocator {
         end_block_id: Uuid,
         end_offset: u32,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(
+    tag = "format",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+enum SerializedDocumentLocator {
+    Pdf {
+        start_page: u32,
+        end_page: u32,
+        rects_by_page: Option<BTreeMap<String, Vec<NormalizedRect>>>,
+    },
+    Epub {
+        cfi: String,
+        section_id: Uuid,
+    },
+    Docx {
+        start_block_id: Uuid,
+        start_offset: u32,
+        end_block_id: Uuid,
+        end_offset: u32,
+    },
+}
+
+impl<'de> Deserialize<'de> for DocumentLocator {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match SerializedDocumentLocator::deserialize(deserializer)? {
+            SerializedDocumentLocator::Pdf {
+                start_page,
+                end_page,
+                rects_by_page,
+            } => Ok(Self::Pdf {
+                start_page,
+                end_page,
+                rects_by_page: rects_by_page
+                    .map(|pages| {
+                        pages
+                            .into_iter()
+                            .map(|(page, rects)| {
+                                page.parse::<u32>()
+                                    .map(|page| (page, rects))
+                                    .map_err(serde::de::Error::custom)
+                            })
+                            .collect()
+                    })
+                    .transpose()?,
+            }),
+            SerializedDocumentLocator::Epub { cfi, section_id } => {
+                Ok(Self::Epub { cfi, section_id })
+            }
+            SerializedDocumentLocator::Docx {
+                start_block_id,
+                start_offset,
+                end_block_id,
+                end_offset,
+            } => Ok(Self::Docx {
+                start_block_id,
+                start_offset,
+                end_block_id,
+                end_offset,
+            }),
+        }
+    }
 }
 
 impl DocumentLocator {

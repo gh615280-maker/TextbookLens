@@ -1,3 +1,4 @@
+pub mod annotations;
 pub mod books;
 pub mod credentials;
 pub mod documents;

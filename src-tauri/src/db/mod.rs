@@ -1,3 +1,4 @@
+pub mod annotations;
 pub mod providers;
 pub mod settings;
 

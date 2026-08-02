@@ -37,6 +37,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::annotations::list_annotation_markers,
             commands::credentials::list_provider_profiles,
             commands::credentials::delete_provider_profile,
             commands::books::list_books,
