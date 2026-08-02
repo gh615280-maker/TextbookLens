@@ -110,32 +110,30 @@ export function ReaderLayout(props: ReaderLayoutProps) {
             <p>阅读器将在打开教材后载入内容。</p>
           )}
         </main>
-        {rightOpen && (
-          <div>
-            <ReaderPanel content={panelContent} />
-            {markerHistoryRef && (
-              <aside className="reader-panel" aria-label="标记历史">
-                <h2>标记历史</h2>
-                <div ref={markerHistoryRef} />
-              </aside>
-            )}
-            {bookId && search && (
-              <ReaderSearch
-                bookId={bookId}
-                format={format}
-                search={search}
-                onNavigate={navigate}
-              />
-            )}
-            {settings && onSettingsChange && (
-              <ReadingSettings
-                settings={settings}
-                format={format}
-                onChange={onSettingsChange}
-              />
-            )}
-          </div>
-        )}
+        <div hidden={!rightOpen}>
+          <ReaderPanel content={panelContent} />
+          {markerHistoryRef && (
+            <aside className="reader-panel" aria-label="标记历史">
+              <h2>标记历史</h2>
+              <div ref={markerHistoryRef} />
+            </aside>
+          )}
+          {bookId && search && (
+            <ReaderSearch
+              bookId={bookId}
+              format={format}
+              search={search}
+              onNavigate={navigate}
+            />
+          )}
+          {settings && onSettingsChange && (
+            <ReadingSettings
+              settings={settings}
+              format={format}
+              onChange={onSettingsChange}
+            />
+          )}
+        </div>
       </div>
     </section>
   );

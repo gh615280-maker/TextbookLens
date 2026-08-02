@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 import { ReaderLayout } from './ReaderLayout';
 
 describe('ReaderLayout', () => {
-  it('mounts the document adapter and marker history in separate accessible regions', () => {
+  it('mounts the document adapter and preserves marker history while the panel is collapsed', async () => {
+    const user = userEvent.setup();
     const readerContainerRef = createRef<HTMLDivElement>();
     const markerHistoryRef = createRef<HTMLDivElement>();
 
@@ -24,6 +25,11 @@ describe('ReaderLayout', () => {
     expect(
       screen.getByRole('complementary', { name: '标记历史' }),
     ).toContainElement(markerHistoryRef.current);
+    const historyRoot = markerHistoryRef.current;
+    await user.click(screen.getByRole('button', { name: '折叠学习面板' }));
+    expect(historyRoot?.isConnected).toBe(true);
+    await user.click(screen.getByRole('button', { name: '展开学习面板' }));
+    expect(markerHistoryRef.current).toBe(historyRoot);
     unmount();
   });
 
