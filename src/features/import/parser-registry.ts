@@ -1,6 +1,9 @@
 import type { BookFormat } from '../../lib/generated/book';
 import type { UserFacingError } from '../../lib/errors';
 import type { DocumentParser } from './parser-contract';
+import { DocxParser } from './parsers/docx-parser';
+import { EpubParser } from './parsers/epub-parser';
+import { PdfParser } from './parsers/pdf-parser';
 
 class ParserRegistryError extends Error implements UserFacingError {
   readonly nextStep: string;
@@ -15,6 +18,17 @@ class ParserRegistryError extends Error implements UserFacingError {
     this.name = 'ParserRegistryError';
     this.nextStep = nextStep;
   }
+}
+
+/** The application composition root registers every supported local adapter. */
+export function createDocumentParserRegistry(): ParserRegistry {
+  const registry = new ParserRegistry([
+    new PdfParser(),
+    new EpubParser(),
+    new DocxParser(),
+  ]);
+  registry.assertComplete();
+  return registry;
 }
 
 export class ParserRegistry {

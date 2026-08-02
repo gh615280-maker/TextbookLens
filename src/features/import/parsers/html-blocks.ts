@@ -12,8 +12,15 @@ const selector = 'h1, h2, h3, h4, h5, h6, p, li, table, figcaption, math';
 /** Extracts only displayable EPUB structure, never script/style fallback content. */
 export function collectHtmlBlocks(document: Document): HtmlBlock[] {
   return [...document.querySelectorAll(selector)]
+    .filter((element) => !isAbsorbedByContainer(element))
     .map((element) => ({ element, kind: blockKind(element), text: blockText(element) }))
     .filter((block) => block.text.length > 0);
+}
+
+function isAbsorbedByContainer(element: Element): boolean {
+  if (element.localName === 'table') return false;
+  if (element.parentElement?.closest('table')) return true;
+  return element.localName !== 'li' && element.parentElement?.closest('li') !== null;
 }
 
 function blockKind(element: Element): BlockKind {

@@ -1,8 +1,4 @@
-use std::{
-    fs::{self, OpenOptions},
-    io::Write,
-    sync::Arc,
-};
+use std::{fs, sync::Arc};
 
 use serde::Deserialize;
 use tauri::{
@@ -14,6 +10,7 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     documents::{
+        derived::{remove_document_html, write_document_html},
         import::{
             BeginImportOutcome, BeginImportRequest, ImportEvent, ImportService, ImportStage,
             ParsedBookMetadata,
@@ -110,32 +107,13 @@ pub async fn write_derived_text(
         .await
         .map_err(AppErrorDto::from)?;
 
+    let DerivedTextName::DocumentHtml = name;
     let book_directory = state.paths.books.join(book_id.to_string());
-    let target_name = match name {
-        DerivedTextName::DocumentHtml => "document.html",
-    };
-    let target = book_directory.join("derived").join(target_name);
-    let partial = book_directory
-        .join("derived")
-        .join(format!("{target_name}.partial"));
-    let write_target = target.clone();
-    let write_result = tokio::task::spawn_blocking(move || -> Result<(), AppError> {
-        if let Some(parent) = partial.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&partial)?;
-        file.write_all(content.as_bytes())?;
-        file.flush()?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(partial, write_target)?;
-        Ok(())
-    })
-    .await
-    .map_err(|_| AppErrorDto::from(AppError::new(AppErrorCode::LocalIoError)))?;
+    let paths = state.paths.clone();
+    let write_result =
+        tokio::task::spawn_blocking(move || write_document_html(&paths, book_id, &content))
+            .await
+            .map_err(|_| AppErrorDto::from(AppError::new(AppErrorCode::LocalIoError)))?;
     write_result.map_err(AppErrorDto::from)?;
 
     if let Err(error) = ensure_import_not_cancelled(&state, book_id) {
@@ -151,7 +129,7 @@ pub async fn write_derived_text(
         if cancelled {
             let _ = fs::remove_dir_all(&book_directory);
         } else {
-            let _ = fs::remove_file(&target);
+            let _ = remove_document_html(&state.paths, book_id);
         }
         return Err(error.into());
     }
