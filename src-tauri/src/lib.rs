@@ -42,6 +42,7 @@ pub fn run() {
             commands::books::list_books,
             commands::books::get_book,
             commands::books::delete_failed_import,
+            commands::books::list_reader_sections,
             commands::documents::begin_import,
             commands::documents::read_book_source,
             commands::documents::read_derived_text,

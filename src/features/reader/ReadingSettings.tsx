@@ -1,0 +1,11 @@
+import { Button, Label, ListBox, ListBoxItem, Popover, Select, SelectValue, Slider, SliderOutput, SliderThumb, SliderTrack } from 'react-aria-components';
+
+import type { ReaderSettings, ReaderTheme } from './api';
+
+const defaults: ReaderSettings = { fontScale: 1, lineHeight: 1.6, readerWidth: 72, pdfZoom: 1, theme: 'system' };
+interface ReadingSettingsProps { settings: ReaderSettings; format: 'pdf' | 'epub' | 'docx'; onChange(settings: ReaderSettings): void; }
+export function ReadingSettings({ settings, format, onChange }: ReadingSettingsProps) {
+  const update = (field: keyof ReaderSettings, value: number | ReaderTheme) => onChange({ ...settings, [field]: value });
+  return <section className="reader-settings" aria-label="阅读设置"><Select aria-label="主题" selectedKey={settings.theme} onSelectionChange={(value) => update('theme', value as ReaderTheme)}><Label>主题</Label><Button><SelectValue /></Button><Popover><ListBox>{(['light', 'dark', 'system'] as const).map((theme) => <ListBoxItem key={theme} id={theme}>{theme}</ListBoxItem>)}</ListBox></Popover></Select>{format !== 'pdf' && <><Range label="字体大小" value={settings.fontScale} min={0.75} max={2} step={0.05} onChange={(value) => update('fontScale', value)} /><Range label="行距" value={settings.lineHeight} min={1.2} max={2.4} step={0.1} onChange={(value) => update('lineHeight', value)} /><Range label="阅读宽度" value={settings.readerWidth} min={40} max={120} step={1} onChange={(value) => update('readerWidth', value)} /></>} {format === 'pdf' && <Range label="PDF 缩放" value={settings.pdfZoom} min={0.5} max={3} step={0.1} onChange={(value) => update('pdfZoom', value)} />}<button type="button" onClick={() => onChange(defaults)}>恢复默认</button></section>;
+}
+function Range({ label, value, min, max, step, onChange }: { label: string; value: number; min: number; max: number; step: number; onChange(value: number): void }) { return <Slider aria-label={label} value={value} minValue={min} maxValue={max} step={step} onChange={onChange}><Label>{label}</Label><SliderOutput>{({ state }) => state.getThumbValueLabel(0)}</SliderOutput><SliderTrack>{({ state }) => <><SliderThumb index={0} /><output>{state.getThumbValueLabel(0)}</output></>}</SliderTrack></Slider>; }

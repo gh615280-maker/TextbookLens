@@ -3,9 +3,42 @@ use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use uuid::Uuid;
 
 use crate::{
-    domain::{BookFormat, BookSummary, ImportErrorStage, ImportStatus},
+    domain::{BookFormat, BookSummary, DocumentLocator, ImportErrorStage, ImportStatus},
     errors::{AppError, AppErrorCode, AppResult},
 };
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReaderSection {
+    pub id: Uuid,
+    pub parent_id: Option<Uuid>,
+    pub ordinal: u32,
+    pub title: String,
+    pub locator: DocumentLocator,
+}
+
+pub async fn list_reader_sections(
+    pool: &SqlitePool,
+    book_id: Uuid,
+) -> AppResult<Vec<ReaderSection>> {
+    let status: Option<String> = sqlx::query_scalar("SELECT import_status FROM books WHERE id = ?")
+        .bind(book_id.to_string())
+        .fetch_optional(pool)
+        .await?;
+    match status.as_deref() {
+        Some("ready") => {}
+        Some(_) => return Err(AppError::new(AppErrorCode::BookNotReady)),
+        None => return Err(AppError::new(AppErrorCode::NotFound)),
+    }
+    sqlx::query("SELECT id, parent_id, ordinal, title, locator_json FROM sections WHERE book_id = ? ORDER BY ordinal")
+        .bind(book_id.to_string()).fetch_all(pool).await?.into_iter().map(|row| Ok(ReaderSection {
+            id: Uuid::parse_str(&row.try_get::<String, _>("id")?).map_err(|_| AppError::new(AppErrorCode::DatabaseError))?,
+            parent_id: row.try_get::<Option<String>, _>("parent_id")?.map(|id| Uuid::parse_str(&id).map_err(|_| AppError::new(AppErrorCode::DatabaseError))).transpose()?,
+            ordinal: row.try_get::<i64, _>("ordinal")? as u32,
+            title: row.try_get("title")?,
+            locator: serde_json::from_str(&row.try_get::<String, _>("locator_json")?).map_err(AppError::database)?,
+        })).collect()
+}
 
 #[derive(Clone, Debug)]
 pub struct BookRecord {

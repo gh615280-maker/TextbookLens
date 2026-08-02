@@ -4,11 +4,28 @@ import { toUserError } from '../../lib/errors';
 import type { BookSummary } from '../../lib/generated/book';
 import type { DocumentLocator } from '../../lib/generated/document';
 
+export type ReaderTheme = 'light' | 'dark' | 'system';
+
 export interface ReaderSettings {
   fontScale: number;
   lineHeight: number;
   readerWidth: number;
   pdfZoom: number;
+  theme: ReaderTheme;
+}
+
+export interface ReaderSection {
+  id: string;
+  parentId: string | null;
+  ordinal: number;
+  title: string;
+  locator: DocumentLocator;
+}
+
+export interface ReaderSearchHit {
+  snippet: string;
+  locator: DocumentLocator;
+  sectionTitle: string | null;
 }
 
 export interface ReaderBootstrap {
@@ -23,6 +40,8 @@ export interface ReaderApi {
   getReaderSettings(): Promise<ReaderSettings>;
   updateReaderSettings(settings: ReaderSettings): Promise<ReaderSettings>;
   saveReadingProgress(bookId: string, progress: number, locator: DocumentLocator): Promise<void>;
+  listReaderSections(bookId: string): Promise<ReaderSection[]>;
+  searchBook(bookId: string, query: string, limit: number): Promise<ReaderSearchHit[]>;
 }
 
 export class TauriReaderApi implements ReaderApi {
@@ -75,5 +94,13 @@ export class TauriReaderApi implements ReaderApi {
     } catch (error) {
       throw toUserError(error);
     }
+  }
+
+  async listReaderSections(bookId: string): Promise<ReaderSection[]> {
+    try { return await invoke<ReaderSection[]>('list_reader_sections', { bookId }); } catch (error) { throw toUserError(error); }
+  }
+
+  async searchBook(bookId: string, query: string, limit: number): Promise<ReaderSearchHit[]> {
+    try { return await invoke<ReaderSearchHit[]>('search_book', { bookId, query, limit: Math.min(50, limit) }); } catch (error) { throw toUserError(error); }
   }
 }

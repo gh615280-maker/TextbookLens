@@ -42,3 +42,13 @@ pub async fn delete_failed_import(
         .await
         .map_err(AppErrorDto::from)
 }
+
+#[tauri::command]
+pub async fn list_reader_sections(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+) -> Result<Vec<crate::book_repository::ReaderSection>, AppErrorDto> {
+    crate::book_repository::list_reader_sections(state.db.pool(), book_id)
+        .await
+        .map_err(AppErrorDto::from)
+}

@@ -6,13 +6,13 @@ use uuid::Uuid;
 use crate::{
     app_state::AppPaths,
     documents::storage::{recover_import_storage, remove_book_directory},
-    domain::{DocumentLocator, ReaderSettingsDto},
+    domain::{DocumentLocator, ReaderSettingsDto, Theme},
     errors::{AppError, AppErrorCode, AppResult},
 };
 
 pub async fn get_reader_settings(pool: &SqlitePool) -> AppResult<ReaderSettingsDto> {
     let row = sqlx::query(
-        "SELECT font_scale, line_height, reader_width, pdf_zoom FROM app_settings WHERE id = 1",
+        "SELECT font_scale, line_height, reader_width, pdf_zoom, theme FROM app_settings WHERE id = 1",
     )
     .fetch_one(pool)
     .await?;
@@ -21,6 +21,7 @@ pub async fn get_reader_settings(pool: &SqlitePool) -> AppResult<ReaderSettingsD
         line_height: row.try_get("line_height")?,
         reader_width: row.try_get("reader_width")?,
         pdf_zoom: row.try_get("pdf_zoom")?,
+        theme: parse_theme(&row.try_get::<String, _>("theme")?)?,
     })
 }
 
@@ -32,12 +33,13 @@ pub async fn update_reader_settings(
         return Err(AppError::new(AppErrorCode::InvalidInput));
     }
     sqlx::query(
-        "UPDATE app_settings SET font_scale = ?, line_height = ?, reader_width = ?, pdf_zoom = ? WHERE id = 1",
+        "UPDATE app_settings SET font_scale = ?, line_height = ?, reader_width = ?, pdf_zoom = ?, theme = ? WHERE id = 1",
     )
     .bind(settings.font_scale)
     .bind(settings.line_height)
     .bind(settings.reader_width)
     .bind(settings.pdf_zoom)
+    .bind(theme_name(&settings.theme))
     .execute(pool)
     .await?;
     Ok(settings)
@@ -76,6 +78,22 @@ fn valid_settings(settings: &ReaderSettingsDto) -> bool {
         && (40.0..=120.0).contains(&settings.reader_width)
         && settings.pdf_zoom.is_finite()
         && (0.5..=3.0).contains(&settings.pdf_zoom)
+}
+
+fn parse_theme(value: &str) -> AppResult<Theme> {
+    match value {
+        "light" => Ok(Theme::Light),
+        "dark" => Ok(Theme::Dark),
+        "system" => Ok(Theme::System),
+        _ => Err(AppError::new(AppErrorCode::DatabaseError)),
+    }
+}
+fn theme_name(value: &Theme) -> &'static str {
+    match value {
+        Theme::Light => "light",
+        Theme::Dark => "dark",
+        Theme::System => "system",
+    }
 }
 
 pub fn recover_interrupted_imports(pool: &SqlitePool, paths: &AppPaths) -> AppResult<()> {
@@ -136,6 +154,7 @@ mod tests {
                 line_height: 1.6,
                 reader_width: 72.0,
                 pdf_zoom: 1.0,
+                theme: crate::domain::Theme::System,
             }
         );
 
@@ -146,6 +165,7 @@ mod tests {
                 line_height: 1.8,
                 reader_width: 80.0,
                 pdf_zoom: 1.5,
+                theme: crate::domain::Theme::Dark,
             },
         ))
         .expect("valid reader settings");

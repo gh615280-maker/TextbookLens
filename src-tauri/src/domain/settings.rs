@@ -38,4 +38,5 @@ pub struct ReaderSettingsDto {
     pub line_height: f64,
     pub reader_width: f64,
     pub pdf_zoom: f64,
+    pub theme: Theme,
 }

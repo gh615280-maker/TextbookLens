@@ -23,6 +23,8 @@ class FakeApi implements ReaderApi {
   readonly getReaderSettings = vi.fn();
   readonly updateReaderSettings = vi.fn();
   readonly saveReadingProgress = vi.fn();
+  readonly listReaderSections = vi.fn(async () => []);
+  readonly searchBook = vi.fn(async () => []);
 }
 
 function adapter(format: ReaderAdapter['format']) {
