@@ -1,5 +1,10 @@
-use std::sync::Arc;
+use std::{
+    fs::{self, File},
+    io::Write,
+    sync::Arc,
+};
 
+use serde::Deserialize;
 use tauri::{
     State,
     ipc::{Channel, Response},
@@ -16,8 +21,14 @@ use crate::{
         storage::noop_progress,
     },
     domain::{BookSummary, NormalizedSectionInput},
-    errors::{AppErrorCode, AppErrorDto},
+    errors::{AppError, AppErrorCode, AppErrorDto},
 };
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+pub enum DerivedTextName {
+    #[serde(rename = "document.html")]
+    DocumentHtml,
+}
 
 fn service(state: &AppState) -> ImportService {
     ImportService::with_cancellations(
@@ -63,6 +74,9 @@ pub async fn begin_parse(
     book_id: Uuid,
     metadata: ParsedBookMetadata,
 ) -> Result<(), AppErrorDto> {
+    if metadata.title.trim().is_empty() {
+        return Err(AppError::new(AppErrorCode::InvalidInput).into());
+    }
     service(&state)
         .begin_parse(book_id, metadata)
         .await
@@ -79,6 +93,66 @@ pub async fn append_parsed_sections(
         .append_parsed_sections(book_id, sections)
         .await
         .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn write_derived_text(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+    name: DerivedTextName,
+    content: String,
+) -> Result<(), AppErrorDto> {
+    if content.is_empty() {
+        return Err(AppError::new(AppErrorCode::InvalidInput).into());
+    }
+    ensure_import_not_cancelled(&state, book_id)?;
+    crate::book_repository::require_parsing(state.db.pool(), book_id)
+        .await
+        .map_err(AppErrorDto::from)?;
+
+    let book_directory = state.paths.books.join(book_id.to_string());
+    let target_name = match name {
+        DerivedTextName::DocumentHtml => "document.html",
+    };
+    let target = book_directory.join("derived").join(target_name);
+    let partial = book_directory
+        .join("derived")
+        .join(format!("{target_name}.partial"));
+    let write_target = target.clone();
+    let write_result = tokio::task::spawn_blocking(move || -> Result<(), AppError> {
+        if let Some(parent) = partial.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = File::create(&partial)?;
+        file.write_all(content.as_bytes())?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(partial, write_target)?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| AppErrorDto::from(AppError::new(AppErrorCode::LocalIoError)))?;
+    write_result.map_err(AppErrorDto::from)?;
+
+    if let Err(error) = ensure_import_not_cancelled(&state, book_id) {
+        let _ = fs::remove_dir_all(&book_directory);
+        return Err(error);
+    }
+    if let Err(error) = crate::book_repository::require_parsing(state.db.pool(), book_id).await {
+        let cancelled = crate::book_repository::get(state.db.pool(), book_id)
+            .await
+            .ok()
+            .and_then(|record| record.summary.import_error_code)
+            .is_some_and(|code| code == "IMPORT_CANCELLED");
+        if cancelled {
+            let _ = fs::remove_dir_all(&book_directory);
+        } else {
+            let _ = fs::remove_file(&target);
+        }
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -124,4 +198,17 @@ pub async fn retry_import(
         .retry_import(book_id, replacement_source_path, noop_progress())
         .await
         .map_err(AppErrorDto::from)
+}
+
+fn ensure_import_not_cancelled(state: &AppState, book_id: Uuid) -> Result<(), AppErrorDto> {
+    if state
+        .import_cancellations
+        .lock()
+        .get(&book_id)
+        .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
+    {
+        Err(AppError::new(AppErrorCode::ImportCancelled).into())
+    } else {
+        Ok(())
+    }
 }
