@@ -1,0 +1,51 @@
+[graph]
+all-features = true
+targets = ["x86_64-pc-windows-msvc"]
+
+[advisories]
+version = 2
+unmaintained = "all"
+yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2025-0075", reason = "Tauri 2.11.5 transitively pins rust-unic 0.9; informational unmaintained advisory with no safe upgrade" },
+  { id = "RUSTSEC-2025-0080", reason = "Tauri 2.11.5 transitively pins rust-unic 0.9; informational unmaintained advisory with no safe upgrade" },
+  { id = "RUSTSEC-2025-0081", reason = "Tauri 2.11.5 transitively pins rust-unic 0.9; informational unmaintained advisory with no safe upgrade" },
+  { id = "RUSTSEC-2025-0098", reason = "Tauri 2.11.5 transitively pins rust-unic 0.9; informational unmaintained advisory with no safe upgrade" },
+  { id = "RUSTSEC-2025-0100", reason = "Tauri 2.11.5 transitively pins rust-unic 0.9; informational unmaintained advisory with no safe upgrade" },
+]
+
+[licenses]
+version = 2
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.8
+unused-allowed-license = "allow"
+exceptions = [
+  { allow = ["MPL-2.0"], crate = "cssparser@0.36.0" },
+  { allow = ["MPL-2.0"], crate = "cssparser-macros@0.6.1" },
+  { allow = ["MPL-2.0"], crate = "dtoa-short@0.3.5" },
+  { allow = ["MPL-2.0"], crate = "option-ext@0.2.0" },
+  { allow = ["MPL-2.0"], crate = "selectors@0.36.1" },
+]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

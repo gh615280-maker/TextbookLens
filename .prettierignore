@@ -1,7 +1,11 @@
 node_modules/
 dist/
+playwright-report/
+test-results/
 src-tauri/target/
 src-tauri/gen/
+src/lib/generated/
+deny.toml
 docs/superpowers/
 docx_format_audit/
 *.docx

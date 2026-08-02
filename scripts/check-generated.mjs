@@ -18,5 +18,14 @@ function run(command, args) {
   }
 }
 
-run('cargo', ['test', '--manifest-path', cargoManifest, '--test', 'bindings', 'export_bindings', '--', '--nocapture']);
+run('cargo', [
+  'test',
+  '--manifest-path',
+  cargoManifest,
+  '--test',
+  'bindings',
+  'export_bindings',
+  '--',
+  '--nocapture',
+]);
 run('git', ['diff', '--exit-code', '--', 'src/lib/generated']);

@@ -21,7 +21,8 @@ SQLite. The frontend never opens the application database.
 - Frontend: Tauri API 2.11.1, dialog plugin 2.7.2, React/React DOM 19.2.8,
   React Router 7.18.2, React Aria Components 1.20.0, Zod 4.4.3.
 - Tooling: Tauri CLI 2.11.4, TypeScript 7.0.2, Vite 8.2.0, Vitest 4.1.10,
-  ESLint 10.8.0, Prettier 3.9.6, Playwright 1.62.1.
+  ESLint 10.8.0, Prettier 3.9.6, Playwright 1.62.1,
+  license-checker-rseidelsohn 5.0.1, and cargo-deny 0.20.2.
 - Rust: Tauri 2.11.5, SQLx 0.9.0, ts-rs 12.0.1, keyring 4.1.6, Tokio 1.53.1,
   Serde 1.0.229, UUID 1.24.0, and the exact direct dependencies in
   `src-tauri/Cargo.toml`.
@@ -35,6 +36,36 @@ updated by a later approved dependency-baseline change.
 
 The Phase 1 allowlist is Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC,
 Unicode-3.0, and Zlib. Phase 1 CI enforces it for the full resolved graphs.
+
+One package-level exception is recorded for `tslib@2.8.1`, a locked production
+transitive dependency of React Aria Components. Its SPDX license is 0BSD, a
+permissive license with no attribution or source-disclosure obligation. The npm
+license check accepts 0BSD only for that exact package and version; 0BSD is not
+added to the general allowlist.
+
+Tauri's locked Rust graph contains five MPL-2.0 crates: `cssparser@0.36.0`,
+`cssparser-macros@0.6.1`, `dtoa-short@0.3.5`, `option-ext@0.2.0`, and
+`selectors@0.36.1`. They are package/version-specific cargo-deny exceptions,
+not general MPL approval. TextbookLens does not modify their covered source
+files. Distribution must preserve their notices, identify MPL-licensed files,
+and make the exact covered source available; any future modification to those
+files remains under MPL-2.0. Phase 7 release notices own this obligation.
+
+Cargo-deny evaluates the supported `x86_64-pc-windows-msvc` target and denies
+all unmaintained advisories except five informational rust-unic 0.9 advisories:
+`RUSTSEC-2025-0075`, `RUSTSEC-2025-0080`, `RUSTSEC-2025-0081`,
+`RUSTSEC-2025-0098`, and `RUSTSEC-2025-0100`. These crates are fixed transitives
+of `tauri-utils@2.9.3` through `urlpattern@0.3.0`; the advisories state that no
+safe upgrade is available. They are not vulnerability advisories. Re-evaluate
+and remove the exceptions with the next Tauri dependency-baseline upgrade.
+
+`npm audit` reports `GHSA-qwww-vcr4-c8h2` against the pinned React Router
+7.18.2. The upstream advisory states that it affects only unstable React Server
+Components APIs. TextbookLens uses React Router in client-only library mode,
+has no server or server actions, and does not import an RSC API, so the affected
+execution path is absent. Keep the planned version for Phase 1; re-evaluate this
+decision before any server or RSC scope is proposed, or when a compatible v7
+patch is published.
 
 ## Primary sources
 

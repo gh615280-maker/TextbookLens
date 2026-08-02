@@ -5,11 +5,34 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', 'src-tauri/target'] },
+  {
+    ignores: [
+      'dist',
+      'node_modules',
+      'playwright-report',
+      'src-tauri/target',
+      'test-results',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.{ts,tsx}', 'vite.config.ts'],
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
+    files: [
+      'src/**/*.{ts,tsx}',
+      'e2e/**/*.ts',
+      'vite.config.ts',
+      'playwright.config.ts',
+    ],
     plugins: {
       'jsx-a11y': jsxA11y,
       'react-hooks': reactHooks,
