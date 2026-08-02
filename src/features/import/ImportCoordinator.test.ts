@@ -29,6 +29,7 @@ function book(overrides: Partial<BookSummary> = {}): BookSummary {
     importStatus: 'parsing',
     importErrorCode: null,
     importErrorMessage: null,
+    importErrorStage: null,
     readingProgress: 0,
     createdAt: '2026-08-02T00:00:00Z',
     updatedAt: '2026-08-02T00:00:00Z',

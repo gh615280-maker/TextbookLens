@@ -1,5 +1,6 @@
 use std::{
-    fs::{self, File},
+    collections::HashSet,
+    fs::{self, File, OpenOptions},
     io::{BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
@@ -91,7 +92,10 @@ pub async fn copy_source(
         let final_path = book_directory.join(format!("original.{}", source.extension));
         let source_file = File::open(&source.canonical_path)
             .map_err(|_| AppError::new(AppErrorCode::LocalIoError))?;
-        let target_file = File::create(&partial)?;
+        let target_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&partial)?;
         let mut reader = BufReader::with_capacity(COPY_CHUNK_SIZE, source_file);
         let mut writer = BufWriter::with_capacity(COPY_CHUNK_SIZE, target_file);
         let mut buffer = vec![0_u8; COPY_CHUNK_SIZE];
@@ -130,7 +134,7 @@ pub async fn copy_source(
 
         Ok(CopiedSource {
             sha256: encode_hex(&hasher.finalize()),
-            relative_path: format!("books/{book_id}/original.{}", source.extension),
+            relative_path: owned_source_relative_path(book_id, &source.format),
             absolute_path: final_path,
         })
     })
@@ -141,7 +145,57 @@ pub async fn copy_source(
 pub fn remove_book_directory(paths: &AppPaths, book_id: Uuid) -> AppResult<()> {
     let directory = paths.books.join(book_id.to_string());
     if directory.exists() {
-        fs::remove_dir_all(directory)?;
+        let metadata = fs::symlink_metadata(&directory)?;
+        if metadata.file_type().is_symlink() {
+            fs::remove_dir(directory)?;
+        } else {
+            fs::remove_dir_all(directory)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn recover_import_storage(paths: &AppPaths, owned_book_ids: &HashSet<Uuid>) -> AppResult<()> {
+    fs::create_dir_all(&paths.books)?;
+    for entry in fs::read_dir(&paths.books)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if !file_type.is_dir() || file_type.is_symlink() {
+            continue;
+        }
+        let Some(book_id) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| Uuid::parse_str(name).ok())
+        else {
+            continue;
+        };
+        if owned_book_ids.contains(&book_id) {
+            remove_partial_files(&entry.path())?;
+        } else {
+            remove_book_directory(paths, book_id)?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_partial_files(directory: &Path) -> AppResult<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            remove_partial_files(&entry.path())?;
+        } else if file_type.is_file()
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.ends_with(".partial"))
+        {
+            fs::remove_file(entry.path())?;
+        }
     }
     Ok(())
 }
@@ -159,19 +213,39 @@ pub fn clear_derived_directory(paths: &AppPaths, book_id: Uuid) -> AppResult<()>
 pub fn resolve_owned_source(
     paths: &AppPaths,
     book_id: Uuid,
+    format: &BookFormat,
     stored_path: &str,
 ) -> AppResult<PathBuf> {
-    if stored_path.is_empty() {
-        return Err(AppError::new(AppErrorCode::BookNotReady));
+    let expected_relative = owned_source_relative_path(book_id, format);
+    if stored_path != expected_relative {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
     }
     let book_directory = fs::canonicalize(paths.books.join(book_id.to_string()))?;
-    let candidate = fs::canonicalize(paths.root.join(Path::new(stored_path)))?;
+    let candidate = fs::canonicalize(
+        paths
+            .books
+            .join(book_id.to_string())
+            .join(format!("original.{}", format_extension(format))),
+    )?;
     if candidate.parent() != Some(book_directory.as_path())
         || !candidate.starts_with(&book_directory)
+        || !fs::metadata(&candidate)?.is_file()
     {
         return Err(AppError::new(AppErrorCode::InvalidInput));
     }
     Ok(candidate)
+}
+
+pub fn owned_source_relative_path(book_id: Uuid, format: &BookFormat) -> String {
+    format!("books/{book_id}/original.{}", format_extension(format))
+}
+
+fn format_extension(format: &BookFormat) -> &'static str {
+    match format {
+        BookFormat::Pdf => "pdf",
+        BookFormat::Epub => "epub",
+        BookFormat::Docx => "docx",
+    }
 }
 
 pub fn hash_file(path: &Path) -> AppResult<String> {

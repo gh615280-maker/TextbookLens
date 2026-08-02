@@ -16,11 +16,21 @@ pub enum BookFormat {
 #[serde(rename_all = "snake_case")]
 #[ts(export_to = "book.ts")]
 pub enum ImportStatus {
+    Queued,
     Copying,
     Parsing,
     Indexing,
     Ready,
     Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "book.ts")]
+pub enum ImportErrorStage {
+    Copying,
+    Parsing,
+    Indexing,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -35,6 +45,7 @@ pub struct BookSummary {
     pub import_status: ImportStatus,
     pub import_error_code: Option<String>,
     pub import_error_message: Option<String>,
+    pub import_error_stage: Option<ImportErrorStage>,
     pub reading_progress: f64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

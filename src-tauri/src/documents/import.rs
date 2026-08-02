@@ -10,8 +10,8 @@ use crate::{
     app_state::AppPaths,
     book_repository::{self as books, HashClaim},
     domain::{
-        BookFormat, BookSummary, DocumentLocator, ImportStatus, NormalizedSectionInput,
-        stable_block_id, stable_section_id,
+        BookFormat, BookSummary, DocumentLocator, ImportErrorStage, ImportStatus,
+        NormalizedSectionInput, stable_block_id, stable_section_id,
     },
     errors::{AppError, AppErrorCode, AppResult},
 };
@@ -25,7 +25,88 @@ use super::{
 };
 
 pub type ProgressEmitter = Arc<dyn Fn(ImportEvent) + Send + Sync>;
-pub type ImportCancellationRegistry = Arc<Mutex<HashMap<Uuid, CancellationToken>>>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImportAttemptId(Uuid);
+
+#[derive(Clone)]
+struct ActiveImportAttempt {
+    id: ImportAttemptId,
+    cancellation: CancellationToken,
+}
+
+#[derive(Clone, Default)]
+pub struct ImportCancellationRegistry {
+    active: Arc<Mutex<HashMap<Uuid, ActiveImportAttempt>>>,
+}
+
+impl ImportCancellationRegistry {
+    pub fn register(&self, book_id: Uuid, cancellation: CancellationToken) -> ImportAttemptId {
+        let attempt_id = ImportAttemptId(Uuid::new_v4());
+        self.active.lock().insert(
+            book_id,
+            ActiveImportAttempt {
+                id: attempt_id,
+                cancellation,
+            },
+        );
+        attempt_id
+    }
+
+    pub fn cancel(&self, book_id: Uuid) -> Option<ImportAttemptId> {
+        self.active.lock().get(&book_id).map(|attempt| {
+            attempt.cancellation.cancel();
+            attempt.id
+        })
+    }
+
+    pub fn remove_if_owner(&self, book_id: Uuid, attempt_id: ImportAttemptId) -> bool {
+        self.take_if_owner(book_id, attempt_id).is_some()
+    }
+
+    pub fn is_cancelled(&self, book_id: Uuid) -> bool {
+        self.active
+            .lock()
+            .get(&book_id)
+            .is_some_and(|attempt| attempt.cancellation.is_cancelled())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.active.lock().is_empty()
+    }
+
+    fn current_attempt(&self, book_id: Uuid) -> Option<ImportAttemptId> {
+        self.active.lock().get(&book_id).map(|attempt| attempt.id)
+    }
+
+    fn token_if_owner(
+        &self,
+        book_id: Uuid,
+        attempt_id: ImportAttemptId,
+    ) -> Option<CancellationToken> {
+        self.active
+            .lock()
+            .get(&book_id)
+            .filter(|attempt| attempt.id == attempt_id)
+            .map(|attempt| attempt.cancellation.clone())
+    }
+
+    fn take_if_owner(
+        &self,
+        book_id: Uuid,
+        attempt_id: ImportAttemptId,
+    ) -> Option<CancellationToken> {
+        let mut active = self.active.lock();
+        if active
+            .get(&book_id)
+            .is_some_and(|attempt| attempt.id == attempt_id)
+        {
+            active.remove(&book_id).map(|attempt| attempt.cancellation)
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -90,7 +171,7 @@ pub struct ImportService {
 
 impl ImportService {
     pub fn new(pool: SqlitePool, paths: AppPaths) -> Self {
-        Self::with_cancellations(pool, paths, Arc::new(Mutex::new(HashMap::new())))
+        Self::with_cancellations(pool, paths, ImportCancellationRegistry::default())
     }
 
     pub fn with_cancellations(
@@ -110,7 +191,7 @@ impl ImportService {
     }
 
     pub fn cancellations(&self) -> ImportCancellationRegistry {
-        Arc::clone(&self.cancellations)
+        self.cancellations.clone()
     }
 
     pub async fn begin_import(
@@ -130,25 +211,52 @@ impl ImportService {
     ) -> AppResult<BeginImportOutcome> {
         let source = validate_source(&request.source_path)?;
         let book_id = Uuid::new_v4();
-        books::insert_copying(
+        books::insert_queued(
             &self.pool,
             book_id,
             &source.format,
             &source.original_filename,
         )
         .await?;
-        self.cancellations
-            .lock()
-            .insert(book_id, cancellation.clone());
+        let attempt_id = self.cancellations.register(book_id, cancellation.clone());
+        if let Err(error) = books::start_copying(&self.pool, book_id).await {
+            self.cancellations.remove_if_owner(book_id, attempt_id);
+            let _ = books::mark_failed(
+                &self.pool,
+                book_id,
+                ImportErrorStage::Copying,
+                error.code,
+                error.code.user_message(),
+                true,
+            )
+            .await;
+            return Err(error);
+        }
 
-        let copied = copy_source(&self.paths, book_id, &source, cancellation, progress).await;
+        let copied = copy_source(
+            &self.paths,
+            book_id,
+            &source,
+            cancellation.clone(),
+            progress,
+        )
+        .await;
         let copied = match copied {
             Ok(copied) => copied,
             Err(error) => {
-                self.cancellations.lock().remove(&book_id);
-                let _ = remove_book_directory(&self.paths, book_id);
-                let message = error.code.user_message();
-                let _ = books::mark_failed(&self.pool, book_id, error.code, message, true).await;
+                if self.cancellations.remove_if_owner(book_id, attempt_id) {
+                    let _ = remove_book_directory(&self.paths, book_id);
+                    let message = error.code.user_message();
+                    let _ = books::mark_failed(
+                        &self.pool,
+                        book_id,
+                        ImportErrorStage::Copying,
+                        error.code,
+                        message,
+                        true,
+                    )
+                    .await;
+                }
                 return Err(error);
             }
         };
@@ -164,22 +272,28 @@ impl ImportService {
         {
             Ok(HashClaim::Claimed(book)) => Ok(BeginImportOutcome::Created { book }),
             Ok(HashClaim::Duplicate(book)) => {
-                self.cancellations.lock().remove(&book_id);
+                self.cancellations.remove_if_owner(book_id, attempt_id);
                 remove_book_directory(&self.paths, book_id)?;
                 Ok(BeginImportOutcome::Duplicate { book })
             }
             Err(error) => {
-                self.cancellations.lock().remove(&book_id);
-                let _ = remove_book_directory(&self.paths, book_id);
-                let _ = books::mark_failed(
-                    &self.pool,
-                    book_id,
-                    error.code,
-                    error.code.user_message(),
-                    true,
-                )
-                .await;
-                Err(error)
+                if self.cancellations.remove_if_owner(book_id, attempt_id) {
+                    let _ = remove_book_directory(&self.paths, book_id);
+                    let _ = books::mark_failed(
+                        &self.pool,
+                        book_id,
+                        ImportErrorStage::Copying,
+                        error.code,
+                        error.code.user_message(),
+                        true,
+                    )
+                    .await;
+                }
+                if cancellation.is_cancelled() {
+                    Err(AppError::new(AppErrorCode::ImportCancelled))
+                } else {
+                    Err(error)
+                }
             }
         }
     }
@@ -189,21 +303,41 @@ impl ImportService {
     }
 
     pub async fn cancel_import(&self, book_id: Uuid) -> AppResult<()> {
-        if let Some(cancellation) = self.cancellations.lock().get(&book_id).cloned() {
-            cancellation.cancel();
-        }
+        let attempt_id = self.cancellations.cancel(book_id);
         match books::get(&self.pool, book_id).await {
-            Ok(record) if record.summary.import_status == ImportStatus::Parsing => {
-                remove_book_directory(&self.paths, book_id)?;
+            Ok(record)
+                if matches!(
+                    record.summary.import_status,
+                    ImportStatus::Queued
+                        | ImportStatus::Copying
+                        | ImportStatus::Parsing
+                        | ImportStatus::Indexing
+                ) =>
+            {
+                let stage = error_stage_for_status(&record.summary.import_status);
+                let remove_result = remove_book_directory(&self.paths, book_id);
                 books::mark_failed(
                     &self.pool,
                     book_id,
+                    stage,
                     AppErrorCode::ImportCancelled,
                     AppErrorCode::ImportCancelled.user_message(),
                     true,
                 )
                 .await?;
-                self.cancellations.lock().remove(&book_id);
+                if !matches!(
+                    record.summary.import_status,
+                    ImportStatus::Queued | ImportStatus::Copying
+                ) && let Some(attempt_id) = attempt_id
+                {
+                    self.cancellations.remove_if_owner(book_id, attempt_id);
+                }
+                if !matches!(
+                    record.summary.import_status,
+                    ImportStatus::Queued | ImportStatus::Copying
+                ) {
+                    remove_result?;
+                }
             }
             Ok(_) => {}
             Err(error) if error.code == AppErrorCode::NotFound => {}
@@ -228,26 +362,44 @@ impl ImportService {
             if source.format != record.summary.format {
                 return Err(AppError::new(AppErrorCode::UnsupportedFileType));
             }
-            remove_book_directory(&self.paths, book_id)?;
             books::prepare_failed_for_replacement(&self.pool, book_id).await?;
+            if let Err(error) = remove_book_directory(&self.paths, book_id) {
+                let _ = books::mark_failed(
+                    &self.pool,
+                    book_id,
+                    ImportErrorStage::Copying,
+                    error.code,
+                    error.code.user_message(),
+                    true,
+                )
+                .await;
+                return Err(error);
+            }
             let cancellation = CancellationToken::new();
-            self.cancellations
-                .lock()
-                .insert(book_id, cancellation.clone());
-            let copied = copy_source(&self.paths, book_id, &source, cancellation, progress).await;
+            let attempt_id = self.cancellations.register(book_id, cancellation.clone());
+            let copied = copy_source(
+                &self.paths,
+                book_id,
+                &source,
+                cancellation.clone(),
+                progress,
+            )
+            .await;
             let copied = match copied {
                 Ok(copied) => copied,
                 Err(error) => {
-                    self.cancellations.lock().remove(&book_id);
-                    let _ = remove_book_directory(&self.paths, book_id);
-                    let _ = books::mark_failed(
-                        &self.pool,
-                        book_id,
-                        error.code,
-                        error.code.user_message(),
-                        true,
-                    )
-                    .await;
+                    if self.cancellations.remove_if_owner(book_id, attempt_id) {
+                        let _ = remove_book_directory(&self.paths, book_id);
+                        let _ = books::mark_failed(
+                            &self.pool,
+                            book_id,
+                            ImportErrorStage::Copying,
+                            error.code,
+                            error.code.user_message(),
+                            true,
+                        )
+                        .await;
+                    }
                     return Err(error);
                 }
             };
@@ -262,37 +414,58 @@ impl ImportService {
             return match claim {
                 Ok(HashClaim::Claimed(book)) => Ok(BeginImportOutcome::Created { book }),
                 Ok(HashClaim::Duplicate(book)) => {
-                    self.cancellations.lock().remove(&book_id);
+                    self.cancellations.remove_if_owner(book_id, attempt_id);
                     remove_book_directory(&self.paths, book_id)?;
                     Ok(BeginImportOutcome::Duplicate { book })
                 }
                 Err(error) => {
-                    self.cancellations.lock().remove(&book_id);
-                    let _ = remove_book_directory(&self.paths, book_id);
-                    let _ = books::mark_failed(
-                        &self.pool,
-                        book_id,
-                        error.code,
-                        error.code.user_message(),
-                        true,
-                    )
-                    .await;
-                    Err(error)
+                    if self.cancellations.remove_if_owner(book_id, attempt_id) {
+                        let _ = remove_book_directory(&self.paths, book_id);
+                        let _ = books::mark_failed(
+                            &self.pool,
+                            book_id,
+                            ImportErrorStage::Copying,
+                            error.code,
+                            error.code.user_message(),
+                            true,
+                        )
+                        .await;
+                    }
+                    if cancellation.is_cancelled() {
+                        Err(AppError::new(AppErrorCode::ImportCancelled))
+                    } else {
+                        Err(error)
+                    }
                 }
             };
         }
 
-        let owned_path = resolve_owned_source(&self.paths, book_id, &record.stored_path)
-            .map_err(|_| AppError::new(AppErrorCode::InvalidInput))?;
+        let stored_path = record
+            .stored_path
+            .as_deref()
+            .ok_or_else(|| AppError::new(AppErrorCode::InvalidInput))?;
+        let expected_hash = record
+            .sha256
+            .as_deref()
+            .ok_or_else(|| AppError::new(AppErrorCode::InvalidInput))?;
+        let owned_path =
+            resolve_owned_source(&self.paths, book_id, &record.summary.format, stored_path)
+                .map_err(|_| AppError::new(AppErrorCode::InvalidInput))?;
         let actual_hash = hash_file(&owned_path)?;
-        if actual_hash != record.sha256 {
+        if actual_hash != expected_hash {
             return Err(AppError::new(AppErrorCode::FileCorrupted));
         }
         clear_derived_directory(&self.paths, book_id)?;
-        let book = books::reset_failed_for_retry(&self.pool, book_id).await?;
-        self.cancellations
-            .lock()
-            .insert(book_id, CancellationToken::new());
+        let attempt_id = self
+            .cancellations
+            .register(book_id, CancellationToken::new());
+        let book = match books::reset_failed_for_retry(&self.pool, book_id).await {
+            Ok(book) => book,
+            Err(error) => {
+                self.cancellations.remove_if_owner(book_id, attempt_id);
+                return Err(error);
+            }
+        };
         Ok(BeginImportOutcome::Created { book })
     }
 
@@ -327,29 +500,52 @@ impl ImportService {
     ) -> AppResult<BookSummary> {
         self.ensure_not_cancelled(book_id)?;
         books::require_parsing(&self.pool, book_id).await?;
+        let attempt_id = self
+            .cancellations
+            .current_attempt(book_id)
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
+        let cancellation = self
+            .cancellations
+            .token_if_owner(book_id, attempt_id)
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
+        books::begin_indexing(&self.pool, book_id).await?;
         progress(ImportEvent {
             stage: ImportStage::Indexing,
             completed: 0,
             total: 1,
             message_key: "import.indexing".to_owned(),
         });
-        let book = books::finalize(&self.pool, book_id).await?;
-        let cancelled = self
-            .cancellations
-            .lock()
-            .remove(&book_id)
-            .is_some_and(|cancellation| cancellation.is_cancelled());
-        if cancelled {
-            remove_book_directory(&self.paths, book_id)?;
-            books::mark_failed(
-                &self.pool,
-                book_id,
-                AppErrorCode::ImportCancelled,
-                AppErrorCode::ImportCancelled.user_message(),
-                true,
-            )
-            .await?;
-            return Err(AppError::new(AppErrorCode::ImportCancelled));
+        if cancellation.is_cancelled() {
+            return self
+                .compensate_cancelled_attempt(book_id, attempt_id, ImportErrorStage::Indexing)
+                .await;
+        }
+        let book = match books::finalize(&self.pool, book_id).await {
+            Ok(book) => book,
+            Err(_) if cancellation.is_cancelled() => {
+                return Err(AppError::new(AppErrorCode::ImportCancelled));
+            }
+            Err(error) => return Err(error),
+        };
+        match self.cancellations.take_if_owner(book_id, attempt_id) {
+            Some(active) if active.is_cancelled() => {
+                remove_book_directory(&self.paths, book_id)?;
+                books::mark_failed(
+                    &self.pool,
+                    book_id,
+                    ImportErrorStage::Indexing,
+                    AppErrorCode::ImportCancelled,
+                    AppErrorCode::ImportCancelled.user_message(),
+                    true,
+                )
+                .await?;
+                return Err(AppError::new(AppErrorCode::ImportCancelled));
+            }
+            Some(_) => {}
+            None if cancellation.is_cancelled() => {
+                return Err(AppError::new(AppErrorCode::ImportCancelled));
+            }
+            None => return Err(AppError::new(AppErrorCode::RequestConflict)),
         }
         progress(ImportEvent {
             stage: ImportStage::Indexing,
@@ -366,11 +562,23 @@ impl ImportService {
         stage: ImportStage,
         code: AppErrorCode,
     ) -> AppResult<()> {
-        if let Some(cancellation) = self.cancellations.lock().remove(&book_id) {
-            cancellation.cancel();
+        if let Some(attempt_id) = self.cancellations.cancel(book_id) {
+            self.cancellations.remove_if_owner(book_id, attempt_id);
         }
-        let message = format!("{}: {}", stage.as_str(), code.user_message());
-        books::mark_failed(&self.pool, book_id, code, &message, false).await
+        let error_stage = ImportErrorStage::from(stage);
+        let clear_owned_source = error_stage == ImportErrorStage::Copying;
+        if clear_owned_source {
+            remove_book_directory(&self.paths, book_id)?;
+        }
+        books::mark_failed(
+            &self.pool,
+            book_id,
+            error_stage,
+            code,
+            code.user_message(),
+            clear_owned_source,
+        )
+        .await
     }
 
     pub async fn delete_failed_import(&self, book_id: Uuid) -> AppResult<()> {
@@ -379,7 +587,9 @@ impl ImportService {
             return Err(AppError::new(AppErrorCode::RequestConflict));
         }
         remove_book_directory(&self.paths, book_id)?;
-        self.cancellations.lock().remove(&book_id);
+        if let Some(attempt_id) = self.cancellations.cancel(book_id) {
+            self.cancellations.remove_if_owner(book_id, attempt_id);
+        }
         books::delete_failed(&self.pool, book_id).await
     }
 
@@ -392,16 +602,52 @@ impl ImportService {
     }
 
     fn ensure_not_cancelled(&self, book_id: Uuid) -> AppResult<()> {
-        if self
-            .cancellations
-            .lock()
-            .get(&book_id)
-            .is_some_and(CancellationToken::is_cancelled)
-        {
+        if self.cancellations.is_cancelled(book_id) {
             Err(AppError::new(AppErrorCode::ImportCancelled))
         } else {
             Ok(())
         }
+    }
+
+    async fn compensate_cancelled_attempt(
+        &self,
+        book_id: Uuid,
+        attempt_id: ImportAttemptId,
+        stage: ImportErrorStage,
+    ) -> AppResult<BookSummary> {
+        if !self.cancellations.remove_if_owner(book_id, attempt_id) {
+            return Err(AppError::new(AppErrorCode::ImportCancelled));
+        }
+        remove_book_directory(&self.paths, book_id)?;
+        books::mark_failed(
+            &self.pool,
+            book_id,
+            stage,
+            AppErrorCode::ImportCancelled,
+            AppErrorCode::ImportCancelled.user_message(),
+            true,
+        )
+        .await?;
+        Err(AppError::new(AppErrorCode::ImportCancelled))
+    }
+}
+
+impl From<ImportStage> for ImportErrorStage {
+    fn from(stage: ImportStage) -> Self {
+        match stage {
+            ImportStage::Copying => Self::Copying,
+            ImportStage::Parsing => Self::Parsing,
+            ImportStage::Indexing => Self::Indexing,
+        }
+    }
+}
+
+fn error_stage_for_status(status: &ImportStatus) -> ImportErrorStage {
+    match status {
+        ImportStatus::Queued | ImportStatus::Copying => ImportErrorStage::Copying,
+        ImportStatus::Parsing => ImportErrorStage::Parsing,
+        ImportStatus::Indexing => ImportErrorStage::Indexing,
+        ImportStatus::Ready | ImportStatus::Failed => ImportErrorStage::Parsing,
     }
 }
 

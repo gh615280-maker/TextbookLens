@@ -3,15 +3,15 @@ use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use uuid::Uuid;
 
 use crate::{
-    domain::{BookFormat, BookSummary, ImportStatus},
+    domain::{BookFormat, BookSummary, ImportErrorStage, ImportStatus},
     errors::{AppError, AppErrorCode, AppResult},
 };
 
 #[derive(Clone, Debug)]
 pub struct BookRecord {
     pub summary: BookSummary,
-    pub sha256: String,
-    pub stored_path: String,
+    pub sha256: Option<String>,
+    pub stored_path: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -20,7 +20,7 @@ pub enum HashClaim {
     Duplicate(BookSummary),
 }
 
-pub async fn insert_copying(
+pub async fn insert_queued(
     pool: &SqlitePool,
     id: Uuid,
     format: &BookFormat,
@@ -32,16 +32,25 @@ pub async fn insert_copying(
         .filter(|stem| !stem.is_empty())
         .unwrap_or(original_filename);
     sqlx::query(
-        "INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '', 'copying', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        "INSERT INTO books (id, title, format, original_filename, import_status, created_at, updated_at) VALUES (?, ?, ?, ?, 'queued', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
     )
     .bind(id.to_string())
-    .bind(format!("pending:{id}"))
     .bind(title)
     .bind(format_name(format))
     .bind(original_filename)
     .execute(pool)
     .await?;
     Ok(())
+}
+
+pub async fn start_copying(pool: &SqlitePool, id: Uuid) -> AppResult<()> {
+    let result = sqlx::query(
+        "UPDATE books SET import_status = 'copying', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'queued'",
+    )
+    .bind(id.to_string())
+    .execute(pool)
+    .await?;
+    ensure_changed(result.rows_affected())
 }
 
 pub async fn claim_hash(
@@ -54,7 +63,7 @@ pub async fn claim_hash(
     let mut transaction = pool.begin().await?;
     let updated = if let Some(original_filename) = original_filename {
         sqlx::query(
-            "UPDATE books SET sha256 = ?, stored_path = ?, original_filename = ?, import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+            "UPDATE books SET sha256 = ?, stored_path = ?, original_filename = ?, import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, import_error_stage = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'copying'",
         )
         .bind(sha256)
         .bind(stored_path)
@@ -64,7 +73,7 @@ pub async fn claim_hash(
         .await
     } else {
         sqlx::query(
-            "UPDATE books SET sha256 = ?, stored_path = ?, import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+            "UPDATE books SET sha256 = ?, stored_path = ?, import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, import_error_stage = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'copying'",
         )
         .bind(sha256)
         .bind(stored_path)
@@ -73,23 +82,31 @@ pub async fn claim_hash(
         .await
     };
 
-    if let Err(error) = updated {
-        let duplicate = sqlx::query("SELECT * FROM books WHERE sha256 = ? AND id <> ?")
-            .bind(sha256)
-            .bind(id.to_string())
-            .fetch_optional(&mut *transaction)
-            .await?
-            .map(|row| row_to_record(&row))
-            .transpose()?;
-        if let Some(duplicate) = duplicate {
-            sqlx::query("DELETE FROM books WHERE id = ?")
+    let updated = match updated {
+        Ok(updated) => updated,
+        Err(error) if is_sha256_unique_violation(&error) => {
+            let duplicate = sqlx::query("SELECT * FROM books WHERE sha256 = ? AND id <> ?")
+                .bind(sha256)
                 .bind(id.to_string())
-                .execute(&mut *transaction)
-                .await?;
-            transaction.commit().await?;
-            return Ok(HashClaim::Duplicate(duplicate.summary));
+                .fetch_optional(&mut *transaction)
+                .await?
+                .map(|row| row_to_record(&row))
+                .transpose()?;
+            if let Some(duplicate) = duplicate {
+                sqlx::query("DELETE FROM books WHERE id = ?")
+                    .bind(id.to_string())
+                    .execute(&mut *transaction)
+                    .await?;
+                transaction.commit().await?;
+                return Ok(HashClaim::Duplicate(duplicate.summary));
+            }
+            return Err(AppError::database(error));
         }
-        return Err(AppError::database(error));
+        Err(error) => return Err(AppError::database(error)),
+    };
+
+    if updated.rows_affected() == 0 {
+        return Err(AppError::new(AppErrorCode::RequestConflict));
     }
 
     let book = fetch_in_transaction(&mut transaction, id).await?;
@@ -119,25 +136,28 @@ pub async fn list(pool: &SqlitePool) -> AppResult<Vec<BookSummary>> {
 pub async fn mark_failed(
     pool: &SqlitePool,
     id: Uuid,
+    stage: ImportErrorStage,
     code: AppErrorCode,
     message: &str,
-    clear_stored_path: bool,
+    clear_owned_source: bool,
 ) -> AppResult<()> {
-    let result = if clear_stored_path {
+    let result = if clear_owned_source {
         sqlx::query(
-            "UPDATE books SET import_status = 'failed', import_error_code = ?, import_error_message = ?, stored_path = '', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+            "UPDATE books SET import_status = 'failed', import_error_code = ?, import_error_message = ?, import_error_stage = ?, sha256 = NULL, stored_path = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
         )
         .bind(code_name(code))
         .bind(message)
+        .bind(stage_name(&stage))
         .bind(id.to_string())
         .execute(pool)
         .await?
     } else {
         sqlx::query(
-            "UPDATE books SET import_status = 'failed', import_error_code = ?, import_error_message = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+            "UPDATE books SET import_status = 'failed', import_error_code = ?, import_error_message = ?, import_error_stage = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
         )
         .bind(code_name(code))
         .bind(message)
+        .bind(stage_name(&stage))
         .bind(id.to_string())
         .execute(pool)
         .await?
@@ -156,7 +176,7 @@ pub async fn begin_parse(
     language: Option<&str>,
 ) -> AppResult<()> {
     let result = sqlx::query(
-        "UPDATE books SET title = ?, author = ?, language = ?, import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'parsing'",
+        "UPDATE books SET title = ?, author = ?, language = ?, import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, import_error_stage = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'parsing'",
     )
     .bind(title)
     .bind(author)
@@ -181,7 +201,7 @@ pub async fn require_parsing(pool: &SqlitePool, id: Uuid) -> AppResult<()> {
 
 pub async fn finalize(pool: &SqlitePool, id: Uuid) -> AppResult<BookSummary> {
     let result = sqlx::query(
-        "UPDATE books SET import_status = 'ready', import_error_code = NULL, import_error_message = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'parsing'",
+        "UPDATE books SET import_status = 'ready', import_error_code = NULL, import_error_message = NULL, import_error_stage = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'indexing'",
     )
     .bind(id.to_string())
     .execute(pool)
@@ -190,9 +210,19 @@ pub async fn finalize(pool: &SqlitePool, id: Uuid) -> AppResult<BookSummary> {
     Ok(get(pool, id).await?.summary)
 }
 
+pub async fn begin_indexing(pool: &SqlitePool, id: Uuid) -> AppResult<()> {
+    let result = sqlx::query(
+        "UPDATE books SET import_status = 'indexing', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'parsing'",
+    )
+    .bind(id.to_string())
+    .execute(pool)
+    .await?;
+    ensure_changed(result.rows_affected())
+}
+
 pub async fn reset_failed_for_retry(pool: &SqlitePool, id: Uuid) -> AppResult<BookSummary> {
     let result = sqlx::query(
-        "UPDATE books SET import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'failed'",
+        "UPDATE books SET import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, import_error_stage = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'failed' AND sha256 IS NOT NULL AND stored_path IS NOT NULL",
     )
     .bind(id.to_string())
     .execute(pool)
@@ -203,9 +233,8 @@ pub async fn reset_failed_for_retry(pool: &SqlitePool, id: Uuid) -> AppResult<Bo
 
 pub async fn prepare_failed_for_replacement(pool: &SqlitePool, id: Uuid) -> AppResult<()> {
     let result = sqlx::query(
-        "UPDATE books SET sha256 = ?, stored_path = '', import_status = 'copying', import_error_code = NULL, import_error_message = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'failed'",
+        "UPDATE books SET sha256 = NULL, stored_path = NULL, import_status = 'copying', import_error_code = NULL, import_error_message = NULL, import_error_stage = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status = 'failed'",
     )
-    .bind(format!("pending:{id}"))
     .bind(id.to_string())
     .execute(pool)
     .await?;
@@ -254,6 +283,10 @@ fn row_to_record(row: &SqliteRow) -> AppResult<BookRecord> {
             import_status,
             import_error_code: row.try_get("import_error_code")?,
             import_error_message: row.try_get("import_error_message")?,
+            import_error_stage: row
+                .try_get::<Option<String>, _>("import_error_stage")?
+                .map(|stage| parse_error_stage(&stage))
+                .transpose()?,
             reading_progress: row.try_get("reading_progress")?,
             created_at,
             updated_at,
@@ -279,6 +312,7 @@ fn parse_format(value: &str) -> AppResult<BookFormat> {
 
 fn parse_status(value: &str) -> AppResult<ImportStatus> {
     match value {
+        "queued" => Ok(ImportStatus::Queued),
         "copying" => Ok(ImportStatus::Copying),
         "parsing" => Ok(ImportStatus::Parsing),
         "indexing" => Ok(ImportStatus::Indexing),
@@ -288,11 +322,40 @@ fn parse_status(value: &str) -> AppResult<ImportStatus> {
     }
 }
 
+fn parse_error_stage(value: &str) -> AppResult<ImportErrorStage> {
+    match value {
+        "copying" => Ok(ImportErrorStage::Copying),
+        "parsing" => Ok(ImportErrorStage::Parsing),
+        "indexing" => Ok(ImportErrorStage::Indexing),
+        _ => Err(AppError::new(AppErrorCode::DatabaseError)),
+    }
+}
+
 fn format_name(format: &BookFormat) -> &'static str {
     match format {
         BookFormat::Pdf => "pdf",
         BookFormat::Epub => "epub",
         BookFormat::Docx => "docx",
+    }
+}
+
+fn stage_name(stage: &ImportErrorStage) -> &'static str {
+    match stage {
+        ImportErrorStage::Copying => "copying",
+        ImportErrorStage::Parsing => "parsing",
+        ImportErrorStage::Indexing => "indexing",
+    }
+}
+
+fn is_sha256_unique_violation(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(error) => {
+            error.is_unique_violation()
+                && error
+                    .message()
+                    .contains("UNIQUE constraint failed: books.sha256")
+        }
+        _ => false,
     }
 }
 

@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File},
+    fs::{self, OpenOptions},
     io::Write,
     sync::Arc,
 };
@@ -123,7 +123,10 @@ pub async fn write_derived_text(
         if let Some(parent) = partial.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut file = File::create(&partial)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&partial)?;
         file.write_all(content.as_bytes())?;
         file.flush()?;
         file.sync_all()?;
@@ -136,7 +139,7 @@ pub async fn write_derived_text(
     write_result.map_err(AppErrorDto::from)?;
 
     if let Err(error) = ensure_import_not_cancelled(&state, book_id) {
-        let _ = fs::remove_dir_all(&book_directory);
+        let _ = service(&state).cancel_import(book_id).await;
         return Err(error);
     }
     if let Err(error) = crate::book_repository::require_parsing(state.db.pool(), book_id).await {
@@ -201,12 +204,7 @@ pub async fn retry_import(
 }
 
 fn ensure_import_not_cancelled(state: &AppState, book_id: Uuid) -> Result<(), AppErrorDto> {
-    if state
-        .import_cancellations
-        .lock()
-        .get(&book_id)
-        .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
-    {
+    if state.import_cancellations.is_cancelled(book_id) {
         Err(AppError::new(AppErrorCode::ImportCancelled).into())
     } else {
         Ok(())

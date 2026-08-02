@@ -2,6 +2,8 @@
 
 export type BookFormat = "pdf" | "epub" | "docx";
 
-export type BookSummary = { id: string, title: string, author: string | null, language: string | null, format: BookFormat, importStatus: ImportStatus, importErrorCode: string | null, importErrorMessage: string | null, readingProgress: number, createdAt: string, updatedAt: string, lastOpenedAt: string | null, };
+export type BookSummary = { id: string, title: string, author: string | null, language: string | null, format: BookFormat, importStatus: ImportStatus, importErrorCode: string | null, importErrorMessage: string | null, importErrorStage: ImportErrorStage | null, readingProgress: number, createdAt: string, updatedAt: string, lastOpenedAt: string | null, };
 
-export type ImportStatus = "copying" | "parsing" | "indexing" | "ready" | "failed";
+export type ImportErrorStage = "copying" | "parsing" | "indexing";
+
+export type ImportStatus = "queued" | "copying" | "parsing" | "indexing" | "ready" | "failed";

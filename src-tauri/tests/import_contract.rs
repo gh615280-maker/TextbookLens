@@ -6,8 +6,11 @@ use textbooklens_lib::{
     app_state::AppPaths,
     db::Database,
     documents::import::{
-        BeginImportOutcome, BeginImportRequest, ImportEvent, ImportService, ImportStage,
+        BeginImportOutcome, BeginImportRequest, ImportCancellationRegistry, ImportEvent,
+        ImportService, ImportStage,
     },
+    documents::storage::{copy_source, noop_progress, validate_source},
+    domain::{ImportErrorStage, ImportStatus},
     errors::AppErrorCode,
 };
 use tokio_util::sync::CancellationToken;
@@ -48,6 +51,26 @@ fn created_book(outcome: BeginImportOutcome) -> textbooklens_lib::domain::BookSu
 }
 
 fn no_progress(_: ImportEvent) {}
+
+#[tokio::test]
+async fn queued_status_maps_through_the_rust_book_summary() {
+    let (_temp, database, service) = test_service().await;
+    let book_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO books (id, title, format, original_filename, import_status, created_at, updated_at) VALUES (?, 'Queued', 'pdf', 'queued.pdf', 'queued', ?, ?)",
+    )
+    .bind(book_id.to_string())
+    .bind("2026-08-02T00:00:00Z")
+    .bind("2026-08-02T00:00:00Z")
+    .execute(database.pool())
+    .await
+    .unwrap();
+
+    assert_eq!(
+        service.get_book(book_id).await.unwrap().import_status,
+        ImportStatus::Queued
+    );
+}
 
 #[tokio::test]
 async fn copied_book_survives_source_deletion() {
@@ -135,8 +158,9 @@ async fn cancelling_copy_removes_partial_internal_file_and_keeps_source() {
     assert_eq!(error.code, AppErrorCode::ImportCancelled);
     assert!(source.exists());
     assert_eq!(Sha256::digest(fs::read(&source).unwrap()), expected_hash);
-    let failed =
-        sqlx::query("SELECT import_status, import_error_code, stored_path FROM books LIMIT 1")
+    let failed = sqlx::query(
+        "SELECT import_status, import_error_code, import_error_stage, sha256, stored_path FROM books LIMIT 1",
+    )
             .fetch_one(database.pool())
             .await
             .unwrap();
@@ -145,7 +169,14 @@ async fn cancelling_copy_removes_partial_internal_file_and_keeps_source() {
         failed.get::<String, _>("import_error_code"),
         "IMPORT_CANCELLED"
     );
-    assert_eq!(failed.get::<String, _>("stored_path"), "");
+    assert_eq!(
+        failed
+            .get::<Option<String>, _>("import_error_stage")
+            .as_deref(),
+        Some("copying")
+    );
+    assert_eq!(failed.get::<Option<String>, _>("sha256"), None);
+    assert_eq!(failed.get::<Option<String>, _>("stored_path"), None);
     assert_eq!(
         fs::read_dir(service.paths().books.clone()).unwrap().count(),
         0
@@ -242,7 +273,7 @@ async fn cancellation_command_is_idempotent() {
     service.cancel_import(unknown).await.unwrap();
 
     let registry = service.cancellations();
-    assert!(registry.lock().is_empty());
+    assert!(registry.is_empty());
 }
 
 #[tokio::test]
@@ -261,7 +292,7 @@ async fn cancellation_racing_finalize_never_leaves_ready_or_internal_bytes() {
     let registry = service.cancellations();
     let cancel_during_finalize = Arc::new(move |event: ImportEvent| {
         if event.stage == ImportStage::Indexing && event.completed == 0 {
-            registry.lock().get(&book.id).unwrap().cancel();
+            registry.cancel(book.id);
         }
     });
 
@@ -276,6 +307,61 @@ async fn cancellation_racing_finalize_never_leaves_ready_or_internal_bytes() {
         .await
         .unwrap();
     assert_eq!(status, "failed");
+    assert!(!service.paths().books.join(book.id.to_string()).exists());
+    assert!(source.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancel_command_racing_finalize_returns_cancelled_and_compensates_once() {
+    let (temp, database, service) = test_service().await;
+    let source = source_file(&temp, "command-race.pdf", b"%PDF command cancellation race");
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (cancelled_tx, cancelled_rx) = std::sync::mpsc::channel();
+    let cancelled_rx = Arc::new(std::sync::Mutex::new(cancelled_rx));
+    let progress = Arc::new(move |event: ImportEvent| {
+        if event.stage == ImportStage::Indexing && event.completed == 0 {
+            started_tx.send(()).unwrap();
+            cancelled_rx.lock().unwrap().recv().unwrap();
+        }
+    });
+    let cancel_service = service.clone();
+    let cancel = tokio::spawn(async move {
+        started_rx.recv().unwrap();
+        let result = cancel_service.cancel_import(book.id).await;
+        cancelled_tx.send(()).unwrap();
+        result
+    });
+
+    let error = service
+        .finalize_import(book.id, progress)
+        .await
+        .unwrap_err();
+    cancel.await.unwrap().unwrap();
+    assert_eq!(error.code, AppErrorCode::ImportCancelled);
+    let row = sqlx::query(
+        "SELECT import_status, import_error_code, import_error_stage, sha256, stored_path FROM books WHERE id = ?",
+    )
+    .bind(book.id.to_string())
+    .fetch_one(database.pool())
+    .await
+    .unwrap();
+    assert_eq!(row.get::<String, _>("import_status"), "failed");
+    assert_eq!(
+        row.get::<String, _>("import_error_code"),
+        "IMPORT_CANCELLED"
+    );
+    assert_eq!(row.get::<String, _>("import_error_stage"), "indexing");
+    assert_eq!(row.get::<Option<String>, _>("sha256"), None);
+    assert_eq!(row.get::<Option<String>, _>("stored_path"), None);
     assert!(!service.paths().books.join(book.id.to_string()).exists());
     assert!(source.exists());
 }
@@ -298,6 +384,15 @@ async fn parse_failure_retries_owned_copy_and_failed_delete_preserves_source() {
         .mark_import_failed(book.id, ImportStage::Parsing, AppErrorCode::FileCorrupted)
         .await
         .unwrap();
+    let failed_summary = service.get_book(book.id).await.unwrap();
+    assert_eq!(
+        failed_summary.import_error_stage,
+        Some(ImportErrorStage::Parsing)
+    );
+    assert_eq!(
+        failed_summary.import_error_message.as_deref(),
+        Some(AppErrorCode::FileCorrupted.user_message())
+    );
 
     let retried = created_book(
         service
@@ -317,4 +412,294 @@ async fn parse_failure_retries_owned_copy_and_failed_delete_preserves_source() {
         .unwrap();
     assert_eq!(count, 0);
     assert_eq!(fs::read(&source).unwrap(), expected);
+}
+
+#[tokio::test]
+async fn copied_hash_is_the_actual_sha256_without_pending_workarounds() {
+    let (temp, database, service) = test_service().await;
+    let bytes = b"%PDF-1.7\nactual hash contract\n%%EOF";
+    let source = source_file(&temp, "actual.pdf", bytes);
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+
+    let row = sqlx::query("SELECT sha256, stored_path FROM books WHERE id = ?")
+        .bind(book.id.to_string())
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        row.get::<String, _>("sha256"),
+        Sha256::digest(bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    assert_eq!(
+        row.get::<String, _>("stored_path"),
+        format!("books/{}/original.pdf", book.id)
+    );
+}
+
+#[tokio::test]
+async fn non_sha_constraint_failure_is_not_reported_as_duplicate() {
+    let (temp, database, service) = test_service().await;
+    let bytes = b"%PDF duplicate candidate";
+    let first = source_file(&temp, "first.pdf", bytes);
+    let second = source_file(&temp, "second.pdf", bytes);
+    created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(first.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    sqlx::query(
+        "CREATE TRIGGER reject_second_claim BEFORE UPDATE OF sha256 ON books WHEN NEW.original_filename = 'second.pdf' BEGIN SELECT RAISE(ABORT, 'claim blocked'); END",
+    )
+    .execute(database.pool())
+    .await
+    .unwrap();
+
+    let error = service
+        .begin_import(
+            BeginImportRequest::new(second.to_string_lossy().into_owned()),
+            Arc::new(no_progress),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, AppErrorCode::DatabaseError);
+}
+
+#[tokio::test]
+async fn source_reads_reject_escape_and_wrong_internal_copy_paths() {
+    let (temp, database, service) = test_service().await;
+    let source = source_file(&temp, "owned.pdf", b"%PDF owned source");
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    let book_directory = service.paths().books.join(book.id.to_string());
+    fs::write(book_directory.join("alternate.pdf"), b"wrong internal copy").unwrap();
+
+    for untrusted_path in [
+        format!("books/{}/../escape.pdf", book.id),
+        format!("books/{}/alternate.pdf", book.id),
+    ] {
+        sqlx::query("UPDATE books SET stored_path = ? WHERE id = ?")
+            .bind(untrusted_path)
+            .bind(book.id.to_string())
+            .execute(database.pool())
+            .await
+            .unwrap();
+        let error = service.read_book_source(book.id).await.unwrap_err();
+        assert_eq!(error.code, AppErrorCode::InvalidInput);
+    }
+}
+
+#[tokio::test]
+async fn source_partial_is_create_new_and_never_overwrites_residue() {
+    let (temp, _database, service) = test_service().await;
+    let source_path = source_file(&temp, "residue.pdf", b"%PDF new bytes");
+    let source = validate_source(source_path.to_str().unwrap()).unwrap();
+    let book_id = uuid::Uuid::new_v4();
+    let book_directory = service.paths().books.join(book_id.to_string());
+    fs::create_dir_all(book_directory.join("derived")).unwrap();
+    let partial = book_directory.join("original.pdf.partial");
+    fs::write(&partial, b"do not overwrite").unwrap();
+
+    let error = copy_source(
+        service.paths(),
+        book_id,
+        &source,
+        CancellationToken::new(),
+        noop_progress(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, AppErrorCode::LocalIoError);
+    assert_eq!(fs::read(partial).unwrap(), b"do not overwrite");
+}
+
+#[test]
+fn retry_old_cleanup_cannot_remove_or_cancel_the_new_attempt_token() {
+    let registry = ImportCancellationRegistry::default();
+    let book_id = uuid::Uuid::new_v4();
+    let old_token = CancellationToken::new();
+    let new_token = CancellationToken::new();
+    let old_attempt = registry.register(book_id, old_token.clone());
+    let cleanup_registry = registry.clone();
+    let cleanup_barrier = Arc::new(std::sync::Barrier::new(2));
+    let cleanup_started = cleanup_barrier.clone();
+    let cleanup = std::thread::spawn(move || {
+        cleanup_started.wait();
+        cleanup_registry.remove_if_owner(book_id, old_attempt)
+    });
+    let _new_attempt = registry.register(book_id, new_token.clone());
+
+    cleanup_barrier.wait();
+    assert!(!cleanup.join().unwrap());
+    assert!(!new_token.is_cancelled());
+    registry.cancel(book_id);
+    assert!(new_token.is_cancelled());
+    assert!(!old_token.is_cancelled());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retry_started_before_old_finalize_cleanup_keeps_new_copy_and_token() {
+    let (temp, database, service) = test_service().await;
+    let original = source_file(&temp, "old.pdf", b"%PDF old attempt");
+    let replacement_bytes = b"%PDF replacement attempt";
+    let replacement = source_file(&temp, "replacement.pdf", replacement_bytes);
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(original.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+    let resume_rx = Arc::new(std::sync::Mutex::new(resume_rx));
+    let progress = Arc::new(move |event: ImportEvent| {
+        if event.stage == ImportStage::Indexing && event.completed == 0 {
+            started_tx.send(()).unwrap();
+            resume_rx.lock().unwrap().recv().unwrap();
+        }
+    });
+    let finalize_service = service.clone();
+    let old_finalize =
+        tokio::spawn(async move { finalize_service.finalize_import(book.id, progress).await });
+
+    started_rx.recv().unwrap();
+    service.cancel_import(book.id).await.unwrap();
+    let retried = created_book(
+        service
+            .retry_import(
+                book.id,
+                Some(replacement.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    assert_eq!(retried.id, book.id);
+    resume_tx.send(()).unwrap();
+    let old_error = old_finalize.await.unwrap().unwrap_err();
+    assert_eq!(old_error.code, AppErrorCode::ImportCancelled);
+
+    assert_eq!(
+        service.read_book_source(book.id).await.unwrap(),
+        replacement_bytes
+    );
+    assert!(!service.cancellations().is_empty());
+    let status: String = sqlx::query_scalar("SELECT import_status FROM books WHERE id = ?")
+        .bind(book.id.to_string())
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+    assert_eq!(status, "parsing");
+    assert!(original.exists());
+    assert!(replacement.exists());
+}
+
+#[tokio::test]
+async fn retry_rejects_a_db_selected_internal_file_even_when_its_hash_matches() {
+    let (temp, database, service) = test_service().await;
+    let expected = b"%PDF retry ownership";
+    let source = source_file(&temp, "retry-owned.pdf", expected);
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    service
+        .mark_import_failed(book.id, ImportStage::Parsing, AppErrorCode::FileCorrupted)
+        .await
+        .unwrap();
+    let book_directory = service.paths().books.join(book.id.to_string());
+    fs::write(book_directory.join("alternate.pdf"), expected).unwrap();
+    sqlx::query("UPDATE books SET stored_path = ? WHERE id = ?")
+        .bind(format!("books/{}/alternate.pdf", book.id))
+        .bind(book.id.to_string())
+        .execute(database.pool())
+        .await
+        .unwrap();
+
+    let error = service
+        .retry_import(book.id, None, Arc::new(no_progress))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, AppErrorCode::InvalidInput);
+}
+
+#[tokio::test]
+async fn replacement_retry_duplicate_is_explicit_and_never_persists_source_path() {
+    let (temp, database, service) = test_service().await;
+    let duplicate_bytes = b"PK\x03\x04existing epub";
+    let first = source_file(&temp, "winner.epub", duplicate_bytes);
+    let failed_source = source_file(&temp, "failed.epub", b"PK\x03\x04different epub");
+    let replacement = source_file(&temp, "replacement.epub", duplicate_bytes);
+    let winner = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(first.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    let failed = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(failed_source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    service
+        .mark_import_failed(failed.id, ImportStage::Parsing, AppErrorCode::FileCorrupted)
+        .await
+        .unwrap();
+
+    let outcome = service
+        .retry_import(
+            failed.id,
+            Some(replacement.to_string_lossy().into_owned()),
+            Arc::new(no_progress),
+        )
+        .await
+        .unwrap();
+    match outcome {
+        BeginImportOutcome::Duplicate { book } => assert_eq!(book.id, winner.id),
+        BeginImportOutcome::Created { .. } => panic!("replacement duplicate must be explicit"),
+    }
+    let persisted_paths: Vec<Option<String>> = sqlx::query_scalar("SELECT stored_path FROM books")
+        .fetch_all(database.pool())
+        .await
+        .unwrap();
+    assert!(persisted_paths.iter().flatten().all(|path| {
+        !path.contains(replacement.to_string_lossy().as_ref())
+            && !path.contains(failed_source.to_string_lossy().as_ref())
+    }));
 }

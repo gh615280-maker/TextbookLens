@@ -1,10 +1,12 @@
 use std::fs;
 
-use sqlx::{Row, SqlitePool};
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::{
     app_state::AppPaths,
+    book_repository as books,
+    domain::ImportStatus,
     errors::{AppError, AppErrorCode, AppResult},
 };
 
@@ -15,16 +17,16 @@ pub async fn read_book_source_bytes(
     paths: &AppPaths,
     book_id: Uuid,
 ) -> AppResult<Vec<u8>> {
-    let row = sqlx::query("SELECT import_status, stored_path FROM books WHERE id = ?")
-        .bind(book_id.to_string())
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
-    let status: String = row.try_get("import_status")?;
-    if status != "parsing" && status != "ready" {
+    let record = books::get(pool, book_id).await?;
+    if record.summary.import_status != ImportStatus::Parsing
+        && record.summary.import_status != ImportStatus::Ready
+    {
         return Err(AppError::new(AppErrorCode::BookNotReady));
     }
-    let stored_path: String = row.try_get("stored_path")?;
-    let owned_path = resolve_owned_source(paths, book_id, &stored_path)?;
+    let stored_path = record
+        .stored_path
+        .as_deref()
+        .ok_or_else(|| AppError::new(AppErrorCode::BookNotReady))?;
+    let owned_path = resolve_owned_source(paths, book_id, &record.summary.format, stored_path)?;
     fs::read(owned_path).map_err(AppError::from)
 }

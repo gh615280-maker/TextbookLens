@@ -22,7 +22,7 @@ pub fn run() {
             let paths = app_state::AppPaths::from_app(app.handle())?;
             let log_guard = logging::init(&paths.logs)?;
             let database = db::Database::open(&paths.database)?;
-            db::settings::recover_interrupted_imports(database.pool())?;
+            db::settings::recover_interrupted_imports(database.pool(), &paths)?;
             let credential_store = Arc::new(credentials::KeyringCredentialStore::new());
             app.manage(app_state::AppState::new(
                 database,

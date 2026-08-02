@@ -14,12 +14,14 @@ import type {
 
 const bookFormatSchema = z.enum(['pdf', 'epub', 'docx']);
 const importStatusSchema = z.enum([
+  'queued',
   'copying',
   'parsing',
   'indexing',
   'ready',
   'failed',
 ]);
+const importStageSchema = z.enum(['copying', 'parsing', 'indexing']);
 const bookSummarySchema = z
   .object({
     id: z.uuid(),
@@ -30,6 +32,7 @@ const bookSummarySchema = z
     importStatus: importStatusSchema,
     importErrorCode: z.string().nullable(),
     importErrorMessage: z.string().nullable(),
+    importErrorStage: importStageSchema.nullable(),
     readingProgress: z.number().min(0).max(1),
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -49,7 +52,6 @@ const parsedBookMetadataSchema = z
     language: z.string().nullable(),
   })
   .strict();
-const importStageSchema = z.enum(['copying', 'parsing', 'indexing']);
 const importEventSchema = z
   .object({
     stage: importStageSchema,

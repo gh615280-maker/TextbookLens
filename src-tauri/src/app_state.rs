@@ -1,17 +1,14 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fs,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{collections::HashSet, fs, path::PathBuf, sync::Arc};
 
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
-use tokio_util::sync::CancellationToken;
 use tracing_appender::non_blocking::WorkerGuard;
 use uuid::Uuid;
 
-use crate::{credentials::CredentialStore, db::Database, errors::AppResult};
+use crate::{
+    credentials::CredentialStore, db::Database, documents::import::ImportCancellationRegistry,
+    errors::AppResult,
+};
 
 #[derive(Clone, Debug)]
 pub struct AppPaths {
@@ -47,7 +44,7 @@ impl AppPaths {
 pub struct AppState {
     pub db: Database,
     pub paths: AppPaths,
-    pub import_cancellations: Arc<Mutex<HashMap<Uuid, CancellationToken>>>,
+    pub import_cancellations: ImportCancellationRegistry,
     pub learning_cancellations: Mutex<HashSet<Uuid>>,
     pub log_guard: WorkerGuard,
     pub credential_store: Arc<dyn CredentialStore>,
@@ -63,7 +60,7 @@ impl AppState {
         Self {
             db,
             paths,
-            import_cancellations: Arc::new(Mutex::new(HashMap::new())),
+            import_cancellations: ImportCancellationRegistry::default(),
             learning_cancellations: Mutex::new(HashSet::new()),
             log_guard,
             credential_store,
