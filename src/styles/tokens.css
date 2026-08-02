@@ -1,0 +1,13 @@
+:root {
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --font-sans: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-size-base: 1rem;
+  --line-height-base: 1.5;
+  --reader-column-width: 72ch;
+  --focus-ring-width: 3px;
+}
