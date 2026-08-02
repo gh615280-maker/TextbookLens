@@ -2,6 +2,7 @@ import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mj
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 
 import type { NormalizedBlockInput, NormalizedSectionInput } from '../../../lib/generated/document';
+import type { UserFacingError } from '../../../lib/errors';
 import { stableBlockId, stableSectionId } from '../id';
 import type { DocumentParser, ParseContext, ParserSink } from '../parser-contract';
 import { normalizePdfPage, normalizeWhitespace } from './pdf-layout';
@@ -11,7 +12,10 @@ GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
-class PdfParserError extends Error {
+class PdfParserError extends Error implements UserFacingError {
+  readonly nextStep = 'Choose a readable, unencrypted PDF with selectable text.';
+  readonly diagnosticId = null;
+
   constructor(
     readonly code: 'FILE_CORRUPTED' | 'FILE_ENCRYPTED_OR_DRM' | 'NO_EXTRACTABLE_TEXT',
     cause?: unknown,
