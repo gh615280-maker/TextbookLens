@@ -1,12 +1,16 @@
 import type { DocumentLocator } from '../../../lib/generated/document';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { EventBus, PDFLinkService, PDFViewer } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type { ReaderAdapter, ReaderAdapterEvents, ReaderSource, NavigationResult, ReadingProgress, SelectionSnapshot } from '../contracts';
-import { selectionFromRange } from './pdf-selection';
+import { recoverPdfSelection, selectionFromRange } from './pdf-selection';
+import { addPdfRectOverlay } from './pdf-markers';
 import './pdf-reader.css';
 
 interface PdfDocumentHandle { numPages: number; cleanup(): Promise<void> | void; }
 interface PdfLoadingTask { promise: Promise<PdfDocumentHandle>; destroy(): Promise<void> | void; }
 type PdfLoader = (bytes: ArrayBuffer) => PdfLoadingTask;
+interface ViewerLike { setDocument(document: PdfDocumentHandle): void; cleanup(): void; currentPageNumber: number; currentScale: number; pagesRotation: number; }
+type ViewerFactory = (container: HTMLDivElement, viewer: HTMLDivElement, events: EventBus, links: PDFLinkService) => ViewerLike;
 
 /** PDF.js adapter. It accepts only copied bytes, never a URL, and tears down every owned listener/resource. */
 export class PdfReaderAdapter implements ReaderAdapter {
@@ -15,18 +19,27 @@ export class PdfReaderAdapter implements ReaderAdapter {
   #task: PdfLoadingTask | null = null;
   #selection: SelectionSnapshot | null = null;
   #page = 1;
+  #viewer: ViewerLike | null = null;
+  #generation = 0;
   #onMouseUp = () => this.captureSelection();
 
-  constructor(private readonly container: HTMLElement, private readonly events: ReaderAdapterEvents, private readonly load: PdfLoader = loadPdf) {}
+  constructor(private readonly container: HTMLElement, private readonly events: ReaderAdapterEvents, private readonly load: PdfLoader = loadPdf, private readonly createViewer: ViewerFactory = createPdfViewer) {}
 
   async open(source: ReaderSource, initial?: DocumentLocator | null): Promise<void> {
     if (source.kind !== 'document_bytes') throw new TypeError('PDF reader requires in-memory document bytes');
-    this.dispose();
+    this.dispose(); const generation = this.#generation;
     this.container.classList.add('pdf-reader');
-    this.container.replaceChildren(Object.assign(document.createElement('div'), { className: 'pdf-viewer', inert: true }));
-    this.#task = this.load(source.bytes);
-    this.#document = await this.#task.promise;
+    const viewport = Object.assign(document.createElement('div'), { className: 'pdf-viewer-container' });
+    const pages = Object.assign(document.createElement('div'), { className: 'pdf-viewer' }); viewport.append(pages); this.container.replaceChildren(viewport);
+    const eventBus = new EventBus(); const links = new PDFLinkService({ eventBus, externalLinkTarget: 0 });
+    links.externalLinkEnabled = false; const viewer = this.createViewer(viewport, pages, eventBus, links); this.#viewer = viewer;
+    const task = this.load(source.bytes); this.#task = task;
+    const documentHandle = await task.promise;
+    if (generation !== this.#generation || this.#task !== task) { void documentHandle.cleanup(); void task.destroy(); return; }
+    this.#document = documentHandle; links.setDocument(documentHandle); links.setViewer(viewer); viewer.setDocument(documentHandle);
     this.#page = initial?.format === 'pdf' ? initial.startPage : 1;
+    viewer.currentPageNumber = this.#page;
+    eventBus.on('pagechanging', (event: { pageNumber: number }) => { this.#page = event.pageNumber; this.events.onProgress(this.getProgress()); });
     this.container.addEventListener('mouseup', this.#onMouseUp);
   }
 
@@ -34,17 +47,22 @@ export class PdfReaderAdapter implements ReaderAdapter {
 
   async navigate(locator: DocumentLocator): Promise<NavigationResult> {
     if (locator.format !== 'pdf' || !this.#document || locator.startPage < 1 || locator.startPage > this.#document.numPages) return { found: false };
-    this.#page = locator.startPage;
-    this.container.querySelector<HTMLElement>(`[data-page-number="${this.#page}"]`)?.scrollIntoView({ block: 'start' });
+    this.#page = locator.startPage; if (this.#viewer) this.#viewer.currentPageNumber = this.#page;
     return { found: true };
   }
 
   async showAnnotations(items: Parameters<ReaderAdapter['showAnnotations']>[0]): Promise<void> {
-    this.container.querySelector('.pdf-reader-markers')?.remove();
+    this.container.querySelectorAll('.pdf-reader-markers,.pdf-marker-overlay').forEach((node) => node.remove());
     const markers = Object.assign(document.createElement('div'), { className: 'pdf-reader-markers' });
     for (const item of items) {
       const button = Object.assign(document.createElement('button'), { type: 'button', textContent: item.label });
       button.setAttribute('aria-label', item.label); button.addEventListener('click', () => this.events.onMarkerActivate(item.id)); markers.append(button);
+      const anchor = item.anchor; const locator = anchor?.locator;
+      if (locator?.format === 'pdf' && locator.rectsByPage) for (const [page, rects] of Object.entries(locator.rectsByPage)) {
+        const element = this.container.querySelector<HTMLElement>(`[data-page-number="${page}"]`);
+        if (!element) { this.events.onFailure(anchorNotFound()); continue; }
+        addPdfRectOverlay(element, { page: Number(page), ...element.getBoundingClientRect() }, rects);
+      } else if (locator?.format === 'pdf' && anchor) { const pages = [...this.container.querySelectorAll<HTMLElement>('[data-page-number]')]; const recovered = recoverPdfSelection(pages, locator.startPage, locator.endPage, anchor.quote); const recoveredLocator = recovered?.locator; if (!recoveredLocator || recoveredLocator.format !== 'pdf' || !recoveredLocator.rectsByPage) this.events.onFailure(anchorNotFound()); else for (const [page, rects] of Object.entries(recoveredLocator.rectsByPage)) { const element = this.container.querySelector<HTMLElement>(`[data-page-number="${page}"]`)!; addPdfRectOverlay(element, { page: Number(page), ...element.getBoundingClientRect() }, rects); } }
     }
     this.container.append(markers);
   }
@@ -53,10 +71,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
   getProgress(): ReadingProgress { return { fraction: this.#document ? this.#page / this.#document.numPages : 0, locator: this.#document ? { format: 'pdf', startPage: this.#page, endPage: this.#page, rectsByPage: null } : null }; }
 
   dispose(): void {
+    this.#generation += 1;
     this.container.removeEventListener('mouseup', this.#onMouseUp);
     this.#selection = null;
     const documentHandle = this.#document; const task = this.#task;
-    this.#document = null; this.#task = null;
+    this.#document = null; this.#task = null; this.#viewer?.cleanup(); this.#viewer = null;
     void documentHandle?.cleanup(); void task?.destroy();
     this.container.replaceChildren(); this.container.classList.remove('pdf-reader');
   }
@@ -76,3 +95,8 @@ function loadPdf(bytes: ArrayBuffer): PdfLoadingTask {
   // The parser/viewer is deliberately data-only: PDF.js receives no URL and cannot fetch a remote source.
   return getDocument({ data: new Uint8Array(bytes), isEvalSupported: false } as never) as unknown as PdfLoadingTask;
 }
+
+function createPdfViewer(container: HTMLDivElement, viewer: HTMLDivElement, eventBus: EventBus, links: PDFLinkService): ViewerLike {
+  return new PDFViewer({ container, viewer, eventBus, linkService: links, annotationMode: 0, enableAutoLinking: false, enableSelectionRendering: true });
+}
+function anchorNotFound() { return { code: 'ANCHOR_NOT_FOUND' as const, message: 'The saved marker could not be located.', nextStep: 'Open the marker from history.', diagnosticId: null }; }

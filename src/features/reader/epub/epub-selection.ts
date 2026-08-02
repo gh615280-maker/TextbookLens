@@ -12,6 +12,8 @@ export function snapshotEpubRange(range: Range, sectionId: string, cfi: string):
 
 /** Removes executable/external content before EPUB.js displays an archive document. */
 export function sanitizeEpubDocument(document: Document): void {
+  const frame = document.defaultView?.frameElement;
+  if (frame instanceof HTMLIFrameElement) frame.setAttribute('sandbox', 'allow-same-origin');
   document.querySelectorAll('script,iframe,object,embed,form').forEach((node) => node.remove());
   document.querySelectorAll<HTMLElement>('*').forEach((element) => {
     for (const attribute of [...element.attributes]) {

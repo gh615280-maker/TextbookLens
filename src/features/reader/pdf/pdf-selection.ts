@@ -1,5 +1,6 @@
 import type { DocumentLocator, NormalizedRect, TextQuote } from '../../../lib/generated/document';
 import { createTextQuote } from '../anchors/text-quote';
+import { findTextQuote } from '../anchors/text-quote';
 
 export interface ClientRectLike { left: number; top: number; width: number; height: number; }
 export interface PageBounds extends ClientRectLike { page: number; }
@@ -37,7 +38,17 @@ export function selectionFromRange(range: Range, pages: readonly HTMLElement[]):
     const normalized = normalizeRects({ page: pageNumber, ...pageRect }, range.getClientRects());
     if (normalized.length) rectsByPage[pageNumber] = normalized;
   }
-  return { text, sectionId: `page-${startPage.page}`, locator: { format: 'pdf', startPage: startPage.page, endPage: endPage.page, rectsByPage }, quote: createTextQuote(text, 0, [...text].length) };
+  const pageText = pages.filter((page) => { const number = Number(page.dataset.pageNumber); return number >= startPage.page && number <= endPage.page; }).map((page) => page.textContent ?? '').join('');
+  const start = pageText.indexOf(text);
+  return { text, sectionId: `page-${startPage.page}`, locator: { format: 'pdf', startPage: startPage.page, endPage: endPage.page, rectsByPage }, quote: createTextQuote(pageText, start < 0 ? 0 : [...pageText.slice(0, start)].length, start < 0 ? [...text].length : [...pageText.slice(0, start + text.length)].length) };
+}
+
+export function recoverPdfSelection(pages: readonly HTMLElement[], startPage: number, endPage: number, quote: TextQuote): PdfSelection | null {
+  const scope = pages.filter((page) => { const number = Number(page.dataset.pageNumber); return number >= startPage && number <= endPage; });
+  if (scope.length !== endPage - startPage + 1) return null;
+  const text = scope.map((page) => page.textContent ?? '').join(''); const match = findTextQuote(text, quote); if (!match) return null;
+  const start = textNodeAt(scope, match.startUtf16); const end = textNodeAt(scope, match.endUtf16); if (!start || !end) return null;
+  const range = document.createRange(); range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset); return selectionFromRange(range, pages);
 }
 
 function containingPage(node: Node, pages: readonly HTMLElement[]): { page: number } | null {
@@ -46,4 +57,10 @@ function containingPage(node: Node, pages: readonly HTMLElement[]): { page: numb
   if (!page || !pages.includes(page)) return null;
   const number = Number(page.dataset.pageNumber);
   return Number.isInteger(number) && number > 0 ? { page: number } : null;
+}
+
+function textNodeAt(pages: readonly HTMLElement[], utf16Offset: number): { node: Text; offset: number } | null {
+  let remaining = utf16Offset;
+  for (const page of pages) { const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT); let node = walker.nextNode() as Text | null; while (node) { if (remaining <= node.data.length) return { node, offset: remaining }; remaining -= node.data.length; node = walker.nextNode() as Text | null; } }
+  return null;
 }

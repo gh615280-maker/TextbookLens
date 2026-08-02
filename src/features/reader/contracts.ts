@@ -23,6 +23,8 @@ export interface NavigationResult {
 export interface AnnotationMarker {
   id: string;
   label: string;
+  /** Display-only anchor supplied by a later persistence phase; adapters never rewrite it. */
+  anchor?: SelectionSnapshot['anchor'];
 }
 
 export interface ReaderSearchHit {
