@@ -294,7 +294,13 @@ impl AnthropicEventMapper {
             return Err(AiError::malformed_event());
         }
         self.saw_message_delta = true;
-        self.saw_terminal_delta = value.delta.stop_reason.is_some();
+        let Some(stop_reason) = value.delta.stop_reason else {
+            return Ok(Vec::new());
+        };
+        if !matches!(stop_reason.as_str(), "end_turn" | "stop_sequence") {
+            return Err(AiError::provider_unavailable());
+        }
+        self.saw_terminal_delta = true;
         Ok(vec![UnifiedStreamEvent::Usage {
             input_tokens: None,
             output_tokens: value.usage.output_tokens,

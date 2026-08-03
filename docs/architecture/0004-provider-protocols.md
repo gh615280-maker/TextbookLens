@@ -46,6 +46,12 @@ supplies another positive context limit.
 
 ## Streaming completion policies (verified 2026-08-03)
 
+Anthropic may send more than one `message_delta`; TextbookLens accepts cumulative intermediate
+deltas but emits output usage only from the final accepted delta. Completion requires a visible
+text block, an `end_turn` or `stop_sequence` terminal reason, and `message_stop`. `tool_use`,
+`refusal`, `model_context_window_exceeded`, `max_tokens`, and `pause_turn` are not persisted as a
+completed answer.
+
 DeepSeek's documented `thinking` control is `{"thinking":{"type":"disabled"}}`; its
 stream request also sets `stream_options.include_usage: true`. A usage-only chunk has empty
 `choices` and precedes `data: [DONE]`. DeepSeek documents `stop`, `length`,
