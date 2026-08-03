@@ -1,10 +1,10 @@
 export const zhCN = {
   'nav.onboarding': '开始使用',
-  'nav.library': '书库',
+  'nav.library': '图书馆',
   'nav.settings': '设置',
   'page.onboarding.title': '开始使用',
   'page.onboarding.description': '首次启动引导将在后续阶段提供。',
-  'page.library.title': '书库',
+  'page.library.title': '图书馆',
   'page.library.description': '导入教材功能将在后续阶段提供。',
   'page.reader.title': '阅读',
   'page.reader.description': '阅读器将在后续阶段提供。',
@@ -17,5 +17,10 @@ export const zhCN = {
   'error.message': '应用界面遇到错误。请重新打开当前页面。',
   'error.retry': '重试',
   'loading.label': '正在加载',
+  'language.menu': '应用语言',
+  'language.zhCN': '简体中文',
+  'language.zhTW': '繁體中文',
+  'language.en': 'English',
+  'language.switchFailed': '无法切换应用语言。已恢复原来的语言。',
   'example.greeting': '你好，{name}',
 } as const;

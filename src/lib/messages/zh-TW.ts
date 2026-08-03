@@ -1,0 +1,28 @@
+import type { MessageCatalog } from '../i18n';
+
+export const zhTW = {
+  'nav.onboarding': '開始使用',
+  'nav.library': '圖書館',
+  'nav.settings': '設定',
+  'page.onboarding.title': '開始使用',
+  'page.onboarding.description': '首次啟動引導將在後續階段提供。',
+  'page.library.title': '圖書館',
+  'page.library.description': '匯入教材功能將在後續階段提供。',
+  'page.reader.title': '閱讀',
+  'page.reader.description': '閱讀器將在後續階段提供。',
+  'page.overview.title': '學習總覽',
+  'page.overview.description': '學習資料將在後續階段提供。',
+  'page.settings.title': '設定',
+  'page.settings.description': '應用程式設定將在後續階段提供。',
+  'app.skipToContent': '跳至主要內容',
+  'app.navigation': '主導覽',
+  'error.message': '應用程式介面發生錯誤。請重新開啟目前頁面。',
+  'error.retry': '重試',
+  'loading.label': '正在載入',
+  'language.menu': '應用程式語言',
+  'language.zhCN': '简体中文',
+  'language.zhTW': '繁體中文',
+  'language.en': 'English',
+  'language.switchFailed': '無法切換應用程式語言。已還原原來的語言。',
+  'example.greeting': '你好，{name}',
+} satisfies MessageCatalog;

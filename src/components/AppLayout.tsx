@@ -1,32 +1,31 @@
 import { Link, Outlet } from 'react-router-dom';
 
-import { formatMessage } from '../lib/i18n';
+import { useMessage } from '../app/LanguageProvider';
+import { LanguageMenu } from './LanguageMenu';
 
 export function AppLayout() {
+  const message = useMessage();
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
-        {formatMessage('zh-CN', 'app.skipToContent')}
+        {message('app.skipToContent')}
       </a>
       <header className="app-header">
         <p className="app-brand">TextbookLens</p>
-        <nav aria-label={formatMessage('zh-CN', 'app.navigation')}>
+        <nav aria-label={message('app.navigation')}>
           <ul className="app-navigation">
             <li>
-              <Link to="/onboarding">
-                {formatMessage('zh-CN', 'nav.onboarding')}
-              </Link>
+              <Link to="/onboarding">{message('nav.onboarding')}</Link>
             </li>
             <li>
-              <Link to="/library">{formatMessage('zh-CN', 'nav.library')}</Link>
+              <Link to="/library">{message('nav.library')}</Link>
             </li>
             <li>
-              <Link to="/settings">
-                {formatMessage('zh-CN', 'nav.settings')}
-              </Link>
+              <Link to="/settings">{message('nav.settings')}</Link>
             </li>
           </ul>
         </nav>
+        <LanguageMenu />
       </header>
       <main id="main-content" tabIndex={-1}>
         <Outlet />

@@ -1,9 +1,10 @@
-import { formatMessage } from '../lib/i18n';
+import { useMessage } from '../app/LanguageProvider';
 
 export function LoadingView() {
+  const message = useMessage();
   return (
     <div aria-busy="true" role="status">
-      {formatMessage('zh-CN', 'loading.label')}
+      {message('loading.label')}
     </div>
   );
 }

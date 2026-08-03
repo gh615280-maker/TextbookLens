@@ -1,11 +1,16 @@
 import type { ReactNode } from 'react';
 
 import { ErrorBoundary } from './ErrorBoundary';
+import { LanguageProvider } from './LanguageProvider';
 
 interface AppProvidersProps {
   children: ReactNode;
 }
 
 export function AppProviders({ children }: AppProvidersProps) {
-  return <ErrorBoundary>{children}</ErrorBoundary>;
+  return (
+    <LanguageProvider>
+      <ErrorBoundary>{children}</ErrorBoundary>
+    </LanguageProvider>
+  );
 }
