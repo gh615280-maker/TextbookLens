@@ -33,6 +33,7 @@ fn migration_creates_the_local_database_contract() {
             "search_chunks",
             "search_chunks_fts",
             "sections",
+            "teaching_preferences",
         ] {
             assert!(
                 tables.iter().any(|actual| actual == table),
@@ -45,6 +46,38 @@ fn migration_creates_the_local_database_contract() {
             .await
             .unwrap();
         assert_eq!(foreign_keys, 1);
+
+        let teaching = sqlx::query(
+            "SELECT instruction, revision, updated_at FROM teaching_preferences WHERE id = 1",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(teaching.get::<String, _>("instruction"), "");
+        assert_eq!(teaching.get::<i64, _>("revision"), 0);
+        let teaching_updated_at = teaching.get::<String, _>("updated_at");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&teaching_updated_at).is_ok()
+                && teaching_updated_at.ends_with('Z')
+        );
+        let teaching_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM teaching_preferences")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        assert_eq!(teaching_count, 1);
+
+        for invalid_statement in [
+            "INSERT INTO teaching_preferences (id, updated_at) VALUES (2, '2026-08-04T00:00:00.000Z')",
+            "UPDATE teaching_preferences SET revision = -1 WHERE id = 1",
+            "UPDATE teaching_preferences SET updated_at = '2026-08-04 00:00:00' WHERE id = 1",
+            "UPDATE teaching_preferences SET instruction = char(13) WHERE id = 1",
+            "DELETE FROM teaching_preferences WHERE id = 1",
+        ] {
+            assert!(
+                sqlx::query(invalid_statement).execute(pool).await.is_err(),
+                "malformed teaching singleton state must be rejected: {invalid_statement}"
+            );
+        }
 
         let settings = sqlx::query(
             "SELECT onboarding_completed, default_learning_profile_id, default_vision_profile_id, theme, context_mode, ui_language, ui_language_initialized, first_reader_hint_completed FROM app_settings WHERE id = 1",
@@ -230,6 +263,116 @@ fn migration_creates_the_local_database_contract() {
             .unwrap();
         assert_eq!(sections_remaining, 0);
     });
+}
+
+#[test]
+fn teaching_migration_is_forward_safe_preserves_rows_and_reopens_once() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let forward_path = temp_dir.path().join("forward.sqlite3");
+
+    tauri::async_runtime::block_on(async {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&forward_path)
+                    .create_if_missing(true)
+                    .foreign_keys(true),
+            )
+            .await
+            .unwrap();
+        for migration in [
+            include_str!("../migrations/0001_initial.sql"),
+            include_str!("../migrations/0002_import_lifecycle.sql"),
+            include_str!("../migrations/0003_canonical_block_kinds.sql"),
+            include_str!("../migrations/0004_reader_settings.sql"),
+            include_str!("../migrations/0005_provider_profile_summary.sql"),
+            include_str!("../migrations/0006_replanned_ui_preferences.sql"),
+            include_str!("../migrations/0007_provider_operation_preferences.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        }
+
+        let book_id = Uuid::new_v4().to_string();
+        let provider_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'Synthetic retained book', 'pdf', 'synthetic.pdf', ?, 'ready', ?, ?)",
+        )
+        .bind(&book_id)
+        .bind("e".repeat(64))
+        .bind(format!("books/{book_id}/original.pdf"))
+        .bind(common::utc_timestamp())
+        .bind(common::utc_timestamp())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, created_at, updated_at) VALUES (?, 'openai', 'Synthetic retained profile', 'synthetic-model', 32000, ?, ?)",
+        )
+        .bind(&provider_id)
+        .bind(common::utc_timestamp())
+        .bind(common::utc_timestamp())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE app_settings SET default_learning_profile_id = ? WHERE id = 1")
+            .bind(&provider_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!("../migrations/0008_teaching_instruction.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM books WHERE id = ?")
+                .bind(&book_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT default_learning_profile_id FROM app_settings WHERE id = 1",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .as_deref(),
+            Some(provider_id.as_str())
+        );
+        let foreign_key_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(foreign_key_violations.is_empty());
+    });
+
+    let reopen_path = temp_dir.path().join("reopen.sqlite3");
+    {
+        let database = Database::open(&reopen_path).unwrap();
+        assert_eq!(
+            tauri::async_runtime::block_on(
+                sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM teaching_preferences",)
+                    .fetch_one(database.pool())
+            )
+            .unwrap(),
+            1
+        );
+    }
+    let reopened = Database::open(&reopen_path).unwrap();
+    assert_eq!(
+        tauri::async_runtime::block_on(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM teaching_preferences",)
+                .fetch_one(reopened.pool())
+        )
+        .unwrap(),
+        1
+    );
 }
 
 #[test]

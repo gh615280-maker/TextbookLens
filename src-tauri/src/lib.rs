@@ -74,7 +74,9 @@ pub fn run() {
             commands::settings::get_reader_bootstrap,
             commands::settings::save_reading_progress,
             commands::settings::get_reader_settings,
-            commands::settings::update_reader_settings
+            commands::settings::update_reader_settings,
+            commands::teaching::get_teaching_instruction,
+            commands::teaching::update_teaching_instruction
         ])
         .run(tauri::generate_context!())
         .expect("failed to run TextbookLens");

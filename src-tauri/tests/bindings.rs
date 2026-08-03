@@ -7,9 +7,10 @@ use textbooklens_lib::domain::{
     OnboardingStep, PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
     ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
     ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary,
-    RemoteCleanupStatus, UiLanguage, UnifiedChatRequest, UnifiedMessage, UnifiedRole,
-    UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis, UntrustedPageBlock,
-    UntrustedTableCell, ValidationResult, VisionAssetMeta, stable_block_id, stable_section_id,
+    RemoteCleanupStatus, TeachingInstructionDto, UiLanguage, UnifiedChatRequest, UnifiedMessage,
+    UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis,
+    UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction, ValidationResult,
+    VisionAssetMeta, stable_block_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -138,4 +139,6 @@ fn export_bindings() {
     LocalTextQuality::export_all(&config).unwrap();
     OnboardingStateDto::export_all(&config).unwrap();
     UiLanguage::export_all(&config).unwrap();
+    TeachingInstructionDto::export_all(&config).unwrap();
+    UpdateTeachingInstruction::export_all(&config).unwrap();
 }

@@ -1,6 +1,7 @@
 pub mod annotations;
 pub mod providers;
 pub mod settings;
+pub mod teaching;
 
 use std::{path::Path, time::Duration};
 

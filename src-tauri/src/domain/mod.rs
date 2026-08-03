@@ -5,6 +5,7 @@ mod document;
 mod onboarding;
 mod provider;
 mod settings;
+mod teaching;
 mod vision;
 
 pub use annotation::*;
@@ -14,4 +15,5 @@ pub use document::*;
 pub use onboarding::*;
 pub use provider::*;
 pub use settings::*;
+pub use teaching::*;
 pub use vision::*;
