@@ -46,6 +46,17 @@ test.beforeEach(async ({ page }) => {
       testWindow.__TAURI_INTERNALS__ = {
         async invoke(command, payload) {
           testWindow.__e2eIpcCalls.push({ command, payload });
+          if (command === 'get_onboarding_state') {
+            return {
+              step: 'ready',
+              selectedBook: books[0],
+              hasReadyBook: true,
+              learningProfileConnected: true,
+              visionProfileConnected: false,
+              localTextQuality: 'ready',
+              canSkipOnboarding: true,
+            };
+          }
           if (command === 'list_books') return books;
           if (command === 'plugin:dialog|open') return null;
           if (command === 'delete_failed_import') return null;

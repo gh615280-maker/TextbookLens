@@ -8,6 +8,48 @@ const routes = [
   '/settings',
 ];
 
+const readyOnboardingState = {
+  step: 'ready',
+  selectedBook: {
+    id: '4f9a2c86-0da8-4dd4-a255-39b4cff89c66',
+    title: 'Synthetic shell textbook',
+    originalFilename: 'synthetic-shell.pdf',
+    author: 'TextbookLens',
+    language: 'en',
+    format: 'pdf',
+    importStatus: 'ready',
+    importErrorCode: null,
+    importErrorMessage: null,
+    importErrorStage: null,
+    readingProgress: 0,
+    createdAt: '2026-08-01T00:00:00Z',
+    updatedAt: '2026-08-01T00:00:00Z',
+    lastOpenedAt: null,
+  },
+  hasReadyBook: true,
+  learningProfileConnected: true,
+  visionProfileConnected: false,
+  localTextQuality: 'ready',
+  canSkipOnboarding: true,
+};
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript((onboardingState) => {
+    (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke(command: string): Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__ = {
+      async invoke(command) {
+        if (command === 'get_onboarding_state') return onboardingState;
+        throw new Error(`Unexpected IPC command: ${command}`);
+      },
+    };
+  }, readyOnboardingState);
+});
+
 test('shell routes render without external network requests', async ({
   page,
 }) => {
