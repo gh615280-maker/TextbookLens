@@ -25,5 +25,18 @@ export const zhCN = {
   'language.zhTW': '繁體中文',
   'language.en': 'English',
   'language.switchFailed': '无法切换应用语言。已恢复原来的语言。',
+  'teaching.title': '教学指令',
+  'teaching.description': '为之后的 AI 学习请求设置可编辑的教学偏好。',
+  'teaching.loading': '正在加载教学指令',
+  'teaching.conflict':
+    '此指令已在其他位置修改。请重新加载当前版本，或先保留草稿再保存。',
+  'teaching.reload': '重新加载当前版本',
+  'teaching.copyDraft': '保留我的草稿',
+  'teaching.replaceDraft': '替换当前草稿会丢弃未保存的更改。要继续吗？',
+  'teaching.replace': '替换草稿',
+  'teaching.keepEditing': '继续编辑',
+  'teaching.leaveWarning': '教学指令有未保存的更改。要离开此页面吗？',
+  'teaching.leave': '离开页面',
+  'teaching.stay': '留在此页',
   'example.greeting': '你好，{name}',
 } as const;

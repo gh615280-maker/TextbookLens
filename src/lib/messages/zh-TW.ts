@@ -27,5 +27,18 @@ export const zhTW = {
   'language.zhTW': '繁體中文',
   'language.en': 'English',
   'language.switchFailed': '無法切換應用程式語言。已還原原來的語言。',
+  'teaching.title': '教學指令',
+  'teaching.description': '為之後的 AI 學習請求設定可編輯的教學偏好。',
+  'teaching.loading': '正在載入教學指令',
+  'teaching.conflict':
+    '此指令已在其他位置修改。請重新載入目前版本，或先保留草稿再儲存。',
+  'teaching.reload': '重新載入目前版本',
+  'teaching.copyDraft': '保留我的草稿',
+  'teaching.replaceDraft': '替換目前草稿會捨棄未儲存的變更。要繼續嗎？',
+  'teaching.replace': '替換草稿',
+  'teaching.keepEditing': '繼續編輯',
+  'teaching.leaveWarning': '教學指令有未儲存的變更。要離開此頁面嗎？',
+  'teaching.leave': '離開頁面',
+  'teaching.stay': '留在此頁',
   'example.greeting': '你好，{name}',
 } satisfies MessageCatalog;

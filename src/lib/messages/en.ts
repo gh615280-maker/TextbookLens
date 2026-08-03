@@ -33,5 +33,21 @@ export const en = {
   'language.en': 'English',
   'language.switchFailed':
     'Unable to change the application language. Your previous language was restored.',
+  'teaching.title': 'Teaching instructions',
+  'teaching.description':
+    'Set an editable teaching preference for future AI learning requests.',
+  'teaching.loading': 'Loading teaching instructions',
+  'teaching.conflict':
+    'This instruction changed elsewhere. Reload the current version or preserve your draft before saving again.',
+  'teaching.reload': 'Reload current',
+  'teaching.copyDraft': 'Preserve my draft',
+  'teaching.replaceDraft':
+    'Replacing the current draft will discard its unsaved changes. Continue?',
+  'teaching.replace': 'Replace draft',
+  'teaching.keepEditing': 'Keep editing',
+  'teaching.leaveWarning':
+    'You have unsaved teaching-instruction changes. Leave this page?',
+  'teaching.leave': 'Leave page',
+  'teaching.stay': 'Stay',
   'example.greeting': 'Hello, {name}',
 } satisfies MessageCatalog;
