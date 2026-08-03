@@ -16,6 +16,7 @@ pub mod document_repository;
 pub mod documents;
 pub mod domain;
 pub mod errors;
+pub mod learning;
 pub mod logging;
 pub mod retrieval;
 
