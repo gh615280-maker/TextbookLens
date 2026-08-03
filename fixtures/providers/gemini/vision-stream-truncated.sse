@@ -1,2 +1,3 @@
 data: {"candidates":[{"index":0,"content":{"parts":[{"text":"Truncated Gemini vision text"}]},"finishReason":"MAX_TOKENS"}],"usageMetadata":{"promptTokenCount":43,"candidatesTokenCount":8}}
 
+: fixture stream terminator

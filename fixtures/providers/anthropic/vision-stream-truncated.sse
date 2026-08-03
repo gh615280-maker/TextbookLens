@@ -16,3 +16,4 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"out
 event: message_stop
 data: {}
 
+: fixture stream terminator

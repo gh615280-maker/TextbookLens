@@ -6,3 +6,4 @@ data: {"choices":[],"usage":{"prompt_tokens":49,"completion_tokens":10,"total_to
 
 data: [DONE]
 
+: fixture stream terminator

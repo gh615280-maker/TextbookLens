@@ -1,2 +1,3 @@
 data: {"candidates":[{"index":0,"content":{"parts":[{"thought":true,"thoughtSignature":"hidden-signature","text":"hidden-thought"},{"text":"Visible Gemini vision answer."}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":43,"candidatesTokenCount":8}}
 
+: fixture stream terminator

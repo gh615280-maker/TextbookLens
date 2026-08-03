@@ -4,3 +4,4 @@ data: {"type":"response.output_text.delta","delta":"Truncated vision text"}
 event: response.incomplete
 data: {"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}
 
+: fixture stream terminator

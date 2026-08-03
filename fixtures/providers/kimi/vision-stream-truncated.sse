@@ -2,3 +2,4 @@ data: {"choices":[{"index":0,"delta":{"reasoning_content":"hidden","content":"Tr
 
 data: [DONE]
 
+: fixture stream terminator
