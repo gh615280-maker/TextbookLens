@@ -42,9 +42,14 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::annotations::list_annotation_markers,
+            commands::credentials::validate_and_save_provider_profile,
+            commands::credentials::replace_provider_profile_credential,
             commands::providers::list_provider_capabilities,
             commands::providers::list_provider_profiles,
             commands::providers::set_active_provider_profile,
+            commands::providers::set_default_provider_profile,
+            commands::providers::update_provider_operation_consent,
+            commands::providers::reset_provider_operation_consents,
             commands::providers::delete_provider_profile,
             commands::books::list_books,
             commands::books::get_book,

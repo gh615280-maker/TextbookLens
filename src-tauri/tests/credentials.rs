@@ -1,10 +1,12 @@
 mod common;
 
+use std::sync::Arc;
+
 use secrecy::{ExposeSecret, SecretString};
 use textbooklens_lib::{
     credentials::{CredentialStore, MemoryCredentialStore},
     db::{Database, providers},
-    errors::AppErrorCode,
+    errors::{AppErrorCode, AppErrorDto},
 };
 use uuid::Uuid;
 
@@ -49,7 +51,7 @@ fn memory_credential_store_obeys_the_shared_contract() {
 fn credential_delete_failure_preserves_the_profile_row() {
     let temp_dir = tempfile::tempdir().unwrap();
     let database = Database::open(temp_dir.path().join("library.sqlite3")).unwrap();
-    let store = MemoryCredentialStore::new();
+    let store = Arc::new(MemoryCredentialStore::new());
     let profile_id = Uuid::new_v4();
 
     tauri::async_runtime::block_on(async {
@@ -61,7 +63,7 @@ fn credential_delete_failure_preserves_the_profile_row() {
             .unwrap();
         store.fail_next_delete();
 
-        let error = providers::delete_provider_profile(database.pool(), &store, profile_id)
+        let error = providers::delete_provider_profile(database.pool(), store.clone(), profile_id)
             .await
             .unwrap_err();
         assert_eq!(error.code, AppErrorCode::CredentialStoreError);
@@ -77,7 +79,7 @@ fn credential_delete_failure_preserves_the_profile_row() {
 fn database_delete_failure_restores_the_old_credential() {
     let temp_dir = tempfile::tempdir().unwrap();
     let database = Database::open(temp_dir.path().join("library.sqlite3")).unwrap();
-    let store = MemoryCredentialStore::new();
+    let store = Arc::new(MemoryCredentialStore::new());
     let profile_id = Uuid::new_v4();
 
     tauri::async_runtime::block_on(async {
@@ -89,7 +91,7 @@ fn database_delete_failure_restores_the_old_credential() {
             .unwrap();
         install_delete_failure_trigger(database.pool()).await;
 
-        let error = providers::delete_provider_profile(database.pool(), &store, profile_id)
+        let error = providers::delete_provider_profile(database.pool(), store.clone(), profile_id)
             .await
             .unwrap_err();
         assert_eq!(error.code, AppErrorCode::DatabaseError);
@@ -105,7 +107,7 @@ fn database_delete_failure_restores_the_old_credential() {
 fn failed_compensation_surfaces_the_profile_as_missing() {
     let temp_dir = tempfile::tempdir().unwrap();
     let database = Database::open(temp_dir.path().join("library.sqlite3")).unwrap();
-    let store = MemoryCredentialStore::new();
+    let store = Arc::new(MemoryCredentialStore::new());
     let profile_id = Uuid::new_v4();
 
     tauri::async_runtime::block_on(async {
@@ -118,11 +120,17 @@ fn failed_compensation_surfaces_the_profile_as_missing() {
         install_delete_failure_trigger(database.pool()).await;
         store.fail_next_set();
 
-        providers::delete_provider_profile(database.pool(), &store, profile_id)
+        let error = providers::delete_provider_profile(database.pool(), store.clone(), profile_id)
             .await
             .unwrap_err();
+        assert_eq!(error.code, AppErrorCode::CredentialStoreError);
+        let dto = AppErrorDto::from(error);
+        assert!(dto.diagnostic_id.is_some());
+        let error_json = serde_json::to_string(&dto).unwrap();
+        assert!(!error_json.contains("lost-after-delete"));
+        assert!(!error_json.contains("restoration failed"));
 
-        let profiles = providers::list_provider_profiles(database.pool(), &store)
+        let profiles = providers::list_provider_profiles(database.pool(), store.as_ref())
             .await
             .unwrap();
         assert_eq!(profiles.len(), 1);
@@ -140,7 +148,7 @@ fn failed_compensation_surfaces_the_profile_as_missing() {
 fn deleting_active_and_final_profiles_reassigns_then_clears_active_profile() {
     let temp_dir = tempfile::tempdir().unwrap();
     let database = Database::open(temp_dir.path().join("library.sqlite3")).unwrap();
-    let store = MemoryCredentialStore::new();
+    let store = Arc::new(MemoryCredentialStore::new());
     let active_id = Uuid::new_v4();
     let replacement_id = Uuid::new_v4();
 
@@ -162,12 +170,12 @@ fn deleting_active_and_final_profiles_reassigns_then_clears_active_profile() {
             .await
             .unwrap();
 
-        providers::delete_provider_profile(database.pool(), &store, active_id)
+        providers::delete_provider_profile(database.pool(), store.clone(), active_id)
             .await
             .unwrap();
         assert_eq!(active_profile(database.pool()).await, Some(replacement_id));
 
-        providers::delete_provider_profile(database.pool(), &store, replacement_id)
+        providers::delete_provider_profile(database.pool(), store.clone(), replacement_id)
             .await
             .unwrap();
         assert_eq!(active_profile(database.pool()).await, None);
@@ -178,14 +186,13 @@ fn deleting_active_and_final_profiles_reassigns_then_clears_active_profile() {
 fn setting_active_profile_is_transactional_and_profile_summaries_are_safe_metadata() {
     let temp_dir = tempfile::tempdir().unwrap();
     let database = Database::open(temp_dir.path().join("library.sqlite3")).unwrap();
-    let store = MemoryCredentialStore::new();
+    let store = Arc::new(MemoryCredentialStore::new());
     let first_id = Uuid::new_v4();
     let second_id = Uuid::new_v4();
 
     tauri::async_runtime::block_on(async {
         insert_profile(database.pool(), first_id, true).await;
         insert_profile(database.pool(), second_id, false).await;
-        let second_key = providers::credential_key(second_id);
         let duplicate_active =
             sqlx::query("UPDATE provider_profiles SET is_active = 1 WHERE id = ?")
                 .bind(second_id.to_string())
@@ -195,13 +202,17 @@ fn setting_active_profile_is_transactional_and_profile_summaries_are_safe_metada
             duplicate_active.is_err(),
             "the partial unique index must reject two active profiles"
         );
-        let stored_second_key: String =
-            sqlx::query_scalar("SELECT credential_key FROM provider_profiles WHERE id = ?")
-                .bind(second_id.to_string())
-                .fetch_one(database.pool())
-                .await
-                .unwrap();
-        assert_eq!(stored_second_key, second_key);
+        let profile_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('provider_profiles') ORDER BY cid",
+        )
+        .fetch_all(database.pool())
+        .await
+        .unwrap();
+        assert!(
+            !profile_columns
+                .iter()
+                .any(|column| column == "credential_key")
+        );
         providers::set_active_provider_profile(database.pool(), second_id)
             .await
             .unwrap();
@@ -214,7 +225,7 @@ fn setting_active_profile_is_transactional_and_profile_summaries_are_safe_metada
         assert_eq!(active_count, 1);
         assert_eq!(active_profile(database.pool()).await, Some(second_id));
 
-        let summaries = providers::list_provider_profiles(database.pool(), &store)
+        let summaries = providers::list_provider_profiles(database.pool(), store.as_ref())
             .await
             .unwrap();
         let json = serde_json::to_string(&summaries).unwrap();
@@ -263,34 +274,39 @@ fn windows_credential_manager_disposable_round_trip() {
 }
 
 async fn insert_profile(pool: &sqlx::SqlitePool, profile_id: Uuid, active: bool) {
-    let key = providers::credential_key(profile_id);
+    let timestamp = common::utc_timestamp();
     sqlx::query(
-        "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, credential_key, is_active, created_at, updated_at) VALUES (?, 'openai', 'OpenAI', 'gpt-test', 32000, ?, ?, ?, ?)",
+        "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, is_active, created_at, updated_at, validated_at) VALUES (?, 'openai', 'OpenAI', 'gpt-5.6', 32000, ?, ?, ?, ?)",
     )
     .bind(profile_id.to_string())
-    .bind(&key)
     .bind(active)
-    .bind(common::utc_timestamp())
-    .bind(common::utc_timestamp())
+    .bind(timestamp)
+    .bind(timestamp)
+    .bind(timestamp)
     .execute(pool)
     .await
     .unwrap();
+    for category in ["image_send", "ai_index", "cost_risk"] {
+        sqlx::query(
+            "INSERT INTO provider_operation_consents (profile_id, category, decision, updated_at) VALUES (?, ?, 'ask', ?)",
+        )
+        .bind(profile_id.to_string())
+        .bind(category)
+        .bind(timestamp)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
     if active {
-        sqlx::query("UPDATE app_settings SET active_provider_profile_id = ? WHERE id = 1")
+        sqlx::query(
+            "UPDATE app_settings SET active_provider_profile_id = ?, default_learning_profile_id = ? WHERE id = 1",
+        )
+            .bind(profile_id.to_string())
             .bind(profile_id.to_string())
             .execute(pool)
             .await
             .unwrap();
     }
-
-    let stored_key: String =
-        sqlx::query_scalar("SELECT credential_key FROM provider_profiles WHERE id = ?")
-            .bind(profile_id.to_string())
-            .fetch_one(pool)
-            .await
-            .unwrap();
-    assert_eq!(stored_key, key);
-    assert_ne!(stored_key, "lost-after-delete");
 }
 
 async fn install_delete_failure_trigger(pool: &sqlx::SqlitePool) {

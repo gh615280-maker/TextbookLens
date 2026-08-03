@@ -3,6 +3,7 @@ pub mod multimodal;
 pub mod provider;
 pub mod providers;
 pub mod registry;
+pub mod runtime;
 pub mod stream;
 pub mod structured;
 pub mod transport;
@@ -15,6 +16,8 @@ mod operation_contract_test;
 mod provider_contract_test;
 #[cfg(test)]
 mod registry_test;
+#[cfg(test)]
+mod runtime_test;
 #[cfg(test)]
 mod stream_test;
 #[cfg(test)]

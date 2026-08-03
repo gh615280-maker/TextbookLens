@@ -1,6 +1,13 @@
+use std::sync::Arc;
+
 use secrecy::SecretString;
 use textbooklens_lib::{
-    ai::multimodal::stage_vision_asset,
+    ai::{
+        multimodal::stage_vision_asset, registry::ProviderCapabilityRegistry,
+        runtime::ProviderRuntime,
+    },
+    credentials::{CredentialStore, MemoryCredentialStore},
+    db::providers,
     domain::{
         ImageLimits, ImageMime, ProviderKind, RemoteCleanupHandle, StructuredPageRequest,
         UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedVisionRequest,
@@ -52,6 +59,38 @@ fn redaction_filters_query_unicode_and_nested_structured_fields() {
     assert!(!safe.contains(query_secret));
     assert!(!safe.contains(nested_secret));
     assert!(safe.contains("mode=test"));
+}
+
+#[test]
+fn provider_runtime_and_atomic_error_surfaces_omit_task2_sentinels() {
+    let credential = "synthetic-runtime-redaction-credential";
+    let system = "synthetic-runtime-system-instruction";
+    let vendor_body = "synthetic-runtime-vendor-body";
+    let store = Arc::new(MemoryCredentialStore::new());
+    let key = providers::credential_key(Uuid::new_v4());
+    tauri::async_runtime::block_on(store.set(&key, SecretString::from(credential))).unwrap();
+    let runtime = ProviderRuntime::new(store, ProviderCapabilityRegistry::load_embedded().unwrap());
+    let runtime_debug = format!("{runtime:?}");
+    let provider_error = AppError::invalid_api_key(credential, vendor_body);
+    let provider_error_debug = format!("{provider_error:?}");
+    let provider_error_display = provider_error.to_string();
+    let provider_error_json = serde_json::to_string(&AppErrorDto::from(provider_error)).unwrap();
+    let compensation_json = serde_json::to_string(&AppErrorDto::from(AppError::credential_store(
+        "credential restoration failed after database rollback; sensitive values omitted",
+    )))
+    .unwrap();
+
+    for surface in [
+        runtime_debug,
+        provider_error_debug,
+        provider_error_display,
+        provider_error_json,
+        compensation_json,
+    ] {
+        for sentinel in [credential, system, vendor_body] {
+            assert!(!surface.contains(sentinel));
+        }
+    }
 }
 
 #[test]

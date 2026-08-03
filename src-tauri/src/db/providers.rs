@@ -1,5 +1,16 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock, Weak},
+};
+
 use chrono::{DateTime, Utc};
-use sqlx::{Row, Sqlite, SqlitePool, Transaction};
+use parking_lot::Mutex as SyncMutex;
+use secrecy::SecretString;
+use sqlx::{Row, Sqlite, SqlitePool, Transaction, sqlite::SqliteRow};
+use tokio::{
+    sync::{Mutex as AsyncMutex, OwnedMutexGuard},
+    task::JoinHandle,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -9,13 +20,58 @@ use crate::{
         AiOperation, CapabilitySupport, ProviderKind, ProviderOperationConsent,
         ProviderOperationConsentCategory, ProviderOperationConsentDecision, ProviderProfileSummary,
     },
-    errors::{AppError, AppErrorCode, AppResult, SafeDiagnostic},
+    errors::{AppError, AppErrorCode, AppResult},
 };
 
 pub use crate::domain::CredentialStatus;
 
+type ProviderMutationGuard = OwnedMutexGuard<()>;
+
+static PROVIDER_MUTATION_LOCKS: OnceLock<SyncMutex<HashMap<String, Weak<AsyncMutex<()>>>>> =
+    OnceLock::new();
+
+pub(crate) struct NewProviderProfile {
+    pub kind: ProviderKind,
+    pub display_name: String,
+    pub model_id: String,
+    pub context_window_tokens: u32,
+    pub credential: SecretString,
+    pub validated_at: DateTime<Utc>,
+}
+
+pub(crate) struct ReplacementProviderCredential {
+    pub profile: ProviderProfileSummary,
+    pub context_window_tokens: u32,
+    pub credential: SecretString,
+    pub validated_at: DateTime<Utc>,
+}
+
 pub fn credential_key(profile_id: Uuid) -> String {
     format!("textbooklens/{profile_id}")
+}
+
+pub(crate) async fn try_provider_mutation(pool: &SqlitePool) -> AppResult<ProviderMutationGuard> {
+    let pool_identity: String =
+        sqlx::query_scalar("SELECT file FROM pragma_database_list WHERE name = 'main'")
+            .fetch_one(pool)
+            .await?;
+    if pool_identity.is_empty() {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+    let locks = PROVIDER_MUTATION_LOCKS.get_or_init(|| SyncMutex::new(HashMap::new()));
+    let lock = {
+        let mut locks = locks.lock();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(&pool_identity).and_then(Weak::upgrade) {
+            lock
+        } else {
+            let lock = Arc::new(AsyncMutex::new(()));
+            locks.insert(pool_identity, Arc::downgrade(&lock));
+            lock
+        }
+    };
+    lock.try_lock_owned()
+        .map_err(|_| AppError::new(AppErrorCode::RequestConflict))
 }
 
 pub async fn list_provider_profiles(
@@ -38,23 +94,27 @@ pub async fn list_provider_profiles(
         } else {
             CredentialStatus::Missing
         };
-        profiles.push(ProviderProfileSummary {
-            id,
-            kind: parse_provider_kind(row.try_get("provider_kind")?)?,
-            display_name: row.try_get("display_name")?,
-            model_id: row.try_get("model_id")?,
-            context_window_tokens: parse_positive_u32(
-                row.try_get::<i64, _>("context_window_tokens")?,
-            )?,
-            is_active: row.try_get("is_active")?,
-            credential_status,
-            validated_at: row
-                .try_get::<Option<String>, _>("validated_at")?
-                .map(parse_timestamp)
-                .transpose()?,
-        });
+        profiles.push(profile_summary_from_row(&row, credential_status)?);
     }
     Ok(profiles)
+}
+
+pub(crate) async fn load_provider_profile_metadata(
+    pool: &SqlitePool,
+    profile_id: Uuid,
+) -> AppResult<ProviderProfileSummary> {
+    let row = sqlx::query(
+        "SELECT id, provider_kind, display_name, model_id, context_window_tokens, is_active, validated_at FROM provider_profiles WHERE id = ?",
+    )
+    .bind(profile_id.to_string())
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    let profile = profile_summary_from_row(&row, CredentialStatus::Missing)?;
+    if profile.id != profile_id {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+    Ok(profile)
 }
 
 pub async fn set_active_provider_profile(pool: &SqlitePool, profile_id: Uuid) -> AppResult<()> {
@@ -186,7 +246,165 @@ pub async fn reset_provider_operation_consents(
     Ok(())
 }
 
+pub(crate) async fn insert_validated_provider_profile(
+    pool: &SqlitePool,
+    store: Arc<dyn CredentialStore>,
+    guard: ProviderMutationGuard,
+    profile: NewProviderProfile,
+) -> AppResult<ProviderProfileSummary> {
+    let pool = pool.clone();
+    await_provider_task(tokio::spawn(async move {
+        let _guard = guard;
+        let NewProviderProfile {
+            kind,
+            display_name,
+            model_id,
+            context_window_tokens,
+            credential,
+            validated_at,
+        } = profile;
+        let profile_id = Uuid::new_v4();
+        let derived_key = credential_key(profile_id);
+        store.set(&derived_key, credential).await?;
+
+        let database_result: AppResult<bool> = async {
+            let mut transaction = pool.begin().await?;
+            let learning_default: Option<String> = sqlx::query_scalar(
+                "SELECT default_learning_profile_id FROM app_settings WHERE id = 1",
+            )
+            .fetch_one(&mut *transaction)
+            .await?;
+            let becomes_learning_default = learning_default.is_none();
+            let timestamp = validated_at.to_rfc3339();
+            sqlx::query(
+                "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, is_active, created_at, updated_at, validated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
+            )
+            .bind(profile_id.to_string())
+            .bind(provider_kind_name(&kind))
+            .bind(&display_name)
+            .bind(&model_id)
+            .bind(i64::from(context_window_tokens))
+            .bind(&timestamp)
+            .bind(&timestamp)
+            .bind(&timestamp)
+            .execute(&mut *transaction)
+            .await?;
+            for category in consent_categories() {
+                sqlx::query(
+                    "INSERT INTO provider_operation_consents (profile_id, category, decision, updated_at) VALUES (?, ?, 'ask', ?)",
+                )
+                .bind(profile_id.to_string())
+                .bind(consent_category_name(category))
+                .bind(&timestamp)
+                .execute(&mut *transaction)
+                .await?;
+            }
+            if becomes_learning_default {
+                set_learning_default(&mut transaction, Some(profile_id)).await?;
+            }
+            transaction.commit().await?;
+            Ok(becomes_learning_default)
+        }
+        .await;
+
+        let is_active = match database_result {
+            Ok(is_active) => is_active,
+            Err(error) => {
+                if store.delete(&derived_key).await.is_err() {
+                    return Err(AppError::credential_store(
+                        "new credential cleanup failed after database rollback; sensitive values omitted",
+                    ));
+                }
+                return Err(error);
+            }
+        };
+
+        Ok(ProviderProfileSummary {
+            id: profile_id,
+            kind,
+            display_name,
+            model_id,
+            context_window_tokens,
+            is_active,
+            credential_status: CredentialStatus::Available,
+            validated_at: Some(validated_at),
+        })
+    }))
+    .await
+}
+
+pub(crate) async fn replace_validated_provider_credential(
+    pool: &SqlitePool,
+    store: Arc<dyn CredentialStore>,
+    guard: ProviderMutationGuard,
+    replacement: ReplacementProviderCredential,
+) -> AppResult<ProviderProfileSummary> {
+    let pool = pool.clone();
+    await_provider_task(tokio::spawn(async move {
+        let _guard = guard;
+        let ReplacementProviderCredential {
+            mut profile,
+            context_window_tokens,
+            credential,
+            validated_at,
+        } = replacement;
+        let derived_key = credential_key(profile.id);
+        let old_credential = store.get(&derived_key).await?;
+        store.set(&derived_key, credential).await?;
+
+        let database_result: AppResult<()> = async {
+            let mut transaction = pool.begin().await?;
+            let result = sqlx::query(
+                "UPDATE provider_profiles SET context_window_tokens = ?, updated_at = ?, validated_at = ? WHERE id = ? AND provider_kind = ? AND model_id = ?",
+            )
+            .bind(i64::from(context_window_tokens))
+            .bind(validated_at.to_rfc3339())
+            .bind(validated_at.to_rfc3339())
+            .bind(profile.id.to_string())
+            .bind(provider_kind_name(&profile.kind))
+            .bind(&profile.model_id)
+            .execute(&mut *transaction)
+            .await?;
+            if result.rows_affected() != 1 {
+                return Err(AppError::new(AppErrorCode::NotFound));
+            }
+            transaction.commit().await?;
+            Ok(())
+        }
+        .await;
+
+        if let Err(error) = database_result {
+            if store.set(&derived_key, old_credential).await.is_err() {
+                return Err(AppError::credential_store(
+                    "credential restoration failed after database rollback; sensitive values omitted",
+                ));
+            }
+            return Err(error);
+        }
+
+        profile.context_window_tokens = context_window_tokens;
+        profile.credential_status = CredentialStatus::Available;
+        profile.validated_at = Some(validated_at);
+        Ok(profile)
+    }))
+    .await
+}
+
 pub async fn delete_provider_profile(
+    pool: &SqlitePool,
+    store: Arc<dyn CredentialStore>,
+    profile_id: Uuid,
+) -> AppResult<()> {
+    let guard = try_provider_mutation(pool).await?;
+    let pool = pool.clone();
+    await_provider_task(tokio::spawn(async move {
+        let _guard = guard;
+        delete_provider_profile_inner(&pool, store.as_ref(), profile_id).await
+    }))
+    .await
+}
+
+async fn delete_provider_profile_inner(
     pool: &SqlitePool,
     store: &dyn CredentialStore,
     profile_id: Uuid,
@@ -200,16 +418,16 @@ pub async fn delete_provider_profile(
     .map_err(AppError::from)?
     .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
 
-    let derived_key = credential_key(profile_id);
-    let old_secret = store.get(&derived_key).await?;
-    store.delete(&derived_key).await?;
-
     let registry = ProviderCapabilityRegistry::load_embedded()
         .map_err(|_| AppError::new(AppErrorCode::DatabaseError))?;
     let learning_selected = row.try_get::<bool, _>("is_active")?
         || row.try_get::<bool, _>("legacy_selected")?
         || row.try_get::<bool, _>("learning_selected")?;
     let vision_selected = row.try_get::<bool, _>("vision_selected")?;
+
+    let derived_key = credential_key(profile_id);
+    let old_secret = store.get(&derived_key).await?;
+    store.delete(&derived_key).await?;
 
     let database_result: AppResult<()> = async {
         let mut transaction = pool.begin().await?;
@@ -246,21 +464,22 @@ pub async fn delete_provider_profile(
 
     if let Err(error) = database_result {
         if store.set(&derived_key, old_secret).await.is_err() {
-            let diagnostic = SafeDiagnostic::new(
-                AppErrorCode::CredentialStoreError,
-                "credential restoration failed; sensitive values omitted",
-            );
-            tracing::error!(
-                diagnostic_id = %diagnostic.id,
-                code = ?diagnostic.code,
-                detail = %diagnostic.detail,
-                "credential deletion compensation failed"
-            );
+            return Err(AppError::credential_store(
+                "credential restoration failed after provider deletion rollback; sensitive values omitted",
+            ));
         }
         return Err(error);
     }
 
     Ok(())
+}
+
+async fn await_provider_task<T>(task: JoinHandle<AppResult<T>>) -> AppResult<T> {
+    task.await.map_err(|_| {
+        AppError::database(
+            "provider credential persistence worker failed; sensitive values omitted",
+        )
+    })?
 }
 
 async fn set_learning_default(
@@ -405,6 +624,35 @@ fn parse_timestamp(value: String) -> AppResult<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(&value)
         .map(|timestamp| timestamp.with_timezone(&Utc))
         .map_err(|_| AppError::new(AppErrorCode::DatabaseError))
+}
+
+fn profile_summary_from_row(
+    row: &SqliteRow,
+    credential_status: CredentialStatus,
+) -> AppResult<ProviderProfileSummary> {
+    Ok(ProviderProfileSummary {
+        id: parse_uuid(row.try_get("id")?)?,
+        kind: parse_provider_kind(row.try_get("provider_kind")?)?,
+        display_name: row.try_get("display_name")?,
+        model_id: row.try_get("model_id")?,
+        context_window_tokens: parse_positive_u32(row.try_get::<i64, _>("context_window_tokens")?)?,
+        is_active: row.try_get("is_active")?,
+        credential_status,
+        validated_at: row
+            .try_get::<Option<String>, _>("validated_at")?
+            .map(parse_timestamp)
+            .transpose()?,
+    })
+}
+
+fn provider_kind_name(value: &ProviderKind) -> &'static str {
+    match value {
+        ProviderKind::OpenAi => "openai",
+        ProviderKind::Gemini => "gemini",
+        ProviderKind::Anthropic => "anthropic",
+        ProviderKind::DeepSeek => "deepseek",
+        ProviderKind::Kimi => "kimi",
+    }
 }
 
 fn parse_provider_kind(value: String) -> AppResult<ProviderKind> {
