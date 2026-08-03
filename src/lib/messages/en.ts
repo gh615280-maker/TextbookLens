@@ -6,7 +6,10 @@ export const en = {
   'nav.settings': 'Settings',
   'page.onboarding.title': 'Get started',
   'page.onboarding.description':
-    'First-launch guidance will be available in a later phase.',
+    'Choose a book, connect an AI service, and start reading.',
+  'onboarding.book': 'Choose a book',
+  'onboarding.provider': 'Connect an AI service',
+  'onboarding.ready': 'Ready to read',
   'page.library.title': 'Library',
   'page.library.description':
     'Textbook import will be available in a later phase.',
