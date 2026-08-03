@@ -111,7 +111,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const rendition = book.renderTo(this.container, {
       width: '100%',
       height: '100%',
-      flow: 'paginated',
+      manager: 'continuous',
+      flow: 'scrolled',
     });
     this.#rendition = rendition;
     rendition.hooks.content.register(({ document }) =>
