@@ -10,6 +10,7 @@ use futures_util::StreamExt;
 use secrecy::SecretString;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{body_json, header, method, path},
@@ -19,13 +20,15 @@ use super::openai::OpenAiProvider;
 use crate::{
     ai::{
         error::AiErrorKind,
+        multimodal::stage_vision_asset,
         provider::{
             AiProvider, MAX_CREDENTIAL_BYTES, UnifiedChatRequest, UnifiedMessage, UnifiedRole,
             UnifiedStreamEvent,
         },
         registry::UNKNOWN_MODEL_CONTEXT_WINDOW_TOKENS,
+        structured::PAGE_ANALYSIS_SCHEMA_VERSION,
     },
-    domain::ProviderKind,
+    domain::{ImageLimits, ImageMime, ProviderKind, StructuredPageRequest, UnifiedVisionRequest},
     errors::AppErrorCode,
 };
 use provider_server::{ChunkedSseServer, ProviderServer};
@@ -39,6 +42,17 @@ const STREAM_ERROR_FIXTURE: &str =
     include_str!("../../../../fixtures/providers/openai/stream-error.sse");
 const STREAM_EMPTY_FIXTURE: &str =
     include_str!("../../../../fixtures/providers/openai/stream-empty.sse");
+const VISION_STREAM_OK_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/openai/vision-stream-ok.sse");
+const VISION_STREAM_TRUNCATED_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/openai/vision-stream-truncated.sse");
+const STRUCTURED_OK_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/openai/structured-ok.json");
+const STRUCTURED_REFUSAL_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/openai/structured-refusal.json");
+const STRUCTURED_TRUNCATED_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/openai/structured-truncated.json");
+const SYNTHETIC_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
 
 fn request() -> UnifiedChatRequest {
     UnifiedChatRequest {
@@ -67,6 +81,302 @@ fn sse_response(body: &'static str) -> ResponseTemplate {
     ResponseTemplate::new(200)
         .insert_header("content-type", "text/event-stream")
         .set_body_raw(body, "text/event-stream")
+}
+
+fn visual_request(model: &str) -> UnifiedVisionRequest {
+    UnifiedVisionRequest {
+        text: UnifiedChatRequest {
+            model: model.to_owned(),
+            system: "fixture-visual-system".to_owned(),
+            messages: vec![
+                UnifiedMessage {
+                    role: UnifiedRole::User,
+                    content: "fixture-prior-question".to_owned(),
+                },
+                UnifiedMessage {
+                    role: UnifiedRole::Assistant,
+                    content: "fixture-prior-answer".to_owned(),
+                },
+                UnifiedMessage {
+                    role: UnifiedRole::User,
+                    content: "fixture-visible-image-question".to_owned(),
+                },
+            ],
+            max_output_tokens: 321,
+            expected_language: None,
+        },
+        images: vec![synthetic_image(Uuid::new_v4())],
+    }
+}
+
+fn structured_request(model: &str) -> StructuredPageRequest {
+    StructuredPageRequest {
+        model: model.to_owned(),
+        pages: vec![synthetic_image(Uuid::new_v4())],
+        schema_version: PAGE_ANALYSIS_SCHEMA_VERSION.to_owned(),
+        max_output_bytes: 4_096,
+    }
+}
+
+fn synthetic_image(book_id: Uuid) -> crate::domain::VisionAsset {
+    stage_vision_asset(
+        book_id,
+        Uuid::new_v4(),
+        ImageMime::Png,
+        1,
+        1,
+        synthetic_png(),
+        image_limits(),
+    )
+    .unwrap()
+}
+
+fn synthetic_png() -> Vec<u8> {
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01".to_vec()
+}
+
+fn image_limits() -> ImageLimits {
+    ImageLimits {
+        max_images: 4,
+        max_encoded_bytes_each: 4 * 1024 * 1024,
+        max_total_encoded_bytes: 12 * 1024 * 1024,
+        max_dimension_px: 4_096,
+        max_decoded_pixels_each: 8_847_360,
+    }
+}
+
+#[tokio::test]
+async fn vision_uses_exact_responses_shape_header_only_secret_and_success_terminal() {
+    let server = ProviderServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .and(header("authorization", format!("Bearer {TEST_KEY}")))
+        .and(header("content-type", "application/json"))
+        .respond_with(sse_response(VISION_STREAM_OK_FIXTURE))
+        .expect(1)
+        .mount(server.mock_server())
+        .await;
+
+    let events = OpenAiProvider::new_for_test(&server.uri())
+        .unwrap()
+        .stream_vision(
+            &SecretString::from(TEST_KEY),
+            visual_request("gpt-5.6"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(
+        events,
+        vec![
+            Ok(UnifiedStreamEvent::TextDelta {
+                text: "Visible vision answer.".to_owned()
+            }),
+            Ok(UnifiedStreamEvent::Usage {
+                input_tokens: Some(41),
+                output_tokens: Some(7)
+            }),
+            Ok(UnifiedStreamEvent::Completed)
+        ]
+    );
+
+    let received = server.mock_server().received_requests().await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&received[0].body).unwrap();
+    assert_eq!(body["model"], "gpt-5.6");
+    assert_eq!(body["stream"], true);
+    assert_eq!(body["instructions"], "fixture-visual-system");
+    assert_eq!(body["max_output_tokens"], 321);
+    assert_eq!(body["text"], json!({"format":{"type":"text"}}));
+    assert_eq!(
+        body["input"][0],
+        json!({"role":"user","content":"fixture-prior-question"})
+    );
+    assert_eq!(
+        body["input"][1],
+        json!({"role":"assistant","content":"fixture-prior-answer"})
+    );
+    assert_eq!(
+        body["input"][2],
+        json!({
+            "role":"user",
+            "content":[
+                {"type":"input_image","image_url":format!("data:image/png;base64,{SYNTHETIC_PNG_BASE64}"),"detail":"auto"},
+                {"type":"input_text","text":"fixture-visible-image-question"}
+            ]
+        })
+    );
+    let encoded = String::from_utf8(received[0].body.clone()).unwrap();
+    assert!(!encoded.contains(TEST_KEY));
+    assert_eq!(
+        received.len(),
+        1,
+        "inline image flow must not create remote files"
+    );
+}
+
+#[tokio::test]
+async fn structured_pages_require_completed_visible_json_then_bounded_decode() {
+    let server = ProviderServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .and(header("authorization", format!("Bearer {TEST_KEY}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(STRUCTURED_OK_FIXTURE, "application/json"),
+        )
+        .expect(1)
+        .mount(server.mock_server())
+        .await;
+
+    let result = OpenAiProvider::new_for_test(&server.uri())
+        .unwrap()
+        .analyze_pages(
+            &SecretString::from(TEST_KEY),
+            structured_request("gpt-5.6"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.schema_version, PAGE_ANALYSIS_SCHEMA_VERSION);
+    assert_eq!(
+        result.pages[0].blocks[0].plain_text,
+        "synthetic visible page text"
+    );
+
+    let received = server.mock_server().received_requests().await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&received[0].body).unwrap();
+    assert_eq!(body["model"], "gpt-5.6");
+    assert_eq!(body["stream"], false);
+    assert_eq!(body["max_output_tokens"], 4_096);
+    assert_eq!(body["text"]["format"]["type"], "json_schema");
+    assert_eq!(body["text"]["format"]["strict"], true);
+    assert_eq!(
+        body["text"]["format"]["schema"]["properties"]["schemaVersion"]["enum"][0],
+        PAGE_ANALYSIS_SCHEMA_VERSION
+    );
+    assert_eq!(
+        body["input"][0]["content"][0]["image_url"],
+        format!("data:image/png;base64,{SYNTHETIC_PNG_BASE64}")
+    );
+    assert_eq!(body["input"][0]["content"][0]["type"], "input_image");
+    assert_eq!(body["input"][0]["content"][1]["type"], "input_text");
+    assert!(
+        !String::from_utf8(received[0].body.clone())
+            .unwrap()
+            .contains(TEST_KEY)
+    );
+}
+
+#[tokio::test]
+async fn visual_unknown_model_denies_before_credential_validation_or_http() {
+    let server = ProviderServer::start().await;
+    let provider = OpenAiProvider::new_for_test(&server.uri()).unwrap();
+    let empty_credential = SecretString::from("");
+    let vision = provider
+        .stream_vision(
+            &empty_credential,
+            visual_request("unverified-openai-model"),
+            CancellationToken::new(),
+        )
+        .await
+        .err()
+        .unwrap();
+    let structured = provider
+        .analyze_pages(
+            &empty_credential,
+            structured_request("unverified-openai-model"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(vision.stable_code(), "UNSUPPORTED_PROVIDER_CAPABILITY");
+    assert_eq!(structured.stable_code(), "UNSUPPORTED_PROVIDER_CAPABILITY");
+    assert!(
+        server
+            .mock_server()
+            .received_requests()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn vision_truncation_and_structured_refusal_truncation_or_malformed_never_complete() {
+    let server = ProviderServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(sse_response(VISION_STREAM_TRUNCATED_FIXTURE))
+        .expect(1)
+        .mount(server.mock_server())
+        .await;
+    let events = OpenAiProvider::new_for_test(&server.uri())
+        .unwrap()
+        .stream_vision(
+            &SecretString::from(TEST_KEY),
+            visual_request("gpt-5.6"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert!(events.iter().any(Result::is_err));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Ok(UnifiedStreamEvent::Completed)))
+    );
+
+    for fixture in [
+        STRUCTURED_REFUSAL_FIXTURE,
+        STRUCTURED_TRUNCATED_FIXTURE,
+        r#"{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"not-json"}]}]}"#,
+    ] {
+        let failure_server = ProviderServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+            .expect(1)
+            .mount(failure_server.mock_server())
+            .await;
+        let error = OpenAiProvider::new_for_test(&failure_server.uri())
+            .unwrap()
+            .analyze_pages(
+                &SecretString::from(TEST_KEY),
+                structured_request("gpt-5.6"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        let safe = format!("{error:?} {error}");
+        assert!(!safe.contains("fixture-vendor-refusal-sentinel"));
+        assert!(!safe.contains("not-json"));
+    }
+
+    let cancel_server = ProviderServer::start().await;
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let error = OpenAiProvider::new_for_test(&cancel_server.uri())
+        .unwrap()
+        .stream_vision(
+            &SecretString::from(TEST_KEY),
+            visual_request("gpt-5.6"),
+            cancel,
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.code, AppErrorCode::ImportCancelled);
+    assert!(
+        cancel_server
+            .mock_server()
+            .received_requests()
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]

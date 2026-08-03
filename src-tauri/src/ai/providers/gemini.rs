@@ -3,40 +3,61 @@ use std::{collections::BTreeMap, fmt};
 use async_trait::async_trait;
 use reqwest::{Method, StatusCode};
 use secrecy::SecretString;
-use serde::{Deserialize, Serialize, de::IgnoredAny};
-use serde_json::Value;
+use serde::{Deserialize, Serialize, Serializer, de::IgnoredAny};
+use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
+use zeroize::Zeroizing;
 
-use crate::domain::{ProviderKind, ValidationResult};
+use crate::{
+    domain::{
+        AiOperation, CapabilitySupport, ImageLimits, ImageMime, ProviderKind, ProviderPageAnalysis,
+        StructuredPageRequest, UnifiedVisionRequest, ValidationResult,
+    },
+    errors::{AppError, AppErrorCode, AppResult},
+};
 
 use super::super::{
     error::AiError,
+    multimodal::validate_vision_request,
     provider::{
         AiProvider, ProviderStream, UnifiedChatRequest, UnifiedRole, UnifiedStreamEvent,
         validate_credential, validate_model_id,
     },
+    registry::ProviderCapabilityRegistry,
     stream::{SseEvent, SseEventMapper, parse_known_json},
+    structured::{decode_provider_page_analysis, validate_structured_request},
     transport::{CredentialHeader, ProviderHttpRequest, ProviderTransport},
 };
 
 const MODEL_ENDPOINT_PREFIX: &str = "v1beta/models/";
+const VERIFIED_VISUAL_MODEL: &str = "gemini-3.6-flash";
+const STRUCTURED_MAX_OUTPUT_TOKENS: u32 = 4_096;
+const STRUCTURED_INSTRUCTION: &str = "Analyze the supplied textbook page images in their input order and return only the requested JSON object.";
 
 pub struct GeminiProvider {
     transport: ProviderTransport,
+    registry: ProviderCapabilityRegistry,
 }
 
 impl GeminiProvider {
     pub fn new() -> Result<Self, AiError> {
+        Self::build(ProviderTransport::new(ProviderKind::Gemini)?)
+    }
+
+    fn build(transport: ProviderTransport) -> Result<Self, AiError> {
         Ok(Self {
-            transport: ProviderTransport::new(ProviderKind::Gemini)?,
+            transport,
+            registry: ProviderCapabilityRegistry::load_embedded()
+                .map_err(|_| AiError::provider_unavailable())?,
         })
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_test(origin: &str) -> Result<Self, AiError> {
-        Ok(Self {
-            transport: ProviderTransport::new_for_test(ProviderKind::Gemini, origin)?,
-        })
+        Self::build(ProviderTransport::new_for_test(
+            ProviderKind::Gemini,
+            origin,
+        )?)
     }
 }
 
@@ -104,7 +125,7 @@ impl AiProvider for GeminiProvider {
         let body = GeminiRequest {
             system_instruction: (!request.system.is_empty()).then(|| GeminiContent {
                 role: None,
-                parts: vec![TextPart {
+                parts: vec![GeminiPart::Text {
                     text: request.system,
                 }],
             }),
@@ -129,7 +150,181 @@ impl AiProvider for GeminiProvider {
             .transport
             .send_stream(http_request, credential, cancel)
             .await?
-            .decode(GeminiEventMapper::default()))
+            .decode(GeminiEventMapper::for_text()))
+    }
+
+    async fn stream_vision(
+        &self,
+        credential: &SecretString,
+        request: UnifiedVisionRequest,
+        cancel: CancellationToken,
+    ) -> AppResult<ProviderStream> {
+        let limits = self.verified_limits(&request.text.model, AiOperation::VisionLearning)?;
+        validate_vision_input(&request, limits)?;
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
+
+        let model = request.text.model.clone();
+        let body = vision_request(request)?;
+        let endpoint = format!(
+            "{MODEL_ENDPOINT_PREFIX}{}:streamGenerateContent?alt=sse",
+            encode_path_segment(&model).map_err(AiError::into_app_error)?
+        );
+        let http_request =
+            ProviderHttpRequest::json(Method::POST, endpoint, CredentialHeader::XGoogApiKey, &body)
+                .map_err(AiError::into_app_error)?;
+        drop(body);
+
+        let response = self
+            .transport
+            .send_stream(http_request, credential, cancel)
+            .await
+            .map_err(AiError::into_app_error)?;
+        Ok(response.decode(GeminiEventMapper::for_vision()))
+    }
+
+    async fn analyze_pages(
+        &self,
+        credential: &SecretString,
+        request: StructuredPageRequest,
+        cancel: CancellationToken,
+    ) -> AppResult<ProviderPageAnalysis> {
+        let limits = self.verified_limits(&request.model, AiOperation::StructuredPageAnalysis)?;
+        let book_id = request
+            .pages
+            .first()
+            .map(|page| page.meta.book_id)
+            .ok_or_else(invalid_input)?;
+        validate_structured_request(book_id, &request, limits)?;
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
+
+        let model = request.model.clone();
+        let schema_version = request.schema_version.clone();
+        let max_output_bytes = request.max_output_bytes;
+        let body = structured_request(request);
+        let endpoint = format!(
+            "{MODEL_ENDPOINT_PREFIX}{}:generateContent",
+            encode_path_segment(&model).map_err(AiError::into_app_error)?
+        );
+        let http_request =
+            ProviderHttpRequest::json(Method::POST, endpoint, CredentialHeader::XGoogApiKey, &body)
+                .map_err(AiError::into_app_error)?;
+        drop(body);
+        let response = self
+            .transport
+            .send_bounded(http_request, credential, cancel.clone())
+            .await
+            .map_err(AiError::into_app_error)?;
+        let response: GeminiStructuredResponse =
+            response.json().map_err(AiError::into_app_error)?;
+        let visible = response.visible_json()?;
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
+        decode_provider_page_analysis(visible.as_bytes(), &schema_version, max_output_bytes)
+    }
+}
+
+impl GeminiProvider {
+    fn verified_limits(&self, model: &str, operation: AiOperation) -> AppResult<ImageLimits> {
+        if model != VERIFIED_VISUAL_MODEL
+            || self
+                .registry
+                .operation_support(&ProviderKind::Gemini, model, operation)
+                != CapabilitySupport::Supported
+        {
+            return Err(AppError::unsupported_provider_capability());
+        }
+        self.registry
+            .capabilities()
+            .iter()
+            .find(|provider| provider.kind == ProviderKind::Gemini)
+            .and_then(|provider| provider.models.iter().find(|entry| entry.id == model))
+            .and_then(|entry| entry.image_limits)
+            .ok_or_else(AppError::unsupported_provider_capability)
+    }
+}
+
+fn validate_vision_input(request: &UnifiedVisionRequest, limits: ImageLimits) -> AppResult<()> {
+    validate_model_id(&request.text.model).map_err(AiError::into_app_error)?;
+    if request.text.max_output_tokens == 0
+        || request.text.messages.is_empty()
+        || request.text.messages.last().map(|message| &message.role) != Some(&UnifiedRole::User)
+    {
+        return Err(invalid_input());
+    }
+    let book_id = request
+        .images
+        .first()
+        .map(|image| image.meta.book_id)
+        .ok_or_else(invalid_input)?;
+    validate_vision_request(book_id, request, limits)
+}
+
+fn vision_request(request: UnifiedVisionRequest) -> AppResult<GeminiRequest> {
+    let UnifiedVisionRequest { text, images } = request;
+    let mut contents = normalize_history(text.messages).map_err(AiError::into_app_error)?;
+    let last = contents.last_mut().ok_or_else(invalid_input)?;
+    if last.role != Some(GeminiRole::User) {
+        return Err(invalid_input());
+    }
+    let text_parts = std::mem::take(&mut last.parts);
+    let mut parts = images
+        .into_iter()
+        .map(|image| GeminiPart::InlineData {
+            inline_data: InlineData {
+                mime_type: image_mime(image.meta.mime_type),
+                data: SensitiveString::base64(image.bytes()),
+            },
+        })
+        .collect::<Vec<_>>();
+    parts.extend(text_parts);
+    last.parts = parts;
+
+    Ok(GeminiRequest {
+        system_instruction: (!text.system.is_empty()).then(|| GeminiContent {
+            role: None,
+            parts: vec![GeminiPart::Text { text: text.system }],
+        }),
+        contents,
+        generation_config: GenerationConfig {
+            max_output_tokens: text.max_output_tokens,
+        },
+    })
+}
+
+fn structured_request(request: StructuredPageRequest) -> GeminiStructuredRequest {
+    let schema_version = request.schema_version.clone();
+    let mut parts = request
+        .pages
+        .into_iter()
+        .map(|page| GeminiPart::InlineData {
+            inline_data: InlineData {
+                mime_type: image_mime(page.meta.mime_type),
+                data: SensitiveString::base64(page.bytes()),
+            },
+        })
+        .collect::<Vec<_>>();
+    parts.push(GeminiPart::Text {
+        text: format!("{STRUCTURED_INSTRUCTION} Return schema version {schema_version}."),
+    });
+    GeminiStructuredRequest {
+        contents: vec![GeminiContent {
+            role: Some(GeminiRole::User),
+            parts,
+        }],
+        generation_config: GeminiStructuredConfig {
+            max_output_tokens: STRUCTURED_MAX_OUTPUT_TOKENS,
+            response_format: GeminiResponseFormat {
+                text: GeminiTextResponseFormat {
+                    mime_type: "application/json",
+                    schema: page_analysis_schema(&schema_version),
+                },
+            },
+        },
     }
 }
 
@@ -151,13 +346,13 @@ fn normalize_history(
         if let Some(previous) = contents.last_mut()
             && previous.role == Some(role)
         {
-            previous.parts.push(TextPart {
+            previous.parts.push(GeminiPart::Text {
                 text: message.content,
             });
         } else {
             contents.push(GeminiContent {
                 role: Some(role),
-                parts: vec![TextPart {
+                parts: vec![GeminiPart::Text {
                     text: message.content,
                 }],
             });
@@ -212,7 +407,7 @@ struct GeminiRequest {
 struct GeminiContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     role: Option<GeminiRole>,
-    parts: Vec<TextPart>,
+    parts: Vec<GeminiPart>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
@@ -223,8 +418,22 @@ enum GeminiRole {
 }
 
 #[derive(Serialize)]
-struct TextPart {
-    text: String,
+#[serde(untagged)]
+enum GeminiPart {
+    Text {
+        text: String,
+    },
+    InlineData {
+        #[serde(rename = "inlineData")]
+        inline_data: InlineData,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InlineData {
+    mime_type: &'static str,
+    data: SensitiveString,
 }
 
 #[derive(Serialize)]
@@ -233,9 +442,25 @@ struct GenerationConfig {
     max_output_tokens: u32,
 }
 
-#[derive(Default)]
 struct GeminiEventMapper {
     saw_visible_text: bool,
+    allow_max_tokens: bool,
+}
+
+impl GeminiEventMapper {
+    const fn for_text() -> Self {
+        Self {
+            saw_visible_text: false,
+            allow_max_tokens: true,
+        }
+    }
+
+    const fn for_vision() -> Self {
+        Self {
+            saw_visible_text: false,
+            allow_max_tokens: false,
+        }
+    }
 }
 
 impl SseEventMapper for GeminiEventMapper {
@@ -282,7 +507,8 @@ impl GeminiEventMapper {
             return Err(AiError::malformed_event());
         }
         if let Some(reason) = candidate.finish_reason.as_deref()
-            && !matches!(reason, "STOP" | "MAX_TOKENS")
+            && reason != "STOP"
+            && !(self.allow_max_tokens && reason == "MAX_TOKENS")
         {
             return Err(match reason {
                 "SAFETY"
@@ -367,4 +593,183 @@ struct CandidatePart {
     thought: Option<bool>,
     #[serde(rename = "thoughtSignature")]
     _thought_signature: Option<IgnoredAny>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiStructuredRequest {
+    contents: Vec<GeminiContent>,
+    generation_config: GeminiStructuredConfig,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiStructuredConfig {
+    max_output_tokens: u32,
+    response_format: GeminiResponseFormat,
+}
+
+#[derive(Serialize)]
+struct GeminiResponseFormat {
+    text: GeminiTextResponseFormat,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiTextResponseFormat {
+    mime_type: &'static str,
+    schema: Value,
+}
+
+struct SensitiveString(Zeroizing<String>);
+
+impl SensitiveString {
+    fn base64(bytes: &[u8]) -> Self {
+        let mut encoded = Zeroizing::new(String::with_capacity(bytes.len().div_ceil(3) * 4));
+        encode_base64(bytes, &mut encoded);
+        Self(encoded)
+    }
+}
+
+impl Serialize for SensitiveString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.0.as_str())
+    }
+}
+
+const fn image_mime(mime_type: ImageMime) -> &'static str {
+    match mime_type {
+        ImageMime::Png => "image/png",
+        ImageMime::Jpeg => "image/jpeg",
+        ImageMime::Webp => "image/webp",
+    }
+}
+
+fn encode_base64(bytes: &[u8], output: &mut String) {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0];
+        let second = chunk.get(1).copied().unwrap_or(0);
+        let third = chunk.get(2).copied().unwrap_or(0);
+        output.push(char::from(TABLE[usize::from(first >> 2)]));
+        output.push(char::from(
+            TABLE[usize::from(((first & 0x03) << 4) | (second >> 4))],
+        ));
+        output.push(if chunk.len() > 1 {
+            char::from(TABLE[usize::from(((second & 0x0f) << 2) | (third >> 6))])
+        } else {
+            '='
+        });
+        output.push(if chunk.len() > 2 {
+            char::from(TABLE[usize::from(third & 0x3f)])
+        } else {
+            '='
+        });
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiStructuredResponse {
+    candidates: Option<Vec<Value>>,
+    prompt_feedback: Option<PromptFeedback>,
+    #[serde(default, rename = "usageMetadata")]
+    _usage_metadata: Option<IgnoredAny>,
+}
+
+impl GeminiStructuredResponse {
+    fn visible_json(self) -> AppResult<String> {
+        if self
+            .prompt_feedback
+            .as_ref()
+            .is_some_and(|feedback| feedback.block_reason.is_some())
+        {
+            return Err(AiError::refused().into_app_error());
+        }
+        let mut candidates = self
+            .candidates
+            .filter(|candidates| candidates.len() == 1)
+            .ok_or_else(|| AiError::provider_unavailable().into_app_error())?;
+        let candidate: Candidate = serde_json::from_value(candidates.remove(0))
+            .map_err(|_| AiError::provider_unavailable().into_app_error())?;
+        if candidate.index.is_some_and(|index| index != 0) {
+            return Err(AiError::provider_unavailable().into_app_error());
+        }
+        match candidate.finish_reason.as_deref() {
+            Some("STOP") => {}
+            Some(
+                "SAFETY" | "RECITATION" | "LANGUAGE" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII"
+                | "IMAGE_SAFETY",
+            ) => return Err(AiError::refused().into_app_error()),
+            _ => return Err(AiError::provider_unavailable().into_app_error()),
+        }
+        let parts = candidate
+            .content
+            .and_then(|content| content.parts)
+            .ok_or_else(|| AiError::provider_unavailable().into_app_error())?;
+        let visible = parts
+            .into_iter()
+            .filter(|part| !part.thought.unwrap_or(false))
+            .filter_map(|part| part.text)
+            .collect::<String>();
+        if visible.is_empty() {
+            Err(AiError::provider_unavailable().into_app_error())
+        } else {
+            Ok(visible)
+        }
+    }
+}
+
+fn page_analysis_schema(schema_version: &str) -> Value {
+    let nullable_string = || json!({"anyOf":[{"type":"string"},{"type":"null"}]});
+    json!({
+        "type":"object",
+        "properties":{
+            "schemaVersion":{"type":"string","enum":[schema_version]},
+            "pages":{"type":"array","items":{
+                "type":"object",
+                "properties":{
+                    "pageNumber":{"type":"integer","minimum":0},
+                    "blocks":{"type":"array","items":{
+                        "type":"object",
+                        "properties":{
+                            "ordinal":{"type":"integer","minimum":0},
+                            "kind":{"type":"string","enum":["title","paragraph","list","table","caption","formula","figure","transcript"]},
+                            "plainText":{"type":"string"},
+                            "bounds":{"anyOf":[{"type":"object","properties":{
+                                "x":{"type":"number"},"y":{"type":"number"},
+                                "width":{"type":"number"},"height":{"type":"number"}
+                            },"required":["x","y","width","height"],"additionalProperties":false},{"type":"null"}]},
+                            "latex":nullable_string(),
+                            "tableCells":{"anyOf":[{"type":"array","items":{
+                                "type":"object","properties":{
+                                    "row":{"type":"integer","minimum":0},"column":{"type":"integer","minimum":0},
+                                    "rowSpan":{"type":"integer","minimum":1},"columnSpan":{"type":"integer","minimum":1},
+                                    "text":{"type":"string"}
+                                },"required":["row","column","rowSpan","columnSpan","text"],"additionalProperties":false
+                            }},{"type":"null"}]},
+                            "visualDescription":nullable_string()
+                        },
+                        "required":["ordinal","kind","plainText","bounds","latex","tableCells","visualDescription"],
+                        "additionalProperties":false
+                    }}
+                },
+                "required":["pageNumber","blocks"],
+                "additionalProperties":false
+            }}
+        },
+        "required":["schemaVersion","pages"],
+        "additionalProperties":false
+    })
+}
+
+fn invalid_input() -> AppError {
+    AppError::new(AppErrorCode::InvalidInput)
+}
+
+fn cancelled() -> AppError {
+    AiError::cancelled().into_app_error()
 }

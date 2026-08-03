@@ -9,6 +9,7 @@ use futures_util::StreamExt;
 use secrecy::SecretString;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 use wiremock::{
     Mock, ResponseTemplate,
     matchers::{body_json, header, method, path},
@@ -18,11 +19,14 @@ use super::gemini::GeminiProvider;
 use crate::{
     ai::{
         error::AiErrorKind,
+        multimodal::stage_vision_asset,
         provider::{
             AiProvider, UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent,
         },
+        structured::PAGE_ANALYSIS_SCHEMA_VERSION,
     },
-    domain::ProviderKind,
+    domain::{ImageLimits, ImageMime, ProviderKind, StructuredPageRequest, UnifiedVisionRequest},
+    errors::AppErrorCode,
 };
 use provider_server::{ChunkedSseServer, ProviderServer};
 
@@ -33,6 +37,17 @@ const VALIDATE_FIXTURE: &str =
 const STREAM_OK_FIXTURE: &str = include_str!("../../../../fixtures/providers/gemini/stream-ok.sse");
 const STREAM_ERROR_FIXTURE: &str =
     include_str!("../../../../fixtures/providers/gemini/stream-error.sse");
+const VISION_STREAM_OK_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/gemini/vision-stream-ok.sse");
+const VISION_STREAM_TRUNCATED_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/gemini/vision-stream-truncated.sse");
+const STRUCTURED_OK_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/gemini/structured-ok.json");
+const STRUCTURED_REFUSAL_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/gemini/structured-refusal.json");
+const STRUCTURED_TRUNCATED_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/gemini/structured-truncated.json");
+const SYNTHETIC_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
 
 fn request() -> UnifiedChatRequest {
     UnifiedChatRequest {
@@ -65,6 +80,312 @@ fn sse_response(body: &'static str) -> ResponseTemplate {
     ResponseTemplate::new(200)
         .insert_header("content-type", "text/event-stream")
         .set_body_raw(body, "text/event-stream")
+}
+
+fn visual_request(model: &str) -> UnifiedVisionRequest {
+    UnifiedVisionRequest {
+        text: UnifiedChatRequest {
+            model: model.to_owned(),
+            system: "fixture-visual-system".to_owned(),
+            messages: vec![
+                UnifiedMessage {
+                    role: UnifiedRole::User,
+                    content: "fixture-prior-question".to_owned(),
+                },
+                UnifiedMessage {
+                    role: UnifiedRole::Assistant,
+                    content: "fixture-prior-answer".to_owned(),
+                },
+                UnifiedMessage {
+                    role: UnifiedRole::User,
+                    content: "fixture-visible-image-question".to_owned(),
+                },
+            ],
+            max_output_tokens: 321,
+            expected_language: None,
+        },
+        images: vec![synthetic_image(Uuid::new_v4())],
+    }
+}
+
+fn structured_request(model: &str) -> StructuredPageRequest {
+    StructuredPageRequest {
+        model: model.to_owned(),
+        pages: vec![synthetic_image(Uuid::new_v4())],
+        schema_version: PAGE_ANALYSIS_SCHEMA_VERSION.to_owned(),
+        max_output_bytes: 4_096,
+    }
+}
+
+fn synthetic_image(book_id: Uuid) -> crate::domain::VisionAsset {
+    stage_vision_asset(
+        book_id,
+        Uuid::new_v4(),
+        ImageMime::Png,
+        1,
+        1,
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01".to_vec(),
+        image_limits(),
+    )
+    .unwrap()
+}
+
+fn image_limits() -> ImageLimits {
+    ImageLimits {
+        max_images: 4,
+        max_encoded_bytes_each: 4 * 1024 * 1024,
+        max_total_encoded_bytes: 12 * 1024 * 1024,
+        max_dimension_px: 4_096,
+        max_decoded_pixels_each: 8_847_360,
+    }
+}
+
+#[tokio::test]
+async fn vision_uses_exact_inline_data_shape_header_only_key_and_stop_terminal() {
+    let server = ProviderServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(
+            "/v1beta/models/gemini-3.6-flash:streamGenerateContent",
+        ))
+        .and(header("x-goog-api-key", TEST_KEY))
+        .and(header("content-type", "application/json"))
+        .respond_with(sse_response(VISION_STREAM_OK_FIXTURE))
+        .expect(1)
+        .mount(server.mock_server())
+        .await;
+
+    let events = GeminiProvider::new_for_test(&server.uri())
+        .unwrap()
+        .stream_vision(
+            &SecretString::from(TEST_KEY),
+            visual_request("gemini-3.6-flash"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(
+        events,
+        vec![
+            Ok(UnifiedStreamEvent::TextDelta {
+                text: "Visible Gemini vision answer.".to_owned()
+            }),
+            Ok(UnifiedStreamEvent::Usage {
+                input_tokens: Some(43),
+                output_tokens: Some(8)
+            }),
+            Ok(UnifiedStreamEvent::Completed)
+        ]
+    );
+
+    let received = server.mock_server().received_requests().await.unwrap();
+    let sent = &received[0];
+    assert_eq!(sent.url.query(), Some("alt=sse"));
+    let body: serde_json::Value = serde_json::from_slice(&sent.body).unwrap();
+    assert_eq!(
+        body["systemInstruction"],
+        json!({"parts":[{"text":"fixture-visual-system"}]})
+    );
+    assert_eq!(body["generationConfig"], json!({"maxOutputTokens":321}));
+    assert_eq!(
+        body["contents"][0],
+        json!({"role":"user","parts":[{"text":"fixture-prior-question"}]})
+    );
+    assert_eq!(
+        body["contents"][1],
+        json!({"role":"model","parts":[{"text":"fixture-prior-answer"}]})
+    );
+    assert_eq!(
+        body["contents"][2],
+        json!({
+            "role":"user",
+            "parts":[
+                {"inlineData":{"mimeType":"image/png","data":SYNTHETIC_PNG_BASE64}},
+                {"text":"fixture-visible-image-question"}
+            ]
+        })
+    );
+    assert!(
+        !String::from_utf8(sent.body.clone())
+            .unwrap()
+            .contains(TEST_KEY)
+    );
+    assert_eq!(
+        received.len(),
+        1,
+        "inline image flow must not create a Files resource"
+    );
+}
+
+#[tokio::test]
+async fn structured_pages_use_response_format_stop_then_bounded_decode() {
+    let server = ProviderServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1beta/models/gemini-3.6-flash:generateContent"))
+        .and(header("x-goog-api-key", TEST_KEY))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(STRUCTURED_OK_FIXTURE, "application/json"),
+        )
+        .expect(1)
+        .mount(server.mock_server())
+        .await;
+
+    let result = GeminiProvider::new_for_test(&server.uri())
+        .unwrap()
+        .analyze_pages(
+            &SecretString::from(TEST_KEY),
+            structured_request("gemini-3.6-flash"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.schema_version, PAGE_ANALYSIS_SCHEMA_VERSION);
+    assert_eq!(
+        result.pages[0].blocks[0].plain_text,
+        "synthetic visible page text"
+    );
+
+    let received = server.mock_server().received_requests().await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&received[0].body).unwrap();
+    assert_eq!(body["generationConfig"]["maxOutputTokens"], 4_096);
+    assert_eq!(
+        body["generationConfig"]["responseFormat"]["text"]["mimeType"],
+        "application/json"
+    );
+    assert_eq!(
+        body["generationConfig"]["responseFormat"]["text"]["schema"]["properties"]["schemaVersion"]
+            ["enum"][0],
+        PAGE_ANALYSIS_SCHEMA_VERSION
+    );
+    assert_eq!(
+        body["contents"][0]["parts"][0],
+        json!({"inlineData":{"mimeType":"image/png","data":SYNTHETIC_PNG_BASE64}})
+    );
+    assert!(
+        body["contents"][0]["parts"][1]["text"]
+            .as_str()
+            .unwrap()
+            .contains(PAGE_ANALYSIS_SCHEMA_VERSION)
+    );
+    assert!(
+        !String::from_utf8(received[0].body.clone())
+            .unwrap()
+            .contains(TEST_KEY)
+    );
+}
+
+#[tokio::test]
+async fn visual_unknown_model_denies_before_credential_validation_or_http() {
+    let server = ProviderServer::start().await;
+    let provider = GeminiProvider::new_for_test(&server.uri()).unwrap();
+    let empty_credential = SecretString::from("");
+    let vision = provider
+        .stream_vision(
+            &empty_credential,
+            visual_request("unverified-gemini-model"),
+            CancellationToken::new(),
+        )
+        .await
+        .err()
+        .unwrap();
+    let structured = provider
+        .analyze_pages(
+            &empty_credential,
+            structured_request("unverified-gemini-model"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(vision.stable_code(), "UNSUPPORTED_PROVIDER_CAPABILITY");
+    assert_eq!(structured.stable_code(), "UNSUPPORTED_PROVIDER_CAPABILITY");
+    assert!(
+        server
+            .mock_server()
+            .received_requests()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn vision_max_tokens_and_structured_refusal_truncation_or_malformed_never_complete() {
+    let server = ProviderServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(
+            "/v1beta/models/gemini-3.6-flash:streamGenerateContent",
+        ))
+        .respond_with(sse_response(VISION_STREAM_TRUNCATED_FIXTURE))
+        .expect(1)
+        .mount(server.mock_server())
+        .await;
+    let events = GeminiProvider::new_for_test(&server.uri())
+        .unwrap()
+        .stream_vision(
+            &SecretString::from(TEST_KEY),
+            visual_request("gemini-3.6-flash"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert!(events.iter().any(Result::is_err));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, Ok(UnifiedStreamEvent::Completed)))
+    );
+
+    for fixture in [
+        STRUCTURED_REFUSAL_FIXTURE,
+        STRUCTURED_TRUNCATED_FIXTURE,
+        r#"{"candidates":[{"index":0,"content":{"parts":[{"text":"not-json"}]},"finishReason":"STOP"}]}"#,
+    ] {
+        let failure_server = ProviderServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1beta/models/gemini-3.6-flash:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(fixture, "application/json"))
+            .expect(1)
+            .mount(failure_server.mock_server())
+            .await;
+        let error = GeminiProvider::new_for_test(&failure_server.uri())
+            .unwrap()
+            .analyze_pages(
+                &SecretString::from(TEST_KEY),
+                structured_request("gemini-3.6-flash"),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        let safe = format!("{error:?} {error}");
+        assert!(!safe.contains("fixture-vendor-refusal-sentinel"));
+        assert!(!safe.contains("not-json"));
+    }
+
+    let cancel_server = ProviderServer::start().await;
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let error = GeminiProvider::new_for_test(&cancel_server.uri())
+        .unwrap()
+        .stream_vision(
+            &SecretString::from(TEST_KEY),
+            visual_request("gemini-3.6-flash"),
+            cancel,
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.code, AppErrorCode::ImportCancelled);
+    assert!(
+        cancel_server
+            .mock_server()
+            .received_requests()
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]

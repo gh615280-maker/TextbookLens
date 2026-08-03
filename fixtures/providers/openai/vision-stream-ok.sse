@@ -1,0 +1,6 @@
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","delta":"Visible vision answer."}
+
+event: response.completed
+data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":41,"output_tokens":7}}}
+

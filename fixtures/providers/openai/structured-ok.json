@@ -1,0 +1,16 @@
+{
+  "status": "completed",
+  "output": [
+    {"type": "reasoning", "summary": [{"type": "summary_text", "text": "hidden-structured-reasoning"}]},
+    {
+      "type": "message",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"schemaVersion\":\"textbooklens.page-analysis.v1\",\"pages\":[{\"pageNumber\":1,\"blocks\":[{\"ordinal\":0,\"kind\":\"paragraph\",\"plainText\":\"synthetic visible page text\",\"bounds\":null,\"latex\":null,\"tableCells\":null,\"visualDescription\":null}]}]}"
+        }
+      ]
+    }
+  ],
+  "usage": {"input_tokens": 52, "output_tokens": 31}
+}

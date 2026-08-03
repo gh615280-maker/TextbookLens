@@ -1,0 +1,7 @@
+{
+  "status": "incomplete",
+  "incomplete_details": {"reason": "max_output_tokens"},
+  "output": [
+    {"type": "message", "content": [{"type": "output_text", "text": "{\"schemaVersion\":"}]}
+  ]
+}
