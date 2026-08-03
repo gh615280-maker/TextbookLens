@@ -1,13 +1,27 @@
 :root {
+  --font-sans:
+    'Segoe UI Variable', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-size-base: 1rem;
+  --font-size-small: 0.875rem;
+  --font-size-title: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  --line-height-base: 1.5;
+  --line-height-tight: 1.25;
+
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
+  --space-5: 1.25rem;
   --space-6: 1.5rem;
   --space-8: 2rem;
-  --font-sans: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
-  --font-size-base: 1rem;
-  --line-height-base: 1.5;
+
+  --radius-small: 0.25rem;
+  --radius-medium: 0.5rem;
+  --border-width: 1px;
+  --elevation-1: 0 0.125rem 0.375rem rgb(0 0 0 / 12%);
+  --control-height: 2.75rem;
+  --focus-ring-width: 0.1875rem;
+  --focus-ring-offset: 0.125rem;
   --reader-column-width: 72ch;
-  --focus-ring-width: 3px;
+  --motion-duration: 160ms;
 }

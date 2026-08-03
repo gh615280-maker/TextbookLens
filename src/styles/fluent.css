@@ -1,0 +1,319 @@
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-surface);
+  border-bottom: var(--border-width) solid var(--color-border);
+  box-shadow: var(--elevation-1);
+}
+
+.app-header--minimal {
+  justify-content: space-between;
+}
+
+.app-brand {
+  flex: 0 0 auto;
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 700;
+  line-height: var(--line-height-tight);
+  text-decoration: none;
+}
+
+.top-navigation {
+  flex: 1 1 18rem;
+  min-width: 0;
+  overflow-x: auto;
+  scroll-padding-inline: var(--space-2);
+}
+
+.app-navigation,
+.app-header__tools,
+.reader-toolbar,
+.reader-settings,
+.library-page__header,
+.button-row,
+.book-card__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.app-navigation {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-navigation a,
+.app-header__tools > a {
+  display: inline-flex;
+  min-height: var(--control-height);
+  align-items: center;
+  padding-inline: var(--space-2);
+  border: var(--border-width) solid transparent;
+  border-radius: var(--radius-small);
+  color: var(--color-text);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.app-navigation a[aria-current='page'],
+.app-header__tools > a[aria-current='page'] {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}
+
+.app-header__tools {
+  flex: 0 0 auto;
+}
+
+main {
+  padding: var(--space-8);
+}
+
+.phase-page,
+.reader-column {
+  max-width: var(--reader-column-width);
+}
+
+.reader-three-pane {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr) minmax(
+      14rem,
+      20rem
+    );
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.reader-toolbar,
+.reader-settings {
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.reader-sidebar,
+.reader-panel,
+.reader-settings,
+.book-card,
+.import-progress,
+.inline-error,
+.empty-state {
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-medium);
+}
+
+.reader-main {
+  width: min(100%, var(--reader-width, var(--reader-column-width)));
+  margin-inline: auto;
+  font-size: calc(1rem * var(--reader-font-scale, 1));
+  line-height: var(--reader-line-height, var(--line-height-base));
+}
+
+.reader-document {
+  min-height: min(75vh, 56rem);
+}
+
+.reader-settings label {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.skip-link {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--space-8) * -2);
+  left: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-small);
+}
+
+.skip-link:focus {
+  top: var(--space-4);
+}
+
+.error-boundary {
+  max-width: var(--reader-column-width);
+  padding: var(--space-6);
+}
+
+.library-page {
+  width: min(100%, 72rem);
+  margin-inline: auto;
+}
+
+.library-page__header {
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+}
+
+.library-page__header h1,
+.book-card h2,
+.import-progress h2 {
+  margin-block: 0;
+}
+
+button {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text);
+  font-weight: 600;
+  background: var(--color-surface-raised);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  color: var(--color-muted-text);
+}
+
+.library-page__header > button {
+  color: var(--color-accent-text);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.book-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--space-4);
+}
+
+.book-card {
+  display: grid;
+  grid-template-columns: 4rem 1fr;
+  gap: var(--space-4);
+}
+
+.book-card__cover {
+  display: grid;
+  height: 5.5rem;
+  place-items: center;
+  font-size: 2rem;
+  background: var(--color-canvas);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-small);
+}
+
+.book-card__format,
+.status-label {
+  color: var(--color-muted-text);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.book-card__progress {
+  flex-wrap: wrap;
+  margin-block: var(--space-3);
+}
+
+.book-card__progress progress,
+.import-progress progress {
+  accent-color: var(--color-accent);
+}
+
+.book-card__failure,
+.import-progress {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.book-card__failure p,
+.import-progress p {
+  margin: 0;
+}
+
+.import-progress {
+  margin-bottom: var(--space-6);
+}
+
+.import-stages {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  padding: 0;
+  list-style-position: inside;
+}
+
+.import-stages [aria-current='step'] {
+  color: var(--color-link);
+  font-weight: 700;
+}
+
+.inline-error {
+  margin-bottom: var(--space-4);
+  border-color: var(--color-danger);
+}
+
+@media (max-width: 40rem) {
+  .app-header {
+    align-items: stretch;
+    padding-inline: var(--space-4);
+  }
+
+  .app-header__tools {
+    justify-content: space-between;
+  }
+
+  main {
+    padding: var(--space-4);
+  }
+
+  .library-page__header,
+  .book-card,
+  .reader-three-pane {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .library-page__header {
+    flex-direction: column;
+  }
+
+  .book-card__cover {
+    width: 4rem;
+  }
+}
+
+@media (forced-colors: active) {
+  .app-header,
+  .reader-sidebar,
+  .reader-panel,
+  .reader-settings,
+  .book-card,
+  .import-progress,
+  .inline-error,
+  .empty-state {
+    background: Canvas;
+  }
+
+  .app-navigation a[aria-current='page'],
+  .app-header__tools > a[aria-current='page'],
+  .library-page__header > button {
+    color: HighlightText;
+    background: Highlight;
+    border-color: Highlight;
+  }
+}

@@ -1,37 +1,76 @@
-:root {
+:root,
+[data-theme='light'] {
+  color-scheme: light;
   --color-canvas: #f7f9fc;
   --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
   --color-text: #172033;
   --color-muted-text: #506079;
   --color-border: #c7d1e0;
   --color-link: #164a9c;
-  --focus-ring: #005fcc;
+  --color-accent: #005fb8;
+  --color-accent-text: #ffffff;
+  --color-danger: #b10e1e;
+  --color-danger-text: #ffffff;
+  --focus-ring: Highlight;
   --annotation-ai: #4e7ac7;
   --annotation-note: #a05c00;
 }
 
 [data-theme='dark'] {
+  color-scheme: dark;
   --color-canvas: #121722;
   --color-surface: #1b2433;
+  --color-surface-raised: #253044;
   --color-text: #edf3ff;
   --color-muted-text: #bdc9dc;
-  --color-border: #46536a;
+  --color-border: #52617a;
   --color-link: #9bc2ff;
-  --focus-ring: #8ab4ff;
+  --color-accent: #8ab4ff;
+  --color-accent-text: #11203a;
+  --color-danger: #ffb4ab;
+  --color-danger-text: #4a0005;
+  --focus-ring: Highlight;
   --annotation-ai: #9bc2ff;
   --annotation-note: #f0b35f;
 }
 
 @media (prefers-color-scheme: dark) {
   [data-theme='system'] {
+    color-scheme: dark;
     --color-canvas: #121722;
     --color-surface: #1b2433;
+    --color-surface-raised: #253044;
     --color-text: #edf3ff;
     --color-muted-text: #bdc9dc;
-    --color-border: #46536a;
+    --color-border: #52617a;
     --color-link: #9bc2ff;
-    --focus-ring: #8ab4ff;
+    --color-accent: #8ab4ff;
+    --color-accent-text: #11203a;
+    --color-danger: #ffb4ab;
+    --color-danger-text: #4a0005;
+    --focus-ring: Highlight;
     --annotation-ai: #9bc2ff;
     --annotation-note: #f0b35f;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    color-scheme: light dark;
+    --color-canvas: Canvas;
+    --color-surface: Canvas;
+    --color-surface-raised: Canvas;
+    --color-text: CanvasText;
+    --color-muted-text: CanvasText;
+    --color-border: CanvasText;
+    --color-link: LinkText;
+    --color-accent: Highlight;
+    --color-accent-text: HighlightText;
+    --color-danger: CanvasText;
+    --color-danger-text: Canvas;
+    --focus-ring: Highlight;
+    --annotation-ai: Highlight;
+    --annotation-note: CanvasText;
   }
 }
