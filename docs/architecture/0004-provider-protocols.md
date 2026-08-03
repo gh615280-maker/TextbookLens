@@ -43,3 +43,29 @@ Gemini protocol facts were re-verified on 2026-08-03 from the official Google AP
 The Kimi replacement is intentionally limited to the registry default. Users remain able to enter
 any model ID. An unknown model always uses a 32,000-token input fallback unless the user explicitly
 supplies another positive context limit.
+
+## Streaming completion policies (verified 2026-08-03)
+
+DeepSeek's documented `thinking` control is `{"thinking":{"type":"disabled"}}`; its
+stream request also sets `stream_options.include_usage: true`. A usage-only chunk has empty
+`choices` and precedes `data: [DONE]`. DeepSeek documents `stop`, `length`,
+`content_filter`, `tool_calls`, and `insufficient_system_resource` finish reasons. TextbookLens
+uses the narrower product success policy `stop` plus `[DONE]`, so truncated, filtered, tool, or
+interrupted output cannot be persisted as a completed answer. `reasoning_content` is discarded.
+This is an application policy, not a claim that the other documented finish reasons are invalid.
+The model-list response establishes credential-scoped exact `data[].id` membership only.
+([list models](https://api-docs.deepseek.com/api/list-models),
+[chat completions](https://api-docs.deepseek.com/api/create-chat-completion),
+[thinking mode](https://api-docs.deepseek.com/guides/thinking_mode),
+[error codes](https://api-docs.deepseek.com/quick_start/error_codes/))
+
+Kimi K3 uses `https://api.moonshot.ai/v1`, exact `GET /models` membership, and
+`POST /chat/completions`. Its request uses `max_completion_tokens`, `stream: true`, and
+`stream_options.include_usage: true`; `max_tokens` is deprecated. K3 always has thinking enabled,
+so the adapter does **not** send a fictional thinking-disable field. It requests
+`reasoning_effort: "low"` and permanently discards `reasoning_content`; only candidate zero
+`delta.content` is visible. TextbookLens requires `finish_reason: "stop"` and `[DONE]` for
+completion; `length` is treated as an incomplete answer. The same usage-only chunk rule applies.
+([model list](https://platform.moonshot.ai/docs/api/list-models),
+[chat API](https://platform.moonshot.ai/docs/api/chat),
+[Kimi K3 quickstart](https://platform.moonshot.ai/docs/guide/kimi-k3-quickstart))
