@@ -1,0 +1,5 @@
+data: {"futureResponseField":{"enabled":true},"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Fixture "},{"text":"fixture-hidden-thought","thought":true,"encryptedThought":"fixture-hidden-encrypted"}]}},{"index":1,"content":{"parts":[{"text":"fixture-candidate-one-must-not-escape"}]}}]}
+
+data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"answer."},{"thoughtSignature":"fixture-hidden-signature"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":7,"candidatesTokenCount":3}}
+
+: fixture stream terminator

@@ -154,7 +154,11 @@ impl ProviderTransport {
         let status = response.status();
         let body = read_bounded_body(response, &cancel, self.policy).await?;
         if !status.is_success() {
-            return Err(AiError::from_http(status, body.as_slice()));
+            return Err(AiError::from_provider_http(
+                &self.kind,
+                status,
+                body.as_slice(),
+            ));
         }
         Ok(BoundedResponse { status, body })
     }
@@ -169,7 +173,11 @@ impl ProviderTransport {
         let status = response.status();
         if !status.is_success() {
             let body = read_bounded_body(response, &cancel, self.policy).await?;
-            return Err(AiError::from_http(status, body.as_slice()));
+            return Err(AiError::from_provider_http(
+                &self.kind,
+                status,
+                body.as_slice(),
+            ));
         }
         Ok(ProviderResponseStream {
             response: Some(response),

@@ -1,0 +1,6 @@
+{
+  "name": "models/fixture-gemini/model?edition#1",
+  "inputTokenLimit": 321,
+  "outputTokenLimit": 654,
+  "supportedGenerationMethods": ["generateContent"]
+}

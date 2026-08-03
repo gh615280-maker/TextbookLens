@@ -3,7 +3,10 @@ use std::fmt;
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::errors::{AppError, AppErrorCode};
+use crate::{
+    domain::ProviderKind,
+    errors::{AppError, AppErrorCode},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AiErrorKind {
@@ -125,14 +128,54 @@ impl AiError {
             .map(VendorErrorEnvelope::normalized_fields)
             .unwrap_or_default();
 
+        Self::from_http_fields(status, &fields)
+    }
+
+    pub(crate) fn from_provider_http(
+        provider: &ProviderKind,
+        status: StatusCode,
+        body: &[u8],
+    ) -> Self {
+        let fields = serde_json::from_slice::<VendorErrorEnvelope>(body)
+            .ok()
+            .map(VendorErrorEnvelope::normalized_fields)
+            .unwrap_or_default();
+
+        if matches!(provider, ProviderKind::Gemini) && status == StatusCode::TOO_MANY_REQUESTS {
+            let kind = if contains_any(
+                &fields,
+                &[
+                    "insufficient_quota",
+                    "quota_exhausted",
+                    "billing",
+                    "payment_required",
+                    "credit_balance",
+                ],
+            ) {
+                AiErrorKind::InsufficientQuota
+            } else if contains_any(
+                &fields,
+                &["rate_limit", "too_many_requests", "rate_limited"],
+            ) {
+                AiErrorKind::RateLimited
+            } else {
+                AiErrorKind::ProviderUnavailable
+            };
+            return Self::new(kind);
+        }
+
+        Self::from_http_fields(status, &fields)
+    }
+
+    fn from_http_fields(status: StatusCode, fields: &str) -> Self {
         let kind = if contains_any(
-            &fields,
+            fields,
             &["invalid_api_key", "authentication", "unauthorized"],
         ) || status == StatusCode::UNAUTHORIZED
         {
             AiErrorKind::InvalidApiKey
         } else if contains_any(
-            &fields,
+            fields,
             &[
                 "context_length",
                 "context_window",
@@ -143,7 +186,7 @@ impl AiError {
         {
             AiErrorKind::ContextTooLarge
         } else if contains_any(
-            &fields,
+            fields,
             &[
                 "model_not_found",
                 "model_not_exist",
@@ -154,7 +197,7 @@ impl AiError {
         {
             AiErrorKind::ModelNotFound
         } else if contains_any(
-            &fields,
+            fields,
             &[
                 "region_restricted",
                 "regional_restriction",
@@ -164,7 +207,7 @@ impl AiError {
         ) {
             AiErrorKind::ProviderRegionRestricted
         } else if contains_any(
-            &fields,
+            fields,
             &[
                 "insufficient_quota",
                 "quota_exhausted",
@@ -175,19 +218,17 @@ impl AiError {
         ) || status == StatusCode::PAYMENT_REQUIRED
         {
             AiErrorKind::InsufficientQuota
-        } else if contains_any(&fields, &["rate_limit", "too_many_requests"])
+        } else if contains_any(fields, &["rate_limit", "too_many_requests"])
             || status == StatusCode::TOO_MANY_REQUESTS
         {
             AiErrorKind::RateLimited
         } else if contains_any(
-            &fields,
+            fields,
             &["refused", "refusal", "content_policy", "safety_rejection"],
         ) {
             AiErrorKind::ProviderRefused
-        } else if contains_any(
-            &fields,
-            &["permission_denied", "forbidden", "access_denied"],
-        ) || status == StatusCode::FORBIDDEN
+        } else if contains_any(fields, &["permission_denied", "forbidden", "access_denied"])
+            || status == StatusCode::FORBIDDEN
         {
             AiErrorKind::ProviderPermissionDenied
         } else {

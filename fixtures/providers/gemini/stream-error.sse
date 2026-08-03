@@ -1,0 +1,4 @@
+event: error
+data: {"error":{"status":"UNAVAILABLE","code":503,"message":"Synthetic Gemini stream failure."}}
+
+: fixture stream terminator
