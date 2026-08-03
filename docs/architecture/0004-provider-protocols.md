@@ -17,7 +17,7 @@ The checked-in registry is a capability hint, not an allowlist or price table. T
 default output reservation is 4,096 tokens for every listed model; `vendor maximum` is verified
 internally during registry validation and is not exposed as pricing or a user promise.
 
-OpenAI protocol facts were re-verified on 2026-08-02. Docs MCP was unavailable, so the official
+OpenAI protocol facts were re-verified on 2026-08-03. Docs MCP was unavailable, so the official
 OpenAI web fallback was used; the current reference still matches the planned endpoint, request,
 visible-delta, usage, and explicit-completion contracts.
 
@@ -64,6 +64,15 @@ fixtures, and synthetic credentials only.
 The Kimi replacement is intentionally limited to the registry default. Users remain able to enter
 any model ID. An unknown model always uses a 32,000-token input fallback unless the user explicitly
 supplies another positive context limit.
+
+The embedded registry is now schema version 1. Each exact model record carries independently
+verified `text_chat`, `image_input`, `pdf_input`, and `strict_structured_output` states plus a
+`last_verified` date. Public commands expose this metadata and conservative application limits,
+but never the internal vendor-output ceiling, credential, upload identifier, or wire contract.
+Operation queries use the exact provider/model record. A custom model can enter text learning only
+after profile validation; it remains `unknown` and is rejected locally for vision and structured
+page analysis. The visual capability evidence and its narrower Rust boundary are recorded in ADR
+0005; this ADR's Phase 4R text terminals remain unchanged.
 
 ## Streaming completion policies (verified 2026-08-03)
 

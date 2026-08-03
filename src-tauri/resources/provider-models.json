@@ -1,4 +1,5 @@
 {
+  "schema_version": 1,
   "providers": [
     {
       "kind": "openai",
@@ -10,7 +11,19 @@
           "display_name": "GPT-5.6",
           "context_window_tokens": 1050000,
           "default_max_output_tokens": 4096,
-          "vendor_max_output_tokens": 128000
+          "vendor_max_output_tokens": 128000,
+          "text_chat": "supported",
+          "image_input": "supported",
+          "pdf_input": "supported",
+          "strict_structured_output": "supported",
+          "image_limits": {
+            "max_images": 4,
+            "max_encoded_bytes_each": 4194304,
+            "max_total_encoded_bytes": 12582912,
+            "max_dimension_px": 4096,
+            "max_decoded_pixels_each": 8847360
+          },
+          "last_verified": "2026-08-03"
         }
       ]
     },
@@ -24,7 +37,19 @@
           "display_name": "Gemini 3.6 Flash",
           "context_window_tokens": 1048576,
           "default_max_output_tokens": 4096,
-          "vendor_max_output_tokens": 65536
+          "vendor_max_output_tokens": 65536,
+          "text_chat": "supported",
+          "image_input": "supported",
+          "pdf_input": "supported",
+          "strict_structured_output": "supported",
+          "image_limits": {
+            "max_images": 4,
+            "max_encoded_bytes_each": 4194304,
+            "max_total_encoded_bytes": 12582912,
+            "max_dimension_px": 4096,
+            "max_decoded_pixels_each": 8847360
+          },
+          "last_verified": "2026-08-03"
         }
       ]
     },
@@ -38,7 +63,19 @@
           "display_name": "Claude Sonnet 5",
           "context_window_tokens": 1000000,
           "default_max_output_tokens": 4096,
-          "vendor_max_output_tokens": 128000
+          "vendor_max_output_tokens": 128000,
+          "text_chat": "supported",
+          "image_input": "supported",
+          "pdf_input": "supported",
+          "strict_structured_output": "supported",
+          "image_limits": {
+            "max_images": 4,
+            "max_encoded_bytes_each": 4194304,
+            "max_total_encoded_bytes": 12582912,
+            "max_dimension_px": 4096,
+            "max_decoded_pixels_each": 8847360
+          },
+          "last_verified": "2026-08-03"
         }
       ]
     },
@@ -52,7 +89,13 @@
           "display_name": "DeepSeek V4 Flash",
           "context_window_tokens": 1000000,
           "default_max_output_tokens": 4096,
-          "vendor_max_output_tokens": 393216
+          "vendor_max_output_tokens": 393216,
+          "text_chat": "supported",
+          "image_input": "unsupported",
+          "pdf_input": "unsupported",
+          "strict_structured_output": "supported",
+          "image_limits": null,
+          "last_verified": "2026-08-03"
         }
       ]
     },
@@ -66,7 +109,19 @@
           "display_name": "Kimi K3",
           "context_window_tokens": 1048576,
           "default_max_output_tokens": 4096,
-          "vendor_max_output_tokens": 1048576
+          "vendor_max_output_tokens": 1048576,
+          "text_chat": "supported",
+          "image_input": "supported",
+          "pdf_input": "unsupported",
+          "strict_structured_output": "supported",
+          "image_limits": {
+            "max_images": 4,
+            "max_encoded_bytes_each": 4194304,
+            "max_total_encoded_bytes": 12582912,
+            "max_dimension_px": 4096,
+            "max_decoded_pixels_each": 8847360
+          },
+          "last_verified": "2026-08-03"
         }
       ]
     }

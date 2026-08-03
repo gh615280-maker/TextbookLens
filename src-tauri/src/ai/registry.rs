@@ -1,15 +1,26 @@
 use std::{collections::BTreeSet, fmt};
 
+use chrono::NaiveDate;
 use serde::Deserialize;
 
-use crate::domain::{ProviderCapability, ProviderKind, ProviderModelCapability};
+use crate::domain::{
+    AiOperation, CapabilitySupport, ImageLimits, ProviderCapability, ProviderCapabilityRegistryDto,
+    ProviderKind, ProviderModelCapability, ProviderProfileSummary,
+};
 
 const REGISTRY_JSON: &str = include_str!("../../resources/provider-models.json");
 const MINIMUM_OUTPUT_TOKENS: u32 = 4_096;
+const REGISTRY_SCHEMA_VERSION: u16 = 1;
+const MAX_REGISTRY_IMAGES: u16 = 16;
+const MAX_REGISTRY_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_REGISTRY_TOTAL_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_REGISTRY_IMAGE_DIMENSION: u32 = 8_192;
+const MAX_REGISTRY_DECODED_PIXELS: u64 = 40_000_000;
 pub const UNKNOWN_MODEL_CONTEXT_WINDOW_TOKENS: u32 = 32_000;
 
 #[derive(Clone, Debug)]
 pub struct ProviderCapabilityRegistry {
+    schema_version: u16,
     capabilities: Vec<ProviderCapability>,
 }
 
@@ -33,6 +44,7 @@ impl std::error::Error for RegistryError {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RegistryDocument {
+    schema_version: u16,
     providers: Vec<ProviderRecord>,
 }
 
@@ -53,6 +65,34 @@ struct ModelRecord {
     context_window_tokens: u32,
     default_max_output_tokens: u32,
     vendor_max_output_tokens: u32,
+    text_chat: CapabilitySupport,
+    image_input: CapabilitySupport,
+    pdf_input: CapabilitySupport,
+    strict_structured_output: CapabilitySupport,
+    image_limits: Option<RegistryImageLimits>,
+    last_verified: String,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegistryImageLimits {
+    max_images: u16,
+    max_encoded_bytes_each: u64,
+    max_total_encoded_bytes: u64,
+    max_dimension_px: u32,
+    max_decoded_pixels_each: u64,
+}
+
+impl From<RegistryImageLimits> for ImageLimits {
+    fn from(limits: RegistryImageLimits) -> Self {
+        Self {
+            max_images: limits.max_images,
+            max_encoded_bytes_each: limits.max_encoded_bytes_each,
+            max_total_encoded_bytes: limits.max_total_encoded_bytes,
+            max_dimension_px: limits.max_dimension_px,
+            max_decoded_pixels_each: limits.max_decoded_pixels_each,
+        }
+    }
 }
 
 impl ProviderCapabilityRegistry {
@@ -65,6 +105,7 @@ impl ProviderCapabilityRegistry {
             serde_json::from_str::<RegistryDocument>(json).map_err(RegistryError::Parse)?;
         validate(&document)?;
         Ok(Self {
+            schema_version: document.schema_version,
             capabilities: document
                 .providers
                 .into_iter()
@@ -80,6 +121,12 @@ impl ProviderCapabilityRegistry {
                             display_name: model.display_name,
                             context_window_tokens: model.context_window_tokens,
                             default_max_output_tokens: model.default_max_output_tokens,
+                            text_chat: model.text_chat,
+                            image_input: model.image_input,
+                            pdf_input: model.pdf_input,
+                            strict_structured_output: model.strict_structured_output,
+                            image_limits: model.image_limits.map(ImageLimits::from),
+                            last_verified: model.last_verified,
                         })
                         .collect(),
                 })
@@ -89,6 +136,52 @@ impl ProviderCapabilityRegistry {
 
     pub fn capabilities(&self) -> &[ProviderCapability] {
         &self.capabilities
+    }
+
+    pub fn public_registry(&self) -> ProviderCapabilityRegistryDto {
+        ProviderCapabilityRegistryDto {
+            schema_version: self.schema_version,
+            providers: self.capabilities.clone(),
+        }
+    }
+
+    pub fn operation_support(
+        &self,
+        kind: &ProviderKind,
+        model_id: &str,
+        operation: AiOperation,
+    ) -> CapabilitySupport {
+        let Some(model) = self.model(kind, model_id) else {
+            return CapabilitySupport::Unknown;
+        };
+
+        match operation {
+            AiOperation::TextLearning => model.text_chat,
+            AiOperation::VisionLearning => combine_support(&[model.text_chat, model.image_input]),
+            AiOperation::StructuredPageAnalysis => combine_support(&[
+                model.text_chat,
+                model.image_input,
+                model.strict_structured_output,
+            ]),
+        }
+    }
+
+    pub fn resolve_operation(
+        &self,
+        operation: AiOperation,
+        profiles: &[ProviderProfileSummary],
+    ) -> Vec<ProviderProfileSummary> {
+        profiles
+            .iter()
+            .filter(|profile| {
+                let support = self.operation_support(&profile.kind, &profile.model_id, operation);
+                support == CapabilitySupport::Supported
+                    || (operation == AiOperation::TextLearning
+                        && support == CapabilitySupport::Unknown
+                        && profile.validated_at.is_some())
+            })
+            .cloned()
+            .collect()
     }
 
     pub fn resolve_context_window(
@@ -113,9 +206,22 @@ impl ProviderCapabilityRegistry {
             })
             .unwrap_or(UNKNOWN_MODEL_CONTEXT_WINDOW_TOKENS)
     }
+
+    fn model(&self, kind: &ProviderKind, model_id: &str) -> Option<&ProviderModelCapability> {
+        self.capabilities
+            .iter()
+            .find(|capability| &capability.kind == kind)
+            .and_then(|capability| capability.models.iter().find(|model| model.id == model_id))
+    }
 }
 
 fn validate(document: &RegistryDocument) -> Result<(), RegistryError> {
+    if document.schema_version != REGISTRY_SCHEMA_VERSION {
+        return Err(RegistryError::Invalid(format!(
+            "registry schema_version must be {REGISTRY_SCHEMA_VERSION}"
+        )));
+    }
+
     let expected_kinds = BTreeSet::from([
         ProviderKind::OpenAi,
         ProviderKind::Gemini,
@@ -165,6 +271,28 @@ fn validate(document: &RegistryDocument) -> Result<(), RegistryError> {
                         .to_owned(),
                 ));
             }
+            if NaiveDate::parse_from_str(&model.last_verified, "%Y-%m-%d").is_err() {
+                return Err(RegistryError::Invalid(
+                    "model last_verified must be an ISO 8601 calendar date".to_owned(),
+                ));
+            }
+            match (model.image_input, model.image_limits) {
+                (CapabilitySupport::Supported, Some(limits)) => {
+                    validate_image_limits(limits.into())?
+                }
+                (CapabilitySupport::Supported, None) => {
+                    return Err(RegistryError::Invalid(
+                        "models with supported image input require conservative image limits"
+                            .to_owned(),
+                    ));
+                }
+                (_, Some(_)) => {
+                    return Err(RegistryError::Invalid(
+                        "image limits are only valid for supported image input".to_owned(),
+                    ));
+                }
+                (_, None) => {}
+            }
         }
         if model_ids
             .iter()
@@ -178,4 +306,44 @@ fn validate(document: &RegistryDocument) -> Result<(), RegistryError> {
         }
     }
     Ok(())
+}
+
+fn validate_image_limits(limits: ImageLimits) -> Result<(), RegistryError> {
+    let possible_total = limits
+        .max_encoded_bytes_each
+        .checked_mul(u64::from(limits.max_images));
+    let dimension_area =
+        u64::from(limits.max_dimension_px).checked_mul(u64::from(limits.max_dimension_px));
+    let invalid = limits.max_images == 0
+        || limits.max_images > MAX_REGISTRY_IMAGES
+        || limits.max_encoded_bytes_each == 0
+        || limits.max_encoded_bytes_each > MAX_REGISTRY_IMAGE_BYTES
+        || limits.max_total_encoded_bytes < limits.max_encoded_bytes_each
+        || limits.max_total_encoded_bytes > MAX_REGISTRY_TOTAL_IMAGE_BYTES
+        || possible_total.is_none_or(|total| limits.max_total_encoded_bytes > total)
+        || limits.max_dimension_px == 0
+        || limits.max_dimension_px > MAX_REGISTRY_IMAGE_DIMENSION
+        || limits.max_decoded_pixels_each == 0
+        || limits.max_decoded_pixels_each > MAX_REGISTRY_DECODED_PIXELS
+        || dimension_area.is_none_or(|area| limits.max_decoded_pixels_each > area);
+    if invalid {
+        return Err(RegistryError::Invalid(
+            "image limits must be positive, internally consistent, and within application ceilings"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn combine_support(values: &[CapabilitySupport]) -> CapabilitySupport {
+    if values.contains(&CapabilitySupport::Unsupported) {
+        CapabilitySupport::Unsupported
+    } else if values
+        .iter()
+        .all(|value| *value == CapabilitySupport::Supported)
+    {
+        CapabilitySupport::Supported
+    } else {
+        CapabilitySupport::Unknown
+    }
 }

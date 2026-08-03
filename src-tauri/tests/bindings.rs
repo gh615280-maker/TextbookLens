@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
-    AnnotationDto, AppSettingsDto, BlockKind, BookSummary, ConversationDto, CredentialStatus,
-    DocumentLocator, LearningEvent, LearningRequest, NormalizedBookInput, NormalizedRect,
-    ProviderCapability, ProviderModelCapability, ProviderProfileSummary, UnifiedChatRequest,
-    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, ValidationResult, stable_block_id,
-    stable_section_id,
+    AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookSummary, CapabilitySupport,
+    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, LearningEvent,
+    LearningRequest, NormalizedBookInput, NormalizedRect, ProviderCapability,
+    ProviderCapabilityRegistryDto, ProviderModelCapability, ProviderProfileSummary,
+    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, ValidationResult,
+    stable_block_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -88,8 +89,12 @@ fn export_bindings() {
     ConversationDto::export_all(&config).unwrap();
     LearningRequest::export_all(&config).unwrap();
     LearningEvent::export_all(&config).unwrap();
+    CapabilitySupport::export_all(&config).unwrap();
+    AiOperation::export_all(&config).unwrap();
+    ImageLimits::export_all(&config).unwrap();
     ProviderModelCapability::export_all(&config).unwrap();
     ProviderCapability::export_all(&config).unwrap();
+    ProviderCapabilityRegistryDto::export_all(&config).unwrap();
     CredentialStatus::export_all(&config).unwrap();
     ProviderProfileSummary::export_all(&config).unwrap();
     ValidationResult::export_all(&config).unwrap();

@@ -24,6 +24,41 @@ pub struct ProviderModelCapability {
     pub display_name: String,
     pub context_window_tokens: u32,
     pub default_max_output_tokens: u32,
+    pub text_chat: CapabilitySupport,
+    pub image_input: CapabilitySupport,
+    pub pdf_input: CapabilitySupport,
+    pub strict_structured_output: CapabilitySupport,
+    pub image_limits: Option<ImageLimits>,
+    pub last_verified: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "provider.ts")]
+pub enum CapabilitySupport {
+    Supported,
+    Unsupported,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "provider.ts")]
+pub enum AiOperation {
+    TextLearning,
+    VisionLearning,
+    StructuredPageAnalysis,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "provider.ts")]
+pub struct ImageLimits {
+    pub max_images: u16,
+    pub max_encoded_bytes_each: u64,
+    pub max_total_encoded_bytes: u64,
+    pub max_dimension_px: u32,
+    pub max_decoded_pixels_each: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -34,6 +69,14 @@ pub struct ProviderCapability {
     pub display_name: String,
     pub default_model: String,
     pub models: Vec<ProviderModelCapability>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "provider.ts")]
+pub struct ProviderCapabilityRegistryDto {
+    pub schema_version: u16,
+    pub providers: Vec<ProviderCapability>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

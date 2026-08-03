@@ -4,22 +4,30 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     db::providers,
-    domain::{ProviderCapability, ProviderProfileSummary},
+    domain::{AiOperation, ProviderCapabilityRegistryDto, ProviderProfileSummary},
     errors::AppErrorDto,
 };
 
 #[tauri::command]
-pub fn list_provider_capabilities(state: State<'_, AppState>) -> Vec<ProviderCapability> {
-    state.provider_capabilities.capabilities().to_vec()
+pub fn list_provider_capabilities(state: State<'_, AppState>) -> ProviderCapabilityRegistryDto {
+    state.provider_capabilities.public_registry()
 }
 
 #[tauri::command]
 pub async fn list_provider_profiles(
+    operation: Option<AiOperation>,
     state: State<'_, AppState>,
 ) -> Result<Vec<ProviderProfileSummary>, AppErrorDto> {
-    providers::list_provider_profiles(state.db.pool(), state.credential_store.as_ref())
-        .await
-        .map_err(AppErrorDto::from)
+    let profiles =
+        providers::list_provider_profiles(state.db.pool(), state.credential_store.as_ref())
+            .await
+            .map_err(AppErrorDto::from)?;
+    Ok(match operation {
+        Some(operation) => state
+            .provider_capabilities
+            .resolve_operation(operation, &profiles),
+        None => profiles,
+    })
 }
 
 #[tauri::command]
