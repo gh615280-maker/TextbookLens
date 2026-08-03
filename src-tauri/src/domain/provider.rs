@@ -87,6 +87,33 @@ pub enum CredentialStatus {
     Missing,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "provider.ts")]
+pub enum ProviderOperationConsentCategory {
+    ImageSend,
+    AiIndex,
+    CostRisk,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "provider.ts")]
+pub enum ProviderOperationConsentDecision {
+    Ask,
+    SkipPrompt,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "provider.ts")]
+pub struct ProviderOperationConsent {
+    pub profile_id: Uuid,
+    pub category: ProviderOperationConsentCategory,
+    pub decision: ProviderOperationConsentDecision,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "provider.ts")]

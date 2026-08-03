@@ -29,6 +29,7 @@ fn migration_creates_the_local_database_contract() {
             "conversations",
             "messages",
             "provider_profiles",
+            "provider_operation_consents",
             "search_chunks",
             "search_chunks_fts",
             "sections",
@@ -46,7 +47,7 @@ fn migration_creates_the_local_database_contract() {
         assert_eq!(foreign_keys, 1);
 
         let settings = sqlx::query(
-            "SELECT onboarding_completed, theme, context_mode, ui_language, ui_language_initialized, first_reader_hint_completed FROM app_settings WHERE id = 1",
+            "SELECT onboarding_completed, default_learning_profile_id, default_vision_profile_id, theme, context_mode, ui_language, ui_language_initialized, first_reader_hint_completed FROM app_settings WHERE id = 1",
         )
         .fetch_one(pool)
         .await
@@ -57,6 +58,26 @@ fn migration_creates_the_local_database_contract() {
         assert_eq!(settings.get::<String, _>("ui_language"), "zh-CN");
         assert_eq!(settings.get::<i64, _>("ui_language_initialized"), 1);
         assert_eq!(settings.get::<i64, _>("first_reader_hint_completed"), 0);
+        assert_eq!(
+            settings.get::<Option<String>, _>("default_learning_profile_id"),
+            None
+        );
+        assert_eq!(
+            settings.get::<Option<String>, _>("default_vision_profile_id"),
+            None
+        );
+
+        let provider_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('provider_profiles') ORDER BY cid",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        assert!(
+            !provider_columns
+                .iter()
+                .any(|column| column == "credential_key")
+        );
 
         let invalid_language =
             sqlx::query("UPDATE app_settings SET ui_language = 'fr' WHERE id = 1")
@@ -291,6 +312,230 @@ fn ui_preference_migration_preserves_reader_settings_and_profile_foreign_keys() 
                 .execute(&pool)
                 .await;
         assert!(invalid_language.is_err());
+    });
+}
+
+#[test]
+fn provider_preferences_migration_verifies_and_removes_legacy_references() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let options = SqliteConnectOptions::new()
+        .filename(temp_dir.path().join("provider-preferences.sqlite3"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let pool = tauri::async_runtime::block_on(
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options),
+    )
+    .unwrap();
+
+    tauri::async_runtime::block_on(async {
+        for migration in [
+            include_str!("../migrations/0001_initial.sql"),
+            include_str!("../migrations/0002_import_lifecycle.sql"),
+            include_str!("../migrations/0003_canonical_block_kinds.sql"),
+            include_str!("../migrations/0004_reader_settings.sql"),
+            include_str!("../migrations/0005_provider_profile_summary.sql"),
+            include_str!("../migrations/0006_replanned_ui_preferences.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        }
+
+        let profile_id = Uuid::new_v4();
+        let key = format!("textbooklens/{profile_id}");
+        let validated_at = "2026-08-03T03:04:05Z";
+        sqlx::query(
+            "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, credential_key, is_active, created_at, updated_at, validated_at) VALUES (?, 'openai', 'Legacy OpenAI', 'gpt-5.6', 1050000, ?, 1, ?, ?, ?)",
+        )
+        .bind(profile_id.to_string())
+        .bind(&key)
+        .bind(common::utc_timestamp())
+        .bind(common::utc_timestamp())
+        .bind(validated_at)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE app_settings SET active_provider_profile_id = ? WHERE id = 1")
+            .bind(profile_id.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0007_provider_operation_preferences.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('provider_profiles') ORDER BY cid",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(!columns.iter().any(|column| column == "credential_key"));
+        let profile = sqlx::query(
+            "SELECT id, display_name, validated_at, is_active FROM provider_profiles WHERE id = ?",
+        )
+        .bind(profile_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(profile.get::<String, _>("id"), profile_id.to_string());
+        assert_eq!(profile.get::<String, _>("display_name"), "Legacy OpenAI");
+        assert_eq!(profile.get::<String, _>("validated_at"), validated_at);
+        assert!(profile.get::<bool, _>("is_active"));
+
+        let settings = sqlx::query(
+            "SELECT active_provider_profile_id, default_learning_profile_id, default_vision_profile_id FROM app_settings WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            settings.get::<Option<String>, _>("active_provider_profile_id"),
+            Some(profile_id.to_string())
+        );
+        assert_eq!(
+            settings.get::<Option<String>, _>("default_learning_profile_id"),
+            Some(profile_id.to_string())
+        );
+        assert_eq!(
+            settings.get::<Option<String>, _>("default_vision_profile_id"),
+            None
+        );
+
+        let consents: Vec<(String, String)> = sqlx::query_as(
+            "SELECT category, decision FROM provider_operation_consents WHERE profile_id = ? ORDER BY category",
+        )
+        .bind(profile_id.to_string())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            consents,
+            vec![
+                ("ai_index".to_owned(), "ask".to_owned()),
+                ("cost_risk".to_owned(), "ask".to_owned()),
+                ("image_send".to_owned(), "ask".to_owned()),
+            ]
+        );
+        assert!(
+            sqlx::query("UPDATE provider_operation_consents SET category = 'upload' WHERE profile_id = ? AND category = 'image_send'")
+                .bind(profile_id.to_string())
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+        assert!(
+            sqlx::query("UPDATE provider_operation_consents SET decision = 'allow' WHERE profile_id = ? AND category = 'image_send'")
+                .bind(profile_id.to_string())
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+
+        sqlx::query("UPDATE app_settings SET default_vision_profile_id = ? WHERE id = 1")
+            .bind(profile_id.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM provider_profiles WHERE id = ?")
+            .bind(profile_id.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let defaults: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT active_provider_profile_id, default_learning_profile_id, default_vision_profile_id FROM app_settings WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(defaults, (None, None, None));
+        let consent_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM provider_operation_consents")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(consent_count, 0);
+
+        let schema: String = sqlx::query_scalar(
+            "SELECT group_concat(sql, ' ') FROM sqlite_master WHERE sql IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!schema.contains("credential_key"));
+        assert!(!schema.contains(&key));
+        let foreign_key_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(foreign_key_violations.is_empty());
+    });
+}
+
+#[test]
+fn provider_preferences_migration_aborts_on_a_non_derived_legacy_reference() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let options = SqliteConnectOptions::new()
+        .filename(temp_dir.path().join("invalid-provider-reference.sqlite3"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let pool = tauri::async_runtime::block_on(
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options),
+    )
+    .unwrap();
+
+    tauri::async_runtime::block_on(async {
+        for migration in [
+            include_str!("../migrations/0001_initial.sql"),
+            include_str!("../migrations/0002_import_lifecycle.sql"),
+            include_str!("../migrations/0003_canonical_block_kinds.sql"),
+            include_str!("../migrations/0004_reader_settings.sql"),
+            include_str!("../migrations/0005_provider_profile_summary.sql"),
+            include_str!("../migrations/0006_replanned_ui_preferences.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        }
+        let profile_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, credential_key, created_at, updated_at) VALUES (?, 'openai', 'Invalid reference', 'gpt-5.6', 1050000, 'textbooklens/not-the-profile', ?, ?)",
+        )
+        .bind(profile_id.to_string())
+        .bind(common::utc_timestamp())
+        .bind(common::utc_timestamp())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut transaction = pool.begin().await.unwrap();
+        let result = sqlx::raw_sql(include_str!(
+            "../migrations/0007_provider_operation_preferences.sql"
+        ))
+        .execute(&mut *transaction)
+        .await;
+        assert!(result.is_err());
+        transaction.rollback().await.unwrap();
+
+        let stored_reference: String =
+            sqlx::query_scalar("SELECT credential_key FROM provider_profiles WHERE id = ?")
+                .bind(profile_id.to_string())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored_reference, "textbooklens/not-the-profile");
+        let new_table_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('provider_profiles_v7', 'provider_operation_consents')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(new_table_count, 0);
     });
 }
 

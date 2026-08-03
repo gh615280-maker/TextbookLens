@@ -5,6 +5,7 @@ use textbooklens_lib::domain::{
     ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, LearningEvent,
     LearningRequest, NormalizedBookInput, NormalizedRect, PageAnalysisBlockKind,
     ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
+    ProviderOperationConsent, ProviderOperationConsentCategory, ProviderOperationConsentDecision,
     ProviderPageAnalysis, ProviderProfileSummary, RemoteCleanupStatus, UiLanguage,
     UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
     UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, ValidationResult,
@@ -114,6 +115,9 @@ fn export_bindings() {
     ProviderCapability::export_all(&config).unwrap();
     ProviderCapabilityRegistryDto::export_all(&config).unwrap();
     CredentialStatus::export_all(&config).unwrap();
+    ProviderOperationConsentCategory::export_all(&config).unwrap();
+    ProviderOperationConsentDecision::export_all(&config).unwrap();
+    ProviderOperationConsent::export_all(&config).unwrap();
     ProviderProfileSummary::export_all(&config).unwrap();
     ValidationResult::export_all(&config).unwrap();
     UnifiedRole::export_all(&config).unwrap();

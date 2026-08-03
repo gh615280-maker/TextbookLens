@@ -16,6 +16,12 @@ export type ProviderKind = "openai" | "gemini" | "anthropic" | "deepseek" | "kim
 
 export type ProviderModelCapability = { id: string, displayName: string, contextWindowTokens: number, defaultMaxOutputTokens: number, textChat: CapabilitySupport, imageInput: CapabilitySupport, pdfInput: CapabilitySupport, strictStructuredOutput: CapabilitySupport, imageLimits: ImageLimits | null, lastVerified: string, };
 
+export type ProviderOperationConsent = { profileId: string, category: ProviderOperationConsentCategory, decision: ProviderOperationConsentDecision, updatedAt: string, };
+
+export type ProviderOperationConsentCategory = "image_send" | "ai_index" | "cost_risk";
+
+export type ProviderOperationConsentDecision = "ask" | "skip_prompt";
+
 export type ProviderProfileSummary = { id: string, kind: ProviderKind, displayName: string, modelId: string, contextWindowTokens: number, isActive: boolean, credentialStatus: CredentialStatus, validatedAt: string | null, };
 
 export type UnifiedChatRequest = { model: string, system: string, messages: Array<UnifiedMessage>, maxOutputTokens: number, expectedLanguage: string | null, };

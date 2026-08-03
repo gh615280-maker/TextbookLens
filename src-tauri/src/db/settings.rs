@@ -12,7 +12,7 @@ use crate::{
 
 pub async fn get_app_settings(pool: &SqlitePool) -> AppResult<AppSettingsDto> {
     let row = sqlx::query(
-        "SELECT onboarding_completed, active_provider_profile_id, theme, context_mode, ui_language, ui_language_initialized, first_reader_hint_completed FROM app_settings WHERE id = 1",
+        "SELECT onboarding_completed, active_provider_profile_id, default_learning_profile_id, default_vision_profile_id, theme, context_mode, ui_language, ui_language_initialized, first_reader_hint_completed FROM app_settings WHERE id = 1",
     )
     .fetch_one(pool)
     .await?;
@@ -130,15 +130,11 @@ fn valid_settings(settings: &ReaderSettingsDto) -> bool {
 }
 
 fn app_settings_from_row(row: &sqlx::sqlite::SqliteRow) -> AppResult<AppSettingsDto> {
-    let active_provider_profile_id = row
-        .try_get::<Option<String>, _>("active_provider_profile_id")?
-        .map(|value| {
-            Uuid::parse_str(&value).map_err(|_| AppError::new(AppErrorCode::DatabaseError))
-        })
-        .transpose()?;
     Ok(AppSettingsDto {
         onboarding_completed: parse_sqlite_bool(row.try_get("onboarding_completed")?)?,
-        active_provider_profile_id,
+        active_provider_profile_id: parse_optional_uuid(row, "active_provider_profile_id")?,
+        default_learning_profile_id: parse_optional_uuid(row, "default_learning_profile_id")?,
+        default_vision_profile_id: parse_optional_uuid(row, "default_vision_profile_id")?,
         theme: parse_theme(&row.try_get::<String, _>("theme")?)?,
         context_mode: parse_context_mode(&row.try_get::<String, _>("context_mode")?)?,
         ui_language: parse_ui_language(&row.try_get::<String, _>("ui_language")?)?,
@@ -147,6 +143,14 @@ fn app_settings_from_row(row: &sqlx::sqlite::SqliteRow) -> AppResult<AppSettings
             row.try_get("first_reader_hint_completed")?,
         )?,
     })
+}
+
+fn parse_optional_uuid(row: &sqlx::sqlite::SqliteRow, column: &str) -> AppResult<Option<Uuid>> {
+    row.try_get::<Option<String>, _>(column)?
+        .map(|value| {
+            Uuid::parse_str(&value).map_err(|_| AppError::new(AppErrorCode::DatabaseError))
+        })
+        .transpose()
 }
 
 fn parse_sqlite_bool(value: i64) -> AppResult<bool> {

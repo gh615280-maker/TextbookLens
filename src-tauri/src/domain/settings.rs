@@ -39,6 +39,12 @@ pub enum UiLanguage {
 pub struct AppSettingsDto {
     pub onboarding_completed: bool,
     pub active_provider_profile_id: Option<Uuid>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub default_learning_profile_id: Option<Uuid>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub default_vision_profile_id: Option<Uuid>,
     pub theme: Theme,
     pub context_mode: ContextMode,
     pub ui_language: UiLanguage,
