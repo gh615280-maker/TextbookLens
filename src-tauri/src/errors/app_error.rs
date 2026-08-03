@@ -5,6 +5,8 @@ use uuid::Uuid;
 
 use super::redaction::{SafeDiagnostic, redact};
 
+pub const UNSUPPORTED_PROVIDER_CAPABILITY_CODE: &str = "UNSUPPORTED_PROVIDER_CAPABILITY";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AppErrorCode {
@@ -97,6 +99,7 @@ pub struct AppError {
     pub message: String,
     pub next_step: String,
     diagnostic_detail: Option<String>,
+    stable_code_override: Option<&'static str>,
 }
 
 impl AppError {
@@ -106,7 +109,16 @@ impl AppError {
             message: code.user_message().to_owned(),
             next_step: code.next_step().to_owned(),
             diagnostic_detail: None,
+            stable_code_override: None,
         }
+    }
+
+    pub fn unsupported_provider_capability() -> Self {
+        let mut result = Self::new(AppErrorCode::InvalidInput);
+        result.message = "当前模型不支持该 AI 操作。".to_owned();
+        result.next_step = "选择已明确支持该能力的模型后重试。".to_owned();
+        result.stable_code_override = Some(UNSUPPORTED_PROVIDER_CAPABILITY_CODE);
+        result
     }
 
     pub fn database(error: impl fmt::Display) -> Self {
@@ -143,6 +155,11 @@ impl AppError {
     pub fn diagnostic_detail(&self) -> Option<&str> {
         self.diagnostic_detail.as_deref()
     }
+
+    pub fn stable_code(&self) -> &'static str {
+        self.stable_code_override
+            .unwrap_or_else(|| self.code.stable_code())
+    }
 }
 
 impl fmt::Display for AppError {
@@ -170,7 +187,7 @@ pub type AppResult<T> = Result<T, AppError>;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppErrorDto {
-    pub code: AppErrorCode,
+    pub code: String,
     pub message: String,
     pub next_step: String,
     pub diagnostic_id: Option<Uuid>,
@@ -178,6 +195,7 @@ pub struct AppErrorDto {
 
 impl From<AppError> for AppErrorDto {
     fn from(error: AppError) -> Self {
+        let stable_code = error.stable_code().to_owned();
         let diagnostic = error
             .diagnostic_detail
             .as_deref()
@@ -193,10 +211,40 @@ impl From<AppError> for AppErrorDto {
         }
 
         Self {
-            code: error.code,
+            code: stable_code,
             message: error.message,
             next_step: error.next_step,
             diagnostic_id: diagnostic.map(|diagnostic| diagnostic.id),
+        }
+    }
+}
+
+impl AppErrorCode {
+    const fn stable_code(self) -> &'static str {
+        match self {
+            Self::InvalidApiKey => "INVALID_API_KEY",
+            Self::ModelNotFound => "MODEL_NOT_FOUND",
+            Self::ProviderPermissionDenied => "PROVIDER_PERMISSION_DENIED",
+            Self::ProviderRegionRestricted => "PROVIDER_REGION_RESTRICTED",
+            Self::RateLimited => "RATE_LIMITED",
+            Self::InsufficientQuota => "INSUFFICIENT_QUOTA",
+            Self::ContextTooLarge => "CONTEXT_TOO_LARGE",
+            Self::NetworkOffline => "NETWORK_OFFLINE",
+            Self::ProviderUnavailable => "PROVIDER_UNAVAILABLE",
+            Self::ProviderRefused => "PROVIDER_REFUSED",
+            Self::UnsupportedFileType => "UNSUPPORTED_FILE_TYPE",
+            Self::FileCorrupted => "FILE_CORRUPTED",
+            Self::FileEncryptedOrDrm => "FILE_ENCRYPTED_OR_DRM",
+            Self::NoExtractableText => "NO_EXTRACTABLE_TEXT",
+            Self::ImportCancelled => "IMPORT_CANCELLED",
+            Self::DatabaseError => "DATABASE_ERROR",
+            Self::CredentialStoreError => "CREDENTIAL_STORE_ERROR",
+            Self::AnchorNotFound => "ANCHOR_NOT_FOUND",
+            Self::InvalidInput => "INVALID_INPUT",
+            Self::NotFound => "NOT_FOUND",
+            Self::BookNotReady => "BOOK_NOT_READY",
+            Self::RequestConflict => "REQUEST_CONFLICT",
+            Self::LocalIoError => "LOCAL_IO_ERROR",
         }
     }
 }

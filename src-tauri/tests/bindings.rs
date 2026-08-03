@@ -2,11 +2,13 @@ use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
     AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookSummary, CapabilitySupport,
-    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, LearningEvent,
-    LearningRequest, NormalizedBookInput, NormalizedRect, ProviderCapability,
-    ProviderCapabilityRegistryDto, ProviderModelCapability, ProviderProfileSummary,
-    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, ValidationResult,
-    stable_block_id, stable_section_id,
+    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, LearningEvent,
+    LearningRequest, NormalizedBookInput, NormalizedRect, PageAnalysisBlockKind,
+    ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
+    ProviderPageAnalysis, ProviderProfileSummary, RemoteCleanupStatus, UnifiedChatRequest,
+    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
+    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, ValidationResult,
+    VisionAssetMeta, stable_block_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -102,5 +104,14 @@ fn export_bindings() {
     UnifiedMessage::export_all(&config).unwrap();
     UnifiedChatRequest::export_all(&config).unwrap();
     UnifiedStreamEvent::export_all(&config).unwrap();
+    ImageMime::export_all(&config).unwrap();
+    VisionAssetMeta::export_all(&config).unwrap();
+    PageAnalysisBlockKind::export_all(&config).unwrap();
+    UntrustedNormalizedRect::export_all(&config).unwrap();
+    UntrustedTableCell::export_all(&config).unwrap();
+    UntrustedPageBlock::export_all(&config).unwrap();
+    UntrustedPageAnalysis::export_all(&config).unwrap();
+    ProviderPageAnalysis::export_all(&config).unwrap();
+    RemoteCleanupStatus::export_all(&config).unwrap();
     AppSettingsDto::export_all(&config).unwrap();
 }

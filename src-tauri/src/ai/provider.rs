@@ -7,9 +7,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::error::AiError;
 pub use crate::domain::{
-    ProviderKind, UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent,
-    ValidationResult,
+    ProviderKind, ProviderPageAnalysis, StructuredPageRequest, UnifiedChatRequest, UnifiedMessage,
+    UnifiedRole, UnifiedStreamEvent, UnifiedVisionRequest, ValidationResult,
 };
+use crate::errors::{AppError, AppResult};
 
 pub const MAX_CREDENTIAL_BYTES: usize = 6_384;
 pub const MAX_MODEL_ID_CHARS: usize = 256;
@@ -33,6 +34,28 @@ pub trait AiProvider: Send + Sync {
         request: UnifiedChatRequest,
         cancel: CancellationToken,
     ) -> Result<ProviderStream, AiError>;
+
+    async fn stream_vision(
+        &self,
+        _credential: &SecretString,
+        _request: UnifiedVisionRequest,
+        _cancel: CancellationToken,
+    ) -> AppResult<ProviderStream> {
+        Err(unsupported_capability())
+    }
+
+    async fn analyze_pages(
+        &self,
+        _credential: &SecretString,
+        _request: StructuredPageRequest,
+        _cancel: CancellationToken,
+    ) -> AppResult<ProviderPageAnalysis> {
+        Err(unsupported_capability())
+    }
+}
+
+fn unsupported_capability() -> AppError {
+    AppError::unsupported_provider_capability()
 }
 
 pub fn validate_credential(credential: &SecretString) -> Result<(), AiError> {
