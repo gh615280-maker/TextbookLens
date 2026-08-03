@@ -19,6 +19,10 @@ export function ProviderConsentSettings({ profile, onReset, busy }: Props) {
   }
   return (
     <section aria-label={`${profile.displayName} consent settings`}>
+      <p>
+        These choices only control prompts for future actions you start. They
+        never send images, start AI indexing, or perform network work.
+      </p>
       <button
         ref={trigger}
         type="button"

@@ -25,7 +25,14 @@ use crate::{
 
 pub use crate::domain::CredentialStatus;
 
-type ProviderMutationGuard = OwnedMutexGuard<()>;
+/// Keeps credential/profile lifecycle reads from observing a partially completed mutation.
+///
+/// Construction stays private to this module. The type is public only so the validated
+/// credential boundary and its integration contract tests can return ownership here.
+#[doc(hidden)]
+pub struct ProviderMutationGuard {
+    _guard: OwnedMutexGuard<()>,
+}
 
 static PROVIDER_MUTATION_LOCKS: OnceLock<SyncMutex<HashMap<String, Weak<AsyncMutex<()>>>>> =
     OnceLock::new();
@@ -39,7 +46,8 @@ pub(crate) struct NewProviderProfile {
     pub validated_at: DateTime<Utc>,
 }
 
-pub(crate) struct ReplacementProviderCredential {
+#[doc(hidden)]
+pub struct ReplacementProviderCredential {
     pub profile: ProviderProfileSummary,
     pub context_window_tokens: u32,
     pub credential: SecretString,
@@ -50,7 +58,7 @@ pub fn credential_key(profile_id: Uuid) -> String {
     format!("textbooklens/{profile_id}")
 }
 
-pub(crate) async fn try_provider_mutation(pool: &SqlitePool) -> AppResult<ProviderMutationGuard> {
+async fn provider_mutation_lock(pool: &SqlitePool) -> AppResult<Arc<AsyncMutex<()>>> {
     let pool_identity: String =
         sqlx::query_scalar("SELECT file FROM pragma_database_list WHERE name = 'main'")
             .fetch_one(pool)
@@ -70,14 +78,29 @@ pub(crate) async fn try_provider_mutation(pool: &SqlitePool) -> AppResult<Provid
             lock
         }
     };
-    lock.try_lock_owned()
+    Ok(lock)
+}
+
+#[doc(hidden)]
+pub async fn try_provider_mutation(pool: &SqlitePool) -> AppResult<ProviderMutationGuard> {
+    provider_mutation_lock(pool)
+        .await?
+        .try_lock_owned()
+        .map(|guard| ProviderMutationGuard { _guard: guard })
         .map_err(|_| AppError::new(AppErrorCode::RequestConflict))
+}
+
+async fn wait_for_provider_lifecycle(pool: &SqlitePool) -> AppResult<ProviderMutationGuard> {
+    Ok(ProviderMutationGuard {
+        _guard: provider_mutation_lock(pool).await?.lock_owned().await,
+    })
 }
 
 pub async fn list_provider_profiles(
     pool: &SqlitePool,
     store: &dyn CredentialStore,
 ) -> AppResult<Vec<ProviderProfileSummary>> {
+    let _guard = wait_for_provider_lifecycle(pool).await?;
     let rows = sqlx::query(
         "SELECT id, provider_kind, display_name, model_id, context_window_tokens, is_active, validated_at FROM provider_profiles ORDER BY created_at, id",
     )
@@ -118,6 +141,7 @@ pub(crate) async fn load_provider_profile_metadata(
 }
 
 pub async fn set_active_provider_profile(pool: &SqlitePool, profile_id: Uuid) -> AppResult<()> {
+    let _guard = wait_for_provider_lifecycle(pool).await?;
     let mut transaction = pool.begin().await?;
     ensure_profile_exists(&mut transaction, profile_id).await?;
     set_learning_default(&mut transaction, Some(profile_id)).await?;
@@ -131,6 +155,7 @@ pub async fn set_default_provider_profile(
     operation: AiOperation,
     profile_id: Uuid,
 ) -> AppResult<()> {
+    let _guard = wait_for_provider_lifecycle(pool).await?;
     let profile = load_profile_capability(pool, profile_id).await?;
     if !profile_supports_operation(registry, &profile, operation) {
         return Err(AppError::unsupported_provider_capability());
@@ -161,6 +186,7 @@ pub async fn list_provider_operation_consents(
     pool: &SqlitePool,
     profile_id: Uuid,
 ) -> AppResult<Vec<ProviderOperationConsent>> {
+    let _guard = wait_for_provider_lifecycle(pool).await?;
     ensure_profile_exists_pool(pool, profile_id).await?;
     let rows = sqlx::query(
         "SELECT profile_id, category, decision, updated_at FROM provider_operation_consents WHERE profile_id = ? ORDER BY CASE category WHEN 'image_send' THEN 0 WHEN 'ai_index' THEN 1 WHEN 'cost_risk' THEN 2 END",
@@ -194,6 +220,7 @@ pub async fn update_provider_operation_consent(
     category: ProviderOperationConsentCategory,
     decision: ProviderOperationConsentDecision,
 ) -> AppResult<()> {
+    let _guard = wait_for_provider_lifecycle(pool).await?;
     ensure_profile_exists_pool(pool, profile_id).await?;
     let result = sqlx::query(
         "INSERT INTO provider_operation_consents (profile_id, category, decision, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(profile_id, category) DO UPDATE SET decision = excluded.decision, updated_at = excluded.updated_at",
@@ -214,6 +241,7 @@ pub async fn reset_provider_operation_consents(
     pool: &SqlitePool,
     profile_id: Option<Uuid>,
 ) -> AppResult<()> {
+    let _guard = wait_for_provider_lifecycle(pool).await?;
     let mut transaction = pool.begin().await?;
     let profile_ids = match profile_id {
         Some(profile_id) => {
@@ -333,7 +361,8 @@ pub(crate) async fn insert_validated_provider_profile(
     .await
 }
 
-pub(crate) async fn replace_validated_provider_credential(
+#[doc(hidden)]
+pub async fn replace_validated_provider_credential(
     pool: &SqlitePool,
     store: Arc<dyn CredentialStore>,
     guard: ProviderMutationGuard,
