@@ -18,7 +18,7 @@
 | -------- | -------------------------------------------------- | ------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Phase 4R | five-provider text/terminal/cancel/error/redaction | PASS    | 2026-08-03 / `e4d12c2`                                          | 8 shared contract tests; 25 provider tests; 7 stream tests; full Rust gate 117 passed, 1 pre-existing manual keyring smoke ignored; no real credentials                                                                                                                                                     |
 | Phase 5  | capability/vision/structured/unknown gate          | PASS    | 2026-08-03 / `b36892ec2280af031a9ce9ce667596c9bb11cb41`         | 8 operation-contract tests; text retained for all five providers; exact supported/denied capability routes; 32 invalid structured-result cases; deterministic cancellation at all required boundaries; redaction, fixtures, sensitive, generated, typecheck, Rust, dependency, and Tauri debug gates passed |
-| Phase 6  | three-language/Fluent/reader shell                 | BLOCKED | 2026-08-03 / product `7bff4d8353a3ba23752adfa932245765e652f8ed` | Automated checkpoint gates PASS (124 Vitest, 9 Playwright, generated, Rust settings, frontend/Tauri builds). Required durable Windows 10 and 200% manual screenshot evidence is unavailable; the inherited EPUB adapter still requests paginated flow, so the continuous-scroll contract is not proven.     |
+| Phase 6  | three-language/Fluent/reader shell                 | BLOCKED | 2026-08-03 / product `8fc6245d66ec41e301f90feaf06320f721fe1404` | Automated checkpoint gates PASS (124 Vitest, 9 Playwright, generated, Rust settings, frontend/Tauri builds); EPUB continuous vertical flow repair and focused regressions PASS. Required durable Windows 10 and 200% manual screenshot evidence remains unavailable.                                        |
 | Phase 7  | atomic credential/book→Key→read/AI services        | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
 | Phase 8  | teaching instruction/revision/test no-history      | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
 | Phase 9  | page index/resume/partial/correction/provenance    | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
@@ -179,10 +179,12 @@ invalidated a required gate. ADR 0004/0005 and registry truth required no change
 
 ## 11. Phase 6 normalized evidence
 
-Automated commands completed on 2026-08-03 against product HEAD
-`7bff4d8353a3ba23752adfa932245765e652f8ed` plus the Task 6 e2e checkpoint files. Tests used
-only checked-in synthetic fixtures and mock IPC; no credential, provider request, or real textbook
-content was used for automated evidence.
+Initial automated checkpoint commands completed on 2026-08-03 against product HEAD
+`7bff4d8353a3ba23752adfa932245765e652f8ed` plus the Task 6 e2e checkpoint files. The EPUB
+continuous-flow repair and focused regressions completed at
+`8fc6245d66ec41e301f90feaf06320f721fe1404`. Tests used only checked-in synthetic fixtures and
+mock IPC; no credential, provider request, or real textbook content was used for automated
+evidence.
 
 | Command                                                         | Result | Normalized evidence                                                                                                                                                |
 | --------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -195,6 +197,8 @@ content was used for automated evidence.
 | `npm.cmd run check:generated`                                   | PASS   | binding export: 1 passed, 0 failed, 5 filtered                                                                                                                     |
 | `cargo test --manifest-path src-tauri/Cargo.toml settings -j 1` | PASS   | 3 matching tests passed across unit/database contract targets; 0 failed                                                                                            |
 | `npm.cmd run tauri build -- --debug --no-bundle`                | PASS   | frontend rebuilt from 1,869 modules; debug executable produced without bundling                                                                                    |
+| focused EPUB/core Vitest repair gate                            | PASS   | 4 files; 14 passed, 0 failed; continuous manager/scrolled flow, CFI restore, progress/location, selection, search, markers, and lifecycle                          |
+| focused reader-shell Playwright repair gate                     | PASS   | Chromium: 4 passed, 0 failed; language/restart, shell lifecycle, F11/Esc, narrow, forced colors, and axe                                                           |
 
 The Task 5 focused gate passed 11 tests across `ReaderLayout`, `ReaderPage`, and
 `ReaderController`. The minimal toolbar contains only library, contents, book/location, search,
@@ -205,14 +209,12 @@ persisted through the existing command and no Phase 11 selection UI was enabled.
 Required manual checkpoint status is **BLOCKED**, not PASS. The debug executable was launched on
 Windows 11 Pro build 22631 and the opaque Fluent fallback plus reader toolbar were inspected using
 a synthetic local fixture. Mica is not enabled in the current Tauri configuration. A clean Windows
-10 environment and durable 200% scaling screenshot artifact were unavailable. Two attempts to
-exercise WebView zoom did not produce a verifiable scale change and were stopped; browser forced-
-colors/narrow automation is not substituted for the missing manual artifact.
-
-An inherited contract defect also remains outside this packet's allowed files:
-`EpubReaderAdapter` requests `flow: 'paginated'`, while the replanned specification requires
-default continuous scrolling. Phase 6 therefore remains BLOCKED until an authorized adapter owner
-changes and verifies that behavior and the required Windows manual evidence is captured.
+10 environment and durable 200% scaling screenshot artifact were unavailable. A read-only check
+found no Hyper-V module, VirtualBox/VMware command, related VM service, or VM in the known local
+directories; no VM was installed or configured. Two attempts to exercise WebView zoom did not
+produce a verifiable scale change and were stopped; browser forced-colors/narrow automation is not
+substituted for the missing manual artifact. Phase 6 remains BLOCKED only on the required manual
+Windows evidence.
 
 Normalized non-blocking warnings were Vite's chunk-size warning (PDF worker 2,222.99 kB; main
 JavaScript 2,096.41 kB, gzip 615.15 kB), localized Windows linker import-library messages, and Git
