@@ -19,6 +19,20 @@ pub enum ContextMode {
     Long,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "settings.ts")]
+pub enum UiLanguage {
+    #[serde(rename = "zh-CN")]
+    #[ts(rename = "zh-CN")]
+    ZhCn,
+    #[serde(rename = "zh-TW")]
+    #[ts(rename = "zh-TW")]
+    ZhTw,
+    #[serde(rename = "en")]
+    #[ts(rename = "en")]
+    En,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "settings.ts")]
@@ -27,7 +41,9 @@ pub struct AppSettingsDto {
     pub active_provider_profile_id: Option<Uuid>,
     pub theme: Theme,
     pub context_mode: ContextMode,
-    pub ui_language: String,
+    pub ui_language: UiLanguage,
+    pub ui_language_initialized: bool,
+    pub first_reader_hint_completed: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]

@@ -46,7 +46,7 @@ fn migration_creates_the_local_database_contract() {
         assert_eq!(foreign_keys, 1);
 
         let settings = sqlx::query(
-            "SELECT onboarding_completed, theme, context_mode, ui_language FROM app_settings WHERE id = 1",
+            "SELECT onboarding_completed, theme, context_mode, ui_language, ui_language_initialized, first_reader_hint_completed FROM app_settings WHERE id = 1",
         )
         .fetch_one(pool)
         .await
@@ -55,6 +55,17 @@ fn migration_creates_the_local_database_contract() {
         assert_eq!(settings.get::<String, _>("theme"), "system");
         assert_eq!(settings.get::<String, _>("context_mode"), "standard");
         assert_eq!(settings.get::<String, _>("ui_language"), "zh-CN");
+        assert_eq!(settings.get::<i64, _>("ui_language_initialized"), 1);
+        assert_eq!(settings.get::<i64, _>("first_reader_hint_completed"), 0);
+
+        let invalid_language =
+            sqlx::query("UPDATE app_settings SET ui_language = 'fr' WHERE id = 1")
+                .execute(pool)
+                .await;
+        assert!(
+            invalid_language.is_err(),
+            "ui_language must be a strict enum"
+        );
 
         let book_id = Uuid::new_v4().to_string();
         let section_id = Uuid::new_v4().to_string();
@@ -197,6 +208,89 @@ fn migration_creates_the_local_database_contract() {
             .await
             .unwrap();
         assert_eq!(sections_remaining, 0);
+    });
+}
+
+#[test]
+fn ui_preference_migration_preserves_reader_settings_and_profile_foreign_keys() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let options = SqliteConnectOptions::new()
+        .filename(temp_dir.path().join("legacy.sqlite3"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let pool = tauri::async_runtime::block_on(
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options),
+    )
+    .unwrap();
+
+    tauri::async_runtime::block_on(async {
+        for migration in [
+            include_str!("../migrations/0001_initial.sql"),
+            include_str!("../migrations/0002_import_lifecycle.sql"),
+            include_str!("../migrations/0003_canonical_block_kinds.sql"),
+            include_str!("../migrations/0004_reader_settings.sql"),
+            include_str!("../migrations/0005_provider_profile_summary.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        }
+
+        let profile_id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, credential_key, created_at, updated_at) VALUES (?, 'openai', 'Legacy', 'gpt-4.1-mini', 1000, 'legacy-profile', ?, ?)",
+        )
+        .bind(&profile_id)
+        .bind(common::utc_timestamp())
+        .bind(common::utc_timestamp())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE app_settings SET active_provider_profile_id = ?, ui_language = 'legacy-language', font_scale = 1.25, line_height = 1.8, reader_width = 80, pdf_zoom = 1.5 WHERE id = 1",
+        )
+        .bind(&profile_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/0006_replanned_ui_preferences.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let settings = sqlx::query(
+            "SELECT active_provider_profile_id, ui_language, ui_language_initialized, first_reader_hint_completed, font_scale, line_height, reader_width, pdf_zoom FROM app_settings WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            settings.get::<Option<String>, _>("active_provider_profile_id"),
+            Some(profile_id)
+        );
+        assert_eq!(settings.get::<String, _>("ui_language"), "en");
+        assert_eq!(settings.get::<i64, _>("ui_language_initialized"), 0);
+        assert_eq!(settings.get::<i64, _>("first_reader_hint_completed"), 0);
+        assert_eq!(settings.get::<f64, _>("font_scale"), 1.25);
+        assert_eq!(settings.get::<f64, _>("line_height"), 1.8);
+        assert_eq!(settings.get::<f64, _>("reader_width"), 80.0);
+        assert_eq!(settings.get::<f64, _>("pdf_zoom"), 1.5);
+
+        let foreign_key_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(foreign_key_violations.is_empty());
+
+        let invalid_language =
+            sqlx::query("UPDATE app_settings SET ui_language = 'fr' WHERE id = 1")
+                .execute(&pool)
+                .await;
+        assert!(invalid_language.is_err());
     });
 }
 

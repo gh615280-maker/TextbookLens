@@ -5,8 +5,8 @@ use textbooklens_lib::domain::{
     ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, LearningEvent,
     LearningRequest, NormalizedBookInput, NormalizedRect, PageAnalysisBlockKind,
     ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
-    ProviderPageAnalysis, ProviderProfileSummary, RemoteCleanupStatus, UnifiedChatRequest,
-    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
+    ProviderPageAnalysis, ProviderProfileSummary, RemoteCleanupStatus, UiLanguage,
+    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
     UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, ValidationResult,
     VisionAssetMeta, stable_block_id, stable_section_id,
 };
@@ -69,6 +69,22 @@ fn block_kind_serializes_to_the_canonical_parser_contract() {
 }
 
 #[test]
+fn ui_language_serializes_to_product_locale_labels() {
+    let values = [UiLanguage::ZhCn, UiLanguage::ZhTw, UiLanguage::En]
+        .into_iter()
+        .map(|language| serde_json::to_value(language).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        values,
+        [
+            serde_json::json!("zh-CN"),
+            serde_json::json!("zh-TW"),
+            serde_json::json!("en"),
+        ]
+    );
+}
+
+#[test]
 fn document_constructors_reject_invalid_values() {
     assert!(DocumentLocator::pdf(0, 1, None).is_err());
     assert!(DocumentLocator::pdf(2, 1, None).is_err());
@@ -114,4 +130,5 @@ fn export_bindings() {
     ProviderPageAnalysis::export_all(&config).unwrap();
     RemoteCleanupStatus::export_all(&config).unwrap();
     AppSettingsDto::export_all(&config).unwrap();
+    UiLanguage::export_all(&config).unwrap();
 }

@@ -6,9 +6,58 @@ use uuid::Uuid;
 use crate::{
     app_state::AppPaths,
     documents::storage::{recover_import_storage, remove_book_directory},
-    domain::{DocumentLocator, ReaderSettingsDto, Theme},
+    domain::{AppSettingsDto, ContextMode, DocumentLocator, ReaderSettingsDto, Theme, UiLanguage},
     errors::{AppError, AppErrorCode, AppResult},
 };
+
+pub async fn get_app_settings(pool: &SqlitePool) -> AppResult<AppSettingsDto> {
+    let row = sqlx::query(
+        "SELECT onboarding_completed, active_provider_profile_id, theme, context_mode, ui_language, ui_language_initialized, first_reader_hint_completed FROM app_settings WHERE id = 1",
+    )
+    .fetch_one(pool)
+    .await?;
+    app_settings_from_row(&row)
+}
+
+pub async fn initialize_ui_language(
+    pool: &SqlitePool,
+    detected: UiLanguage,
+) -> AppResult<AppSettingsDto> {
+    sqlx::query(
+        "UPDATE app_settings SET ui_language = ?, ui_language_initialized = 1 WHERE id = 1 AND ui_language_initialized = 0",
+    )
+    .bind(ui_language_name(detected))
+    .execute(pool)
+    .await?;
+    get_app_settings(pool).await
+}
+
+pub async fn update_ui_language(
+    pool: &SqlitePool,
+    language: UiLanguage,
+) -> AppResult<AppSettingsDto> {
+    let result = sqlx::query(
+        "UPDATE app_settings SET ui_language = ?, ui_language_initialized = 1 WHERE id = 1",
+    )
+    .bind(ui_language_name(language))
+    .execute(pool)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+    get_app_settings(pool).await
+}
+
+pub async fn complete_first_reader_hint(pool: &SqlitePool) -> AppResult<AppSettingsDto> {
+    let result =
+        sqlx::query("UPDATE app_settings SET first_reader_hint_completed = 1 WHERE id = 1")
+            .execute(pool)
+            .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+    get_app_settings(pool).await
+}
 
 pub async fn get_reader_settings(pool: &SqlitePool) -> AppResult<ReaderSettingsDto> {
     let row = sqlx::query(
@@ -80,6 +129,59 @@ fn valid_settings(settings: &ReaderSettingsDto) -> bool {
         && (0.5..=3.0).contains(&settings.pdf_zoom)
 }
 
+fn app_settings_from_row(row: &sqlx::sqlite::SqliteRow) -> AppResult<AppSettingsDto> {
+    let active_provider_profile_id = row
+        .try_get::<Option<String>, _>("active_provider_profile_id")?
+        .map(|value| {
+            Uuid::parse_str(&value).map_err(|_| AppError::new(AppErrorCode::DatabaseError))
+        })
+        .transpose()?;
+    Ok(AppSettingsDto {
+        onboarding_completed: parse_sqlite_bool(row.try_get("onboarding_completed")?)?,
+        active_provider_profile_id,
+        theme: parse_theme(&row.try_get::<String, _>("theme")?)?,
+        context_mode: parse_context_mode(&row.try_get::<String, _>("context_mode")?)?,
+        ui_language: parse_ui_language(&row.try_get::<String, _>("ui_language")?)?,
+        ui_language_initialized: parse_sqlite_bool(row.try_get("ui_language_initialized")?)?,
+        first_reader_hint_completed: parse_sqlite_bool(
+            row.try_get("first_reader_hint_completed")?,
+        )?,
+    })
+}
+
+fn parse_sqlite_bool(value: i64) -> AppResult<bool> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(AppError::new(AppErrorCode::DatabaseError)),
+    }
+}
+
+fn parse_context_mode(value: &str) -> AppResult<ContextMode> {
+    match value {
+        "standard" => Ok(ContextMode::Standard),
+        "long" => Ok(ContextMode::Long),
+        _ => Err(AppError::new(AppErrorCode::DatabaseError)),
+    }
+}
+
+fn parse_ui_language(value: &str) -> AppResult<UiLanguage> {
+    match value {
+        "zh-CN" => Ok(UiLanguage::ZhCn),
+        "zh-TW" => Ok(UiLanguage::ZhTw),
+        "en" => Ok(UiLanguage::En),
+        _ => Err(AppError::new(AppErrorCode::DatabaseError)),
+    }
+}
+
+fn ui_language_name(value: UiLanguage) -> &'static str {
+    match value {
+        UiLanguage::ZhCn => "zh-CN",
+        UiLanguage::ZhTw => "zh-TW",
+        UiLanguage::En => "en",
+    }
+}
+
 fn parse_theme(value: &str) -> AppResult<Theme> {
     match value {
         "light" => Ok(Theme::Light),
@@ -137,9 +239,64 @@ pub fn recover_interrupted_imports(pool: &SqlitePool, paths: &AppPaths) -> AppRe
 mod tests {
     use tempfile::TempDir;
 
-    use crate::{db::Database, domain::ReaderSettingsDto, errors::AppErrorCode};
+    use crate::{
+        db::Database,
+        domain::{ReaderSettingsDto, UiLanguage},
+        errors::AppErrorCode,
+    };
 
-    use super::{get_reader_settings, update_reader_settings};
+    use super::{
+        complete_first_reader_hint, get_app_settings, get_reader_settings, initialize_ui_language,
+        update_reader_settings, update_ui_language,
+    };
+
+    #[test]
+    fn ui_language_initialization_is_compare_and_set_and_preferences_are_strict() {
+        let temporary = TempDir::new().expect("temporary database");
+        let database = Database::open(temporary.path().join("library.sqlite3")).expect("database");
+
+        let defaults = tauri::async_runtime::block_on(get_app_settings(database.pool()))
+            .expect("default app settings");
+        assert_eq!(defaults.ui_language, UiLanguage::ZhCn);
+        assert!(defaults.ui_language_initialized);
+        assert!(!defaults.first_reader_hint_completed);
+
+        tauri::async_runtime::block_on(async {
+            sqlx::query(
+                "UPDATE app_settings SET ui_language = 'en', ui_language_initialized = 0 WHERE id = 1",
+            )
+            .execute(database.pool())
+            .await
+            .expect("make the first initialization pending");
+            let (first, second) = tokio::join!(
+                initialize_ui_language(database.pool(), UiLanguage::ZhCn),
+                initialize_ui_language(database.pool(), UiLanguage::ZhTw),
+            );
+            let winner = get_app_settings(database.pool())
+                .await
+                .expect("read concurrent initialization winner");
+            assert!(winner.ui_language_initialized);
+            assert!(matches!(
+                winner.ui_language,
+                UiLanguage::ZhCn | UiLanguage::ZhTw
+            ));
+            assert_eq!(first.expect("first initializer result"), winner);
+            assert_eq!(second.expect("second initializer result"), winner);
+        });
+
+        tauri::async_runtime::block_on(update_ui_language(database.pool(), UiLanguage::En))
+            .expect("explicit language update");
+        let after_initialize = tauri::async_runtime::block_on(initialize_ui_language(
+            database.pool(),
+            UiLanguage::ZhTw,
+        ))
+        .expect("initialization must read the explicit choice");
+        assert_eq!(after_initialize.ui_language, UiLanguage::En);
+
+        let completed = tauri::async_runtime::block_on(complete_first_reader_hint(database.pool()))
+            .expect("complete reader hint");
+        assert!(completed.first_reader_hint_completed);
+    }
 
     #[test]
     fn reader_settings_use_database_defaults_and_enforce_ranges() {

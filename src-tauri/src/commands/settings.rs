@@ -5,9 +5,45 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     db::settings,
-    domain::{BookSummary, DocumentLocator, ReaderSettingsDto},
+    domain::{AppSettingsDto, BookSummary, DocumentLocator, ReaderSettingsDto, UiLanguage},
     errors::{AppError, AppErrorCode, AppErrorDto},
 };
+
+#[tauri::command]
+pub async fn get_app_settings(state: State<'_, AppState>) -> Result<AppSettingsDto, AppErrorDto> {
+    settings::get_app_settings(state.db.pool())
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn initialize_ui_language(
+    state: State<'_, AppState>,
+    detected: UiLanguage,
+) -> Result<AppSettingsDto, AppErrorDto> {
+    settings::initialize_ui_language(state.db.pool(), detected)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn update_ui_language(
+    state: State<'_, AppState>,
+    language: UiLanguage,
+) -> Result<AppSettingsDto, AppErrorDto> {
+    settings::update_ui_language(state.db.pool(), language)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn complete_first_reader_hint(
+    state: State<'_, AppState>,
+) -> Result<AppSettingsDto, AppErrorDto> {
+    settings::complete_first_reader_hint(state.db.pool())
+        .await
+        .map_err(AppErrorDto::from)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
