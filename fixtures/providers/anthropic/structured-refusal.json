@@ -1,6 +1,6 @@
 {
-  "type":"message",
-  "role":"assistant",
-  "content":[{"type":"text","text":"fixture-vendor-refusal-sentinel"}],
-  "stop_reason":"refusal"
+  "type": "message",
+  "role": "assistant",
+  "content": [{ "type": "text", "text": "fixture-vendor-refusal-sentinel" }],
+  "stop_reason": "refusal"
 }

@@ -1,1 +1,4 @@
-{"object":"list","data":[{"id":"fixture-deepseek-model","object":"model"}]}
+{
+  "object": "list",
+  "data": [{ "id": "fixture-deepseek-model", "object": "model" }]
+}

@@ -1,6 +1,11 @@
 {
   "status": "completed",
   "output": [
-    {"type": "message", "content": [{"type": "refusal", "refusal": "fixture-vendor-refusal-sentinel"}]}
+    {
+      "type": "message",
+      "content": [
+        { "type": "refusal", "refusal": "fixture-vendor-refusal-sentinel" }
+      ]
+    }
   ]
 }

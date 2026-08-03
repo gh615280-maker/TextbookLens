@@ -1,6 +1,6 @@
 {
-  "type":"message",
-  "role":"assistant",
-  "content":[{"type":"text","text":"{\"schemaVersion\":"}],
-  "stop_reason":"max_tokens"
+  "type": "message",
+  "role": "assistant",
+  "content": [{ "type": "text", "text": "{\"schemaVersion\":" }],
+  "stop_reason": "max_tokens"
 }

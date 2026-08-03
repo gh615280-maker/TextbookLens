@@ -1,5 +1,9 @@
 {
   "candidates": [
-    {"index":0,"content":{"parts":[{"text":"{\"schemaVersion\":"}]},"finishReason":"MAX_TOKENS"}
+    {
+      "index": 0,
+      "content": { "parts": [{ "text": "{\"schemaVersion\":" }] },
+      "finishReason": "MAX_TOKENS"
+    }
   ]
 }

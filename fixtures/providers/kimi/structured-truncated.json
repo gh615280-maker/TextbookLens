@@ -1,3 +1,9 @@
 {
-  "choices":[{"index":0,"finish_reason":"length","message":{"content":"{\"schemaVersion\":"}}]
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "length",
+      "message": { "content": "{\"schemaVersion\":" }
+    }
+  ]
 }

@@ -1,7 +1,12 @@
 {
   "status": "completed",
   "output": [
-    {"type": "reasoning", "summary": [{"type": "summary_text", "text": "hidden-structured-reasoning"}]},
+    {
+      "type": "reasoning",
+      "summary": [
+        { "type": "summary_text", "text": "hidden-structured-reasoning" }
+      ]
+    },
     {
       "type": "message",
       "content": [
@@ -12,5 +17,5 @@
       ]
     }
   ],
-  "usage": {"input_tokens": 52, "output_tokens": 31}
+  "usage": { "input_tokens": 52, "output_tokens": 31 }
 }

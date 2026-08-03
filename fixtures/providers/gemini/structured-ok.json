@@ -4,12 +4,18 @@
       "index": 0,
       "content": {
         "parts": [
-          {"thought": true, "thoughtSignature": "hidden-structured-signature", "text": "hidden-structured-thought"},
-          {"text": "{\"schemaVersion\":\"textbooklens.page-analysis.v1\",\"pages\":[{\"pageNumber\":1,\"blocks\":[{\"ordinal\":0,\"kind\":\"paragraph\",\"plainText\":\"synthetic visible page text\",\"bounds\":null,\"latex\":null,\"tableCells\":null,\"visualDescription\":null}]}]}"}
+          {
+            "thought": true,
+            "thoughtSignature": "hidden-structured-signature",
+            "text": "hidden-structured-thought"
+          },
+          {
+            "text": "{\"schemaVersion\":\"textbooklens.page-analysis.v1\",\"pages\":[{\"pageNumber\":1,\"blocks\":[{\"ordinal\":0,\"kind\":\"paragraph\",\"plainText\":\"synthetic visible page text\",\"bounds\":null,\"latex\":null,\"tableCells\":null,\"visualDescription\":null}]}]}"
+          }
         ]
       },
       "finishReason": "STOP"
     }
   ],
-  "usageMetadata": {"promptTokenCount": 54, "candidatesTokenCount": 33}
+  "usageMetadata": { "promptTokenCount": 54, "candidatesTokenCount": 33 }
 }

@@ -32,7 +32,7 @@ Run `npm run fixtures:build`, followed by `npm run fixtures:verify`. The committ
 
 ## Vision operation fixtures
 
-| Path                                          | Format / dimensions | SHA-256                                                            |
-| --------------------------------------------- | ------------------- | ----------------------------------------------------------------- |
-| `fixtures/source/vision/tiny-blue.png`        | PNG / 2×2           | `daec3255de7a4747c9771880cc860ec451f948cc94c2596acfa5d79d577d704e` |
-| `fixtures/source/vision/tiny-orange.jpg`      | JPEG / 2×2          | `ef6aee1291db2afa2be3930c58ff8277044c3d0035cc11a25e276a3ce7da405a` |
+| Path                                     | Format / dimensions | SHA-256                                                            |
+| ---------------------------------------- | ------------------- | ------------------------------------------------------------------ |
+| `fixtures/source/vision/tiny-blue.png`   | PNG / 2×2           | `daec3255de7a4747c9771880cc860ec451f948cc94c2596acfa5d79d577d704e` |
+| `fixtures/source/vision/tiny-orange.jpg` | JPEG / 2×2          | `ef6aee1291db2afa2be3930c58ff8277044c3d0035cc11a25e276a3ce7da405a` |

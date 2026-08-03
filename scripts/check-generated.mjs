@@ -29,5 +29,8 @@ run('cargo', [
   '--',
   '--nocapture',
 ]);
-accessSync(new URL('../src/lib/generated/provider.ts', import.meta.url), constants.R_OK);
+accessSync(
+  new URL('../src/lib/generated/provider.ts', import.meta.url),
+  constants.R_OK,
+);
 run('git', ['diff', '--exit-code', '--', 'src/lib/generated']);

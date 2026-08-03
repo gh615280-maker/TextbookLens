@@ -1,1 +1,6 @@
-{"promptFeedback":{"blockReason":"SAFETY","blockReasonMessage":"fixture-vendor-refusal-sentinel"}}
+{
+  "promptFeedback": {
+    "blockReason": "SAFETY",
+    "blockReasonMessage": "fixture-vendor-refusal-sentinel"
+  }
+}
