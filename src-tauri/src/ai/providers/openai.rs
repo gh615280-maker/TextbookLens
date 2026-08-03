@@ -138,7 +138,7 @@ impl AiProvider for OpenAiProvider {
             .transport
             .send_stream(http_request, credential, cancel)
             .await?
-            .decode(OpenAiEventMapper))
+            .decode(OpenAiEventMapper::default()))
     }
 }
 
@@ -200,7 +200,10 @@ struct TextFormat {
     kind: &'static str,
 }
 
-struct OpenAiEventMapper;
+#[derive(Default)]
+struct OpenAiEventMapper {
+    saw_visible_text: bool,
+}
 
 impl SseEventMapper for OpenAiEventMapper {
     fn map_event(&mut self, event: &SseEvent) -> Result<Vec<UnifiedStreamEvent>, AiError> {
@@ -210,13 +213,20 @@ impl SseEventMapper for OpenAiEventMapper {
                 if payload.kind != event.event_type() {
                     return Err(AiError::malformed_event());
                 }
+                if payload.delta.is_empty() {
+                    return Ok(Vec::new());
+                }
+                self.saw_visible_text = true;
                 Ok(vec![UnifiedStreamEvent::TextDelta {
                     text: payload.delta,
                 }])
             }
             "response.completed" => {
                 let payload: CompletedEvent = parse_known_json(event)?;
-                if payload.kind != event.event_type() || payload.response.status != "completed" {
+                if payload.kind != event.event_type()
+                    || payload.response.status != "completed"
+                    || !self.saw_visible_text
+                {
                     return Err(AiError::malformed_event());
                 }
                 let mut mapped = Vec::with_capacity(2);

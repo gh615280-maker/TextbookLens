@@ -37,6 +37,8 @@ const VALIDATE_FIXTURE: &str =
 const STREAM_OK_FIXTURE: &str = include_str!("../../../../fixtures/providers/openai/stream-ok.sse");
 const STREAM_ERROR_FIXTURE: &str =
     include_str!("../../../../fixtures/providers/openai/stream-error.sse");
+const STREAM_EMPTY_FIXTURE: &str =
+    include_str!("../../../../fixtures/providers/openai/stream-empty.sse");
 
 fn request() -> UnifiedChatRequest {
     UnifiedChatRequest {
@@ -273,6 +275,7 @@ async fn collect_fixture(
 async fn failed_error_malformed_and_missing_completion_are_safe_failures() {
     let cases = [
         STREAM_ERROR_FIXTURE,
+        STREAM_EMPTY_FIXTURE,
         "event: error\ndata: {\"type\":\"error\",\"code\":\"server_error\",\"message\":\"Synthetic top-level failure.\",\"param\":null}\n\n",
         "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":7}\n\n",
         "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n",

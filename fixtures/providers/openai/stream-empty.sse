@@ -1,0 +1,4 @@
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_fixture_empty","status":"completed","usage":{"input_tokens":7,"output_tokens":0,"total_tokens":7}}}
+
+: zero-visible-output regression fixture

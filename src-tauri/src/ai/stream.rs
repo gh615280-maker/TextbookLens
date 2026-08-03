@@ -82,12 +82,18 @@ where
 
     Box::pin(stream::unfold(state, |mut state| async move {
         loop {
-            if let Some(item) = state.pending.pop_front() {
-                return Some((item, state));
-            }
-            if state.terminal || state.completed {
+            if state.terminal || (state.completed && state.pending.is_empty()) {
                 state.source.take();
                 return None;
+            }
+            if state.cancel.is_cancelled() {
+                state.pending.clear();
+                state.source.take();
+                state.terminal = true;
+                return Some((Err(AiError::cancelled()), state));
+            }
+            if let Some(item) = state.pending.pop_front() {
+                return Some((item, state));
             }
 
             let cancel = state.cancel.clone();
