@@ -31,6 +31,7 @@ pub struct OnboardingStateDto {
 pub enum LocalTextQuality {
     Ready,
     Pending,
+    VisualSetupRecommended,
     Unavailable,
 }
 

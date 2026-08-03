@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { useNavigate } from 'react-router-dom';
 import { toUserError } from '../../lib/errors';
-import type { OnboardingStateDto } from '../../lib/generated/onboarding';
 import { TauriImportIpc } from '../../lib/ipc';
 import {
   ImportCoordinator,
@@ -12,20 +10,13 @@ import { createDocumentParserRegistry } from '../import/parser-registry';
 import { OnboardingBookStep } from './OnboardingBookStep';
 import { OnboardingProviderStep } from './OnboardingProviderStep';
 import { OnboardingReadyStep } from './OnboardingReadyStep';
+import { OnboardingVisualTextStep } from './OnboardingVisualTextStep';
+import { TauriOnboardingApi, type OnboardingApi } from './onboarding-api';
 import {
   initialOnboardingViewState,
   onboardingReducer,
   visibleOnboardingStep,
 } from './onboarding-state';
-
-export interface OnboardingApi {
-  getState(): Promise<OnboardingStateDto>;
-}
-class TauriOnboardingApi implements OnboardingApi {
-  getState() {
-    return invoke<OnboardingStateDto>('get_onboarding_state');
-  }
-}
 
 export function OnboardingPage({
   api: suppliedApi,
@@ -89,6 +80,12 @@ export function OnboardingPage({
       ) : null}
       {step === 'provider' ? (
         <OnboardingProviderStep onConnected={bootstrap} />
+      ) : null}
+      {step === 'visual' && state.bootstrap ? (
+        <OnboardingVisualTextStep
+          hasCompatibleVisionProfile={state.bootstrap.visionProfileConnected}
+          onContinue={() => dispatch({ type: 'visual-declined' })}
+        />
       ) : null}
       {step === 'ready' && book && state.bootstrap ? (
         <OnboardingReadyStep

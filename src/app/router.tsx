@@ -6,6 +6,7 @@ import { OnboardingShell } from '../components/OnboardingShell';
 import { ReaderShell } from '../components/ReaderShell';
 import { LibraryPage } from '../features/library/LibraryPage';
 import { OnboardingPage } from '../features/onboarding/OnboardingPage';
+import { OnboardingRouteGate } from '../features/onboarding/OnboardingRouteGate';
 import { OverviewPage } from '../features/overview/OverviewPage';
 import { AiServicesPage } from '../features/providers/AiServicesPage';
 import { ReaderPage } from '../features/reader/ReaderPage';
@@ -17,7 +18,14 @@ export const appRoutes: RouteObject[] = [
     element: <AppLayout />,
     errorElement: <RouteErrorBoundary />,
     children: [
-      { index: true, element: <Navigate replace to="/library" /> },
+      {
+        index: true,
+        element: (
+          <OnboardingRouteGate>
+            <Navigate replace to="/library" />
+          </OnboardingRouteGate>
+        ),
+      },
       {
         element: <OnboardingShell />,
         children: [{ path: '/onboarding', element: <OnboardingPage /> }],
@@ -25,7 +33,14 @@ export const appRoutes: RouteObject[] = [
       {
         element: <AppShell />,
         children: [
-          { path: '/library', element: <LibraryPage /> },
+          {
+            path: '/library',
+            element: (
+              <OnboardingRouteGate>
+                <LibraryPage />
+              </OnboardingRouteGate>
+            ),
+          },
           {
             path: '/teaching-instructions',
             element: <TeachingInstructionsPage />,

@@ -53,4 +53,18 @@ describe('onboarding state', () => {
     });
     expect(visibleOnboardingStep(ready)).toBe('ready');
   });
+  it('offers later visual setup only for the durable no-local-text fact', () => {
+    const visual = onboardingReducer(initialOnboardingViewState, {
+      type: 'loaded',
+      bootstrap: {
+        ...bootstrap,
+        learningProfileConnected: true,
+        localTextQuality: 'visual_setup_recommended',
+      },
+    });
+    expect(visibleOnboardingStep(visual)).toBe('visual');
+    const continued = onboardingReducer(visual, { type: 'visual-declined' });
+    expect(continued.selectedBook?.id).toBe(book.id);
+    expect(visibleOnboardingStep(continued)).toBe('ready');
+  });
 });

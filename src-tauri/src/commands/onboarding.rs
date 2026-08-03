@@ -42,15 +42,37 @@ pub async fn get_onboarding_state(
             .is_some_and(|profile| profile.credential_status == CredentialStatus::Available)
     };
     let learning_profile_connected = connected(settings.default_learning_profile_id);
-    let vision_profile_connected = connected(settings.default_vision_profile_id);
-    let local_text_quality = match selected_book.as_ref().map(|book| &book.import_status) {
-        Some(ImportStatus::Ready) => LocalTextQuality::Ready,
-        Some(
-            ImportStatus::Queued
-            | ImportStatus::Copying
-            | ImportStatus::Parsing
-            | ImportStatus::Indexing,
-        ) => LocalTextQuality::Pending,
+    let vision_profile_connected = settings
+        .default_vision_profile_id
+        .and_then(|profile_id| profiles.iter().find(|profile| profile.id == profile_id))
+        .is_some_and(|profile| {
+            profile.credential_status == CredentialStatus::Available
+                && state.provider_capabilities.operation_support(
+                    &profile.kind,
+                    &profile.model_id,
+                    crate::domain::AiOperation::VisionLearning,
+                ) == crate::domain::CapabilitySupport::Supported
+        });
+    let local_text_quality = match selected_book.as_ref() {
+        Some(book) if book.import_status == ImportStatus::Ready => LocalTextQuality::Ready,
+        Some(book)
+            if matches!(
+                book.import_status,
+                ImportStatus::Queued
+                    | ImportStatus::Copying
+                    | ImportStatus::Parsing
+                    | ImportStatus::Indexing
+            ) =>
+        {
+            LocalTextQuality::Pending
+        }
+        Some(book)
+            if book.format == crate::domain::BookFormat::Pdf
+                && book.import_status == ImportStatus::Failed
+                && book.import_error_code.as_deref() == Some("NO_EXTRACTABLE_TEXT") =>
+        {
+            LocalTextQuality::VisualSetupRecommended
+        }
         _ => LocalTextQuality::Unavailable,
     };
     let step = if !has_ready_book && selected_book.is_none() {
