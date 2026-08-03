@@ -2,6 +2,10 @@
 
 These tiny fixtures are generated deterministically from one shared semantic source for PDF, EPUB, and DOCX import tests. The metadata baseline is `2026-08-01T00:00:00.000Z`.
 
+The `source/vision/` images are project-owned 2×2-pixel synthetic color swatches used only by
+loopback provider contract tests. They contain no textbook or user content and are licensed under
+Apache-2.0.
+
 ## Licensing
 
 - `textbook-content.json`, `figure-energy.png`, and the generated PDF/EPUB/DOCX documents are project-owned TextbookLens test material licensed under Apache-2.0.
@@ -25,3 +29,10 @@ Run `npm run fixtures:build`, followed by `npm run fixtures:verify`. The committ
 | `fixtures/textbook.pdf`                               | `9c054676cf6090d6dfb8ad38690e883103df0bb95eb67819bcb2ba7352b5518e` |
 | `fixtures/textbook.epub`                              | `67fa01aecd47cdf47b8faa34b7f31e51d280d43fea14de66cf817166cbd3c94d` |
 | `fixtures/textbook.docx`                              | `188dfe5630166b767bb3dbb2ea9329447751f0c47b087adca140d8ad1c84a238` |
+
+## Vision operation fixtures
+
+| Path                                          | Format / dimensions | SHA-256                                                            |
+| --------------------------------------------- | ------------------- | ----------------------------------------------------------------- |
+| `fixtures/source/vision/tiny-blue.png`        | PNG / 2×2           | `daec3255de7a4747c9771880cc860ec451f948cc94c2596acfa5d79d577d704e` |
+| `fixtures/source/vision/tiny-orange.jpg`      | JPEG / 2×2          | `ef6aee1291db2afa2be3930c58ff8277044c3d0035cc11a25e276a3ce7da405a` |

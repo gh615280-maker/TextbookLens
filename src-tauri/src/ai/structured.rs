@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use uuid::Uuid;
 
 use super::multimodal::validate_structured_page_request;
@@ -45,6 +47,25 @@ pub fn decode_provider_page_analysis(
         return Err(invalid_input());
     }
     Ok(decoded)
+}
+
+pub fn validate_provider_page_batch(
+    analysis: &ProviderPageAnalysis,
+    expected_page_count: usize,
+) -> AppResult<()> {
+    if expected_page_count == 0 || analysis.pages.len() != expected_page_count {
+        return Err(invalid_input());
+    }
+
+    let mut page_numbers = BTreeSet::new();
+    if analysis
+        .pages
+        .iter()
+        .any(|page| !page_numbers.insert(page.page_number))
+    {
+        return Err(invalid_input());
+    }
+    Ok(())
 }
 
 fn invalid_input() -> AppError {

@@ -10,6 +10,8 @@ pub mod transport;
 #[cfg(test)]
 mod multimodal_test;
 #[cfg(test)]
+mod operation_contract_test;
+#[cfg(test)]
 mod provider_contract_test;
 #[cfg(test)]
 mod registry_test;

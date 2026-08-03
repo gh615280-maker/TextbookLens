@@ -25,7 +25,9 @@ use super::super::{
     },
     registry::ProviderCapabilityRegistry,
     stream::{SseEvent, SseEventMapper, parse_known_json},
-    structured::{decode_provider_page_analysis, validate_structured_request},
+    structured::{
+        decode_provider_page_analysis, validate_provider_page_batch, validate_structured_request,
+    },
     transport::{CredentialHeader, ProviderHttpRequest, ProviderTransport},
 };
 
@@ -202,6 +204,7 @@ impl AiProvider for OpenAiProvider {
 
         let schema_version = request.schema_version.clone();
         let max_output_bytes = request.max_output_bytes;
+        let expected_page_count = request.pages.len();
         let body = structured_responses_request(request);
         let http_request = ProviderHttpRequest::json(
             Method::POST,
@@ -221,7 +224,13 @@ impl AiProvider for OpenAiProvider {
         if cancel.is_cancelled() {
             return Err(cancelled());
         }
-        decode_provider_page_analysis(visible.as_bytes(), &schema_version, max_output_bytes)
+        let analysis =
+            decode_provider_page_analysis(visible.as_bytes(), &schema_version, max_output_bytes)?;
+        validate_provider_page_batch(&analysis, expected_page_count)?;
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
+        Ok(analysis)
     }
 }
 

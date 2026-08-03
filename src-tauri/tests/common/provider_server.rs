@@ -1,10 +1,18 @@
 #![allow(dead_code)]
 
-use std::time::Duration;
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    sync::Notify,
     task::JoinHandle,
 };
 use wiremock::MockServer;
@@ -17,6 +25,15 @@ pub struct ProviderServer {
 
 pub struct ChunkedSseServer {
     uri: String,
+    task: JoinHandle<()>,
+}
+
+pub struct GatedSseServer {
+    uri: String,
+    pub first_written: Arc<Notify>,
+    pub allow_terminal: Arc<Notify>,
+    pub terminal_written: Arc<Notify>,
+    request_count: Arc<AtomicUsize>,
     task: JoinHandle<()>,
 }
 
@@ -46,6 +63,65 @@ impl Drop for ChunkedSseServer {
     }
 }
 
+impl GatedSseServer {
+    pub async fn start(first: Vec<u8>, terminal: Vec<u8>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let first_written = Arc::new(Notify::new());
+        let allow_terminal = Arc::new(Notify::new());
+        let terminal_written = Arc::new(Notify::new());
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let first_signal = first_written.clone();
+        let terminal_gate = allow_terminal.clone();
+        let terminal_signal = terminal_written.clone();
+        let request_counter = request_count.clone();
+        let task = tokio::spawn(async move {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                request_counter.fetch_add(1, Ordering::SeqCst);
+                if read_http_request(&mut socket).await.is_ok()
+                    && socket
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                        )
+                        .await
+                        .is_ok()
+                    && write_http_chunk(&mut socket, &first).await.is_ok()
+                {
+                    first_signal.notify_one();
+                    terminal_gate.notified().await;
+                    let _ = write_http_chunk(&mut socket, &terminal).await;
+                    let _ = socket.write_all(b"0\r\n\r\n").await;
+                    let _ = socket.flush().await;
+                    terminal_signal.notify_one();
+                }
+            }
+        });
+        Self {
+            uri: format!("http://{address}"),
+            first_written,
+            allow_terminal,
+            terminal_written,
+            request_count,
+            task,
+        }
+    }
+
+    pub fn uri(&self) -> &str {
+        &self.uri
+    }
+
+    pub fn request_count(&self) -> usize {
+        self.request_count.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for GatedSseServer {
+    fn drop(&mut self) {
+        self.allow_terminal.notify_one();
+        self.task.abort();
+    }
+}
+
 async fn write_chunked_response(socket: &mut TcpStream, chunks: Vec<Vec<u8>>) {
     if socket
         .write_all(
@@ -69,6 +145,56 @@ async fn write_chunked_response(socket: &mut TcpStream, chunks: Vec<Vec<u8>>) {
     }
     let _ = socket.write_all(b"0\r\n\r\n").await;
     let _ = socket.flush().await;
+}
+
+async fn read_http_request(socket: &mut TcpStream) -> io::Result<()> {
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 4_096];
+    let mut required = None;
+    loop {
+        let read = socket.read(&mut buffer).await?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "request ended before its declared body",
+            ));
+        }
+        request.extend_from_slice(&buffer[..read]);
+        if request.len() > 16 * 1024 * 1024 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "test request exceeded bound",
+            ));
+        }
+        if required.is_none()
+            && let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+        {
+            let header_end = header_end + 4;
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+                .unwrap_or(0);
+            required = Some(header_end + content_length);
+        }
+        if required.is_some_and(|required| request.len() >= required) {
+            return Ok(());
+        }
+    }
+}
+
+async fn write_http_chunk(socket: &mut TcpStream, bytes: &[u8]) -> io::Result<()> {
+    socket
+        .write_all(format!("{:X}\r\n", bytes.len()).as_bytes())
+        .await?;
+    socket.write_all(bytes).await?;
+    socket.write_all(b"\r\n").await?;
+    socket.flush().await
 }
 
 impl ProviderServer {
