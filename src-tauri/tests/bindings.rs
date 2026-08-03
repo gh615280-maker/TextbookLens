@@ -3,13 +3,13 @@ use std::collections::BTreeMap;
 use textbooklens_lib::domain::{
     AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookSummary, CapabilitySupport,
     ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, LearningEvent,
-    LearningRequest, NormalizedBookInput, NormalizedRect, PageAnalysisBlockKind,
-    ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
-    ProviderOperationConsent, ProviderOperationConsentCategory, ProviderOperationConsentDecision,
-    ProviderPageAnalysis, ProviderProfileSummary, RemoteCleanupStatus, UiLanguage,
-    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
-    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, ValidationResult,
-    VisionAssetMeta, stable_block_id, stable_section_id,
+    LearningRequest, LocalTextQuality, NormalizedBookInput, NormalizedRect, OnboardingStateDto,
+    OnboardingStep, PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
+    ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
+    ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary,
+    RemoteCleanupStatus, UiLanguage, UnifiedChatRequest, UnifiedMessage, UnifiedRole,
+    UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis, UntrustedPageBlock,
+    UntrustedTableCell, ValidationResult, VisionAssetMeta, stable_block_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -134,5 +134,8 @@ fn export_bindings() {
     ProviderPageAnalysis::export_all(&config).unwrap();
     RemoteCleanupStatus::export_all(&config).unwrap();
     AppSettingsDto::export_all(&config).unwrap();
+    OnboardingStep::export_all(&config).unwrap();
+    LocalTextQuality::export_all(&config).unwrap();
+    OnboardingStateDto::export_all(&config).unwrap();
     UiLanguage::export_all(&config).unwrap();
 }

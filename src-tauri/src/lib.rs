@@ -51,6 +51,7 @@ pub fn run() {
             commands::providers::update_provider_operation_consent,
             commands::providers::reset_provider_operation_consents,
             commands::providers::delete_provider_profile,
+            commands::onboarding::get_onboarding_state,
             commands::books::list_books,
             commands::books::get_book,
             commands::books::delete_failed_import,
