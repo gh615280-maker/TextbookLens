@@ -14,20 +14,20 @@
 
 ## 2. 阶段 checkpoint
 
-| 阶段     | 必需证据                                           | 状态    | Date/HEAD                                               | Evidence summary                                                                                                                                                                                                                                                                                            |
-| -------- | -------------------------------------------------- | ------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase 4R | five-provider text/terminal/cancel/error/redaction | PASS    | 2026-08-03 / `e4d12c2`                                  | 8 shared contract tests; 25 provider tests; 7 stream tests; full Rust gate 117 passed, 1 pre-existing manual keyring smoke ignored; no real credentials                                                                                                                                                     |
-| Phase 5  | capability/vision/structured/unknown gate          | PASS    | 2026-08-03 / `b36892ec2280af031a9ce9ce667596c9bb11cb41` | 8 operation-contract tests; text retained for all five providers; exact supported/denied capability routes; 32 invalid structured-result cases; deterministic cancellation at all required boundaries; redaction, fixtures, sensitive, generated, typecheck, Rust, dependency, and Tauri debug gates passed |
-| Phase 6  | three-language/Fluent/reader shell                 | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 7  | atomic credential/book→Key→read/AI services        | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 8  | teaching instruction/revision/test no-history      | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 9  | page index/resume/partial/correction/provenance    | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 10 | Explorer library/drop/import/index status          | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 11 | text/region anchors/preparation/notes              | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 12 | registry/atomic history/multi-panel/hide continue  | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 13 | delete/backup/restore/clear/privacy                | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 14 | deterministic overview/book questions              | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
-| Phase 15 | A–Q/clean Windows/package/release                  | NOT RUN | —                                                       | —                                                                                                                                                                                                                                                                                                           |
+| 阶段     | 必需证据                                           | 状态    | Date/HEAD                                                       | Evidence summary                                                                                                                                                                                                                                                                                            |
+| -------- | -------------------------------------------------- | ------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase 4R | five-provider text/terminal/cancel/error/redaction | PASS    | 2026-08-03 / `e4d12c2`                                          | 8 shared contract tests; 25 provider tests; 7 stream tests; full Rust gate 117 passed, 1 pre-existing manual keyring smoke ignored; no real credentials                                                                                                                                                     |
+| Phase 5  | capability/vision/structured/unknown gate          | PASS    | 2026-08-03 / `b36892ec2280af031a9ce9ce667596c9bb11cb41`         | 8 operation-contract tests; text retained for all five providers; exact supported/denied capability routes; 32 invalid structured-result cases; deterministic cancellation at all required boundaries; redaction, fixtures, sensitive, generated, typecheck, Rust, dependency, and Tauri debug gates passed |
+| Phase 6  | three-language/Fluent/reader shell                 | BLOCKED | 2026-08-03 / product `7bff4d8353a3ba23752adfa932245765e652f8ed` | Automated checkpoint gates PASS (124 Vitest, 9 Playwright, generated, Rust settings, frontend/Tauri builds). Required durable Windows 10 and 200% manual screenshot evidence is unavailable; the inherited EPUB adapter still requests paginated flow, so the continuous-scroll contract is not proven.     |
+| Phase 7  | atomic credential/book→Key→read/AI services        | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 8  | teaching instruction/revision/test no-history      | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 9  | page index/resume/partial/correction/provenance    | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 10 | Explorer library/drop/import/index status          | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 11 | text/region anchors/preparation/notes              | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 12 | registry/atomic history/multi-panel/hide continue  | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 13 | delete/backup/restore/clear/privacy                | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 14 | deterministic overview/book questions              | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
+| Phase 15 | A–Q/clean Windows/package/release                  | NOT RUN | —                                                               | —                                                                                                                                                                                                                                                                                                           |
 
 ## 3. Provider 能力证据
 
@@ -44,25 +44,25 @@
 
 ## 4. A–Q 验收
 
-| ID  | 场景                            | 自动化 owner     | 必需手工补充                       | 状态    | Evidence |
-| --- | ------------------------------- | ---------------- | ---------------------------------- | ------- | -------- |
-| A   | book→Key→read                   | Phase 7/15       | clean keyring onboarding           | NOT RUN | —        |
-| B   | zh-CN/zh-TW/en                  | Phase 6/15       | Windows locale/scale               | NOT RUN | —        |
-| C   | teaching instruction            | Phase 8/15       | copy/usability review              | NOT RUN | —        |
-| D   | direct text explanation         | Phase 11–12/15   | real reader selection              | NOT RUN | —        |
-| E   | region containing reliable text | Phase 11/15      | three-format visual check          | NOT RUN | —        |
-| F   | chart/image region confirmation | Phase 11–12/15   | verified vision provider           | NOT RUN | —        |
-| G   | multiple floating panels        | Phase 12/15      | drag/resize/scale                  | NOT RUN | —        |
-| H   | hidden panel continues          | Phase 12/15      | real window interaction            | NOT RUN | —        |
-| I   | history continue/delete         | Phase 12/15      | restart UX                         | NOT RUN | —        |
-| J   | decline scanned-PDF AI          | Phase 9/15       | network observation                | NOT RUN | —        |
-| K   | AI-assisted local index         | Phase 9/15       | verified provider + offline search | NOT RUN | —        |
-| L   | partial failure/retry           | Phase 9/15       | restart/recovery                   | NOT RUN | —        |
-| M   | manual text/LaTeX correction    | Phase 9/15       | side-by-side usability             | NOT RUN | —        |
-| N   | provenance distinction          | Phase 9/11/14/15 | citation copy review               | NOT RUN | —        |
-| O   | responsive/fullscreen           | Phase 6/12/15    | Win10/11, 200%, high contrast      | NOT RUN | —        |
-| P   | backup/restore no Key           | Phase 13/15      | second clean profile               | NOT RUN | —        |
-| Q   | delete/clear/leak               | Phase 13/15      | credential/app-data residual scan  | NOT RUN | —        |
+| ID  | 场景                            | 自动化 owner     | 必需手工补充                       | 状态    | Evidence                                                                                                                                                                                                 |
+| --- | ------------------------------- | ---------------- | ---------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A   | book→Key→read                   | Phase 7/15       | clean keyring onboarding           | NOT RUN | —                                                                                                                                                                                                        |
+| B   | zh-CN/zh-TW/en                  | Phase 6/15       | Windows locale/scale               | BLOCKED | Three-language immediate switch and restart mock PASS in Playwright; actual Windows 10/200% manual evidence unavailable.                                                                                 |
+| C   | teaching instruction            | Phase 8/15       | copy/usability review              | NOT RUN | —                                                                                                                                                                                                        |
+| D   | direct text explanation         | Phase 11–12/15   | real reader selection              | NOT RUN | —                                                                                                                                                                                                        |
+| E   | region containing reliable text | Phase 11/15      | three-format visual check          | NOT RUN | —                                                                                                                                                                                                        |
+| F   | chart/image region confirmation | Phase 11–12/15   | verified vision provider           | NOT RUN | —                                                                                                                                                                                                        |
+| G   | multiple floating panels        | Phase 12/15      | drag/resize/scale                  | NOT RUN | —                                                                                                                                                                                                        |
+| H   | hidden panel continues          | Phase 12/15      | real window interaction            | NOT RUN | —                                                                                                                                                                                                        |
+| I   | history continue/delete         | Phase 12/15      | restart UX                         | NOT RUN | —                                                                                                                                                                                                        |
+| J   | decline scanned-PDF AI          | Phase 9/15       | network observation                | NOT RUN | —                                                                                                                                                                                                        |
+| K   | AI-assisted local index         | Phase 9/15       | verified provider + offline search | NOT RUN | —                                                                                                                                                                                                        |
+| L   | partial failure/retry           | Phase 9/15       | restart/recovery                   | NOT RUN | —                                                                                                                                                                                                        |
+| M   | manual text/LaTeX correction    | Phase 9/15       | side-by-side usability             | NOT RUN | —                                                                                                                                                                                                        |
+| N   | provenance distinction          | Phase 9/11/14/15 | citation copy review               | NOT RUN | —                                                                                                                                                                                                        |
+| O   | responsive/fullscreen           | Phase 6/12/15    | Win10/11, 200%, high contrast      | BLOCKED | Narrow/forced-colors/axe and F11/Esc automation PASS; actual Windows 11 build 22631 debug window inspected with a synthetic fixture, but no durable Windows 10 or 200% screenshot artifact was produced. |
+| P   | backup/restore no Key           | Phase 13/15      | second clean profile               | NOT RUN | —                                                                                                                                                                                                        |
+| Q   | delete/clear/leak               | Phase 13/15      | credential/app-data residual scan  | NOT RUN | —                                                                                                                                                                                                        |
 
 ## 5. Race/restart matrix
 
@@ -91,16 +91,16 @@
 
 Record exact date, HEAD, exit result, test count and only non-sensitive warnings when executed:
 
-| Command group                                   | Status       | Evidence                                                                                                                                          |
-| ----------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm ci`, Chromium install                      | NOT RUN      | —                                                                                                                                                 |
-| format/lint/typecheck/test/build/e2e            | PARTIAL      | Phase 5 typecheck and production frontend build PASS at `b36892e`; lint/frontend test/e2e remain NOT RUN because they are outside this checkpoint |
-| generated/sensitive/licenses/fixtures           | PHASE 5 PASS | generated, sensitive, fixtures PASS; `cargo deny` licenses PASS at `b36892e`; npm release-license gate remains NOT RUN                            |
-| cargo fmt/clippy/test all-features `-j 1`       | PHASE 5 PASS | `b36892e`; fmt and clippy PASS; 155 passed, 0 failed, 1 ignored pre-existing manual credential smoke                                              |
-| cargo deny                                      | PHASE 5 PASS | `b36892e`; advisories, bans, licenses, and sources PASS                                                                                           |
-| Tauri debug/no-bundle and release bundle        | PARTIAL      | Phase 5 `tauri build --debug --no-bundle` PASS at `b36892e`; release bundle remains NOT RUN                                                       |
-| clean Windows 10/11 install                     | NOT RUN      | —                                                                                                                                                 |
-| five-provider text + verified capability manual | NOT RUN      | —                                                                                                                                                 |
+| Command group                                   | Status                 | Evidence                                                                                                                                                      |
+| ----------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm ci`, Chromium install                      | NOT RUN                | —                                                                                                                                                             |
+| format/lint/typecheck/test/build/e2e            | PHASE 6 AUTO PASS      | 2026-08-03 product `7bff4d8`; format/lint/typecheck/build PASS; 124 Vitest and 9 Playwright passed. Required Phase 6 manual evidence remains BLOCKED.         |
+| generated/sensitive/licenses/fixtures           | PHASE 6 GENERATED PASS | generated binding export 1 passed; Phase 5 sensitive/fixtures/licenses evidence remains unchanged; npm release-license gate remains NOT RUN.                  |
+| cargo fmt/clippy/test all-features `-j 1`       | PHASE 5 PASS           | `b36892e`; fmt and clippy PASS; 155 passed, 0 failed, 1 ignored pre-existing manual credential smoke                                                          |
+| cargo deny                                      | PHASE 5 PASS           | `b36892e`; advisories, bans, licenses, and sources PASS                                                                                                       |
+| Tauri debug/no-bundle and release bundle        | PARTIAL                | Phase 6 debug/no-bundle PASS at product `7bff4d8` (1,869 frontend modules); release bundle remains NOT RUN.                                                   |
+| clean Windows 10/11 install                     | BLOCKED                | Windows 11 Pro build 22631 debug executable launched and inspected with synthetic content; clean Windows 10 and durable 200% screenshot evidence unavailable. |
+| five-provider text + verified capability manual | NOT RUN                | —                                                                                                                                                             |
 
 ## 8. Evidence update rules
 
@@ -176,3 +176,44 @@ Normalized non-blocking warnings were the localized Windows linker import-librar
 Vite's production chunk-size warning (largest emitted assets were the PDF worker at 2,222.99 kB
 and JavaScript at 2,118.89 kB, gzip 622.66 kB). Neither warning exposed sensitive content or
 invalidated a required gate. ADR 0004/0005 and registry truth required no change.
+
+## 11. Phase 6 normalized evidence
+
+Automated commands completed on 2026-08-03 against product HEAD
+`7bff4d8353a3ba23752adfa932245765e652f8ed` plus the Task 6 e2e checkpoint files. Tests used
+only checked-in synthetic fixtures and mock IPC; no credential, provider request, or real textbook
+content was used for automated evidence.
+
+| Command                                                         | Result | Normalized evidence                                                                                                                                                |
+| --------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm.cmd run format:check`                                      | PASS   | all checked files matched Prettier                                                                                                                                 |
+| `npm.cmd run lint`                                              | PASS   | zero warnings/errors under `--max-warnings 0`                                                                                                                      |
+| `npm.cmd run typecheck`                                         | PASS   | TypeScript project build completed without error                                                                                                                   |
+| `npm.cmd test`                                                  | PASS   | 35 files; 124 passed, 0 failed                                                                                                                                     |
+| `npm.cmd run build`                                             | PASS   | 1,869 modules transformed; production bundle completed                                                                                                             |
+| `npm.cmd run test:e2e`                                          | PASS   | Chromium: 9 passed, 0 failed; three languages/restart mock, normal/onboarding/reader shells, skip link, toolbar lifecycle, F11/Esc, narrow, forced colors, and axe |
+| `npm.cmd run check:generated`                                   | PASS   | binding export: 1 passed, 0 failed, 5 filtered                                                                                                                     |
+| `cargo test --manifest-path src-tauri/Cargo.toml settings -j 1` | PASS   | 3 matching tests passed across unit/database contract targets; 0 failed                                                                                            |
+| `npm.cmd run tauri build -- --debug --no-bundle`                | PASS   | frontend rebuilt from 1,869 modules; debug executable produced without bundling                                                                                    |
+
+The Task 5 focused gate passed 11 tests across `ReaderLayout`, `ReaderPage`, and
+`ReaderController`. The minimal toolbar contains only library, contents, book/location, search,
+disabled area-selection placeholder, reading settings, and fullscreen. Drawer/settings/language
+state does not reopen the adapter in the covered lifecycle tests. First-reader hint completion is
+persisted through the existing command and no Phase 11 selection UI was enabled.
+
+Required manual checkpoint status is **BLOCKED**, not PASS. The debug executable was launched on
+Windows 11 Pro build 22631 and the opaque Fluent fallback plus reader toolbar were inspected using
+a synthetic local fixture. Mica is not enabled in the current Tauri configuration. A clean Windows
+10 environment and durable 200% scaling screenshot artifact were unavailable. Two attempts to
+exercise WebView zoom did not produce a verifiable scale change and were stopped; browser forced-
+colors/narrow automation is not substituted for the missing manual artifact.
+
+An inherited contract defect also remains outside this packet's allowed files:
+`EpubReaderAdapter` requests `flow: 'paginated'`, while the replanned specification requires
+default continuous scrolling. Phase 6 therefore remains BLOCKED until an authorized adapter owner
+changes and verifies that behavior and the required Windows manual evidence is captured.
+
+Normalized non-blocking warnings were Vite's chunk-size warning (PDF worker 2,222.99 kB; main
+JavaScript 2,096.41 kB, gzip 615.15 kB), localized Windows linker import-library messages, and Git
+line-ending notices. No warning exposed sensitive content.
