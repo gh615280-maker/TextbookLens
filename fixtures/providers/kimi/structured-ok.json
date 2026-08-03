@@ -1,0 +1,14 @@
+{
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "content": "{\"schemaVersion\":\"textbooklens.page-analysis.v1\",\"pages\":[{\"pageNumber\":1,\"blocks\":[{\"ordinal\":0,\"kind\":\"paragraph\",\"plainText\":\"synthetic visible page text\",\"bounds\":null,\"latex\":null,\"tableCells\":null,\"visualDescription\":null}]}]}",
+        "reasoning_content": "hidden-structured-reasoning",
+        "tool_calls": null
+      }
+    }
+  ],
+  "usage": {"prompt_tokens": 61, "completion_tokens": 35, "total_tokens": 96}
+}

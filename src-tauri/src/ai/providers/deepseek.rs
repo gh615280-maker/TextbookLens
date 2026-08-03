@@ -6,7 +6,13 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize, de::IgnoredAny};
 use tokio_util::sync::CancellationToken;
 
-use crate::domain::{ProviderKind, UnifiedMessage, ValidationResult};
+use crate::{
+    domain::{
+        ProviderKind, ProviderPageAnalysis, StructuredPageRequest, UnifiedMessage,
+        UnifiedVisionRequest, ValidationResult,
+    },
+    errors::{AppError, AppResult},
+};
 
 use super::super::{
     error::AiError,
@@ -122,6 +128,24 @@ impl AiProvider for DeepSeekProvider {
             .send_stream(http, credential, cancel)
             .await?
             .decode(DeepSeekEventMapper::default()))
+    }
+
+    async fn stream_vision(
+        &self,
+        _credential: &SecretString,
+        _request: UnifiedVisionRequest,
+        _cancel: CancellationToken,
+    ) -> AppResult<ProviderStream> {
+        Err(AppError::unsupported_provider_capability())
+    }
+
+    async fn analyze_pages(
+        &self,
+        _credential: &SecretString,
+        _request: StructuredPageRequest,
+        _cancel: CancellationToken,
+    ) -> AppResult<ProviderPageAnalysis> {
+        Err(AppError::unsupported_provider_capability())
     }
 }
 #[derive(Deserialize)]

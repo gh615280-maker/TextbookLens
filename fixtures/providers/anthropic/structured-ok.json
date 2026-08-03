@@ -1,0 +1,10 @@
+{
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {"type": "thinking", "thinking": "hidden-structured-thinking", "signature": "hidden-structured-signature"},
+    {"type": "text", "text": "{\"schemaVersion\":\"textbooklens.page-analysis.v1\",\"pages\":[{\"pageNumber\":1,\"blocks\":[{\"ordinal\":0,\"kind\":\"paragraph\",\"plainText\":\"synthetic visible page text\",\"bounds\":null,\"latex\":null,\"tableCells\":null,\"visualDescription\":null}]}]}"}
+  ],
+  "stop_reason": "end_turn",
+  "usage": {"input_tokens": 58, "output_tokens": 34}
+}

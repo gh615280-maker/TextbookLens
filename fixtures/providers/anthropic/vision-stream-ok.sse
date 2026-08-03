@@ -1,0 +1,30 @@
+event: message_start
+data: {"type":"message_start","message":{"type":"message","usage":{"input_tokens":47}}}
+
+event: content_block_start
+data: {"type":"content_block_start","content_block":{"type":"thinking"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hidden-vision-thinking"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"signature_delta","signature":"hidden-vision-signature"}}
+
+event: content_block_stop
+data: {}
+
+event: content_block_start
+data: {"type":"content_block_start","content_block":{"type":"text"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Visible Anthropic vision answer."}}
+
+event: content_block_stop
+data: {}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":9}}
+
+event: message_stop
+data: {}
+

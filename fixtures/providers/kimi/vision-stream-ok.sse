@@ -1,0 +1,8 @@
+data: {"choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
+
+data: {"choices":[{"index":0,"delta":{"reasoning_content":"hidden-vision-reasoning","content":"Visible Kimi vision answer."},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":49,"completion_tokens":10,"total_tokens":59}}
+
+data: [DONE]
+

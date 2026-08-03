@@ -1,0 +1,4 @@
+data: {"choices":[{"index":0,"delta":{"reasoning_content":"hidden","content":"Truncated Kimi vision text"},"finish_reason":"length"}]}
+
+data: [DONE]
+
