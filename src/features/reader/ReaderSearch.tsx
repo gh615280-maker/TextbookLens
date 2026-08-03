@@ -12,12 +12,32 @@ interface ReaderSearchProps {
     limit: number,
   ): Promise<ReaderSearchHit[]>;
   onNavigate(locator: DocumentLocator): Promise<boolean> | boolean;
+  labels?: {
+    region: string;
+    input: string;
+    submit: string;
+    loading: string;
+    failed: string;
+    empty: string;
+    page(page: number): string;
+    currentSection: string;
+  };
 }
 export function ReaderSearch({
   bookId,
   format,
   search,
   onNavigate,
+  labels = {
+    region: '书内搜索',
+    input: '搜索书内内容',
+    submit: '搜索',
+    loading: '正在搜索…',
+    failed: '搜索失败，请重试。',
+    empty: '没有搜索结果。',
+    page: (page) => `第 ${page} 页`,
+    currentSection: '当前章节',
+  },
 }: ReaderSearchProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ReaderSearchHit[]>([]);
@@ -38,31 +58,31 @@ export function ReaderSearch({
       const next = await search(bookId, trimmed, 50);
       if (current === sequence.current) setResults(next);
     } catch {
-      if (current === sequence.current) setError('搜索失败，请重试。');
+      if (current === sequence.current) setError(labels.failed);
     } finally {
       if (current === sequence.current) setLoading(false);
     }
   };
   return (
-    <section aria-label="书内搜索">
+    <section aria-label={labels.region}>
       <form
         onSubmit={(event) => {
           void submit(event);
         }}
       >
         <label>
-          搜索书内内容
+          {labels.input}
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <button type="submit">搜索</button>
+        <button type="submit">{labels.submit}</button>
       </form>
-      {loading && <p role="status">正在搜索…</p>}
+      {loading && <p role="status">{labels.loading}</p>}
       {error && <p role="alert">{error}</p>}
       {!loading && !error && query.trim() && results.length === 0 && (
-        <p>没有搜索结果。</p>
+        <p>{labels.empty}</p>
       )}
       <ol>
         {results.map((hit, index) => (
@@ -73,7 +93,7 @@ export function ReaderSearch({
                 void onNavigate(hit.locator);
               }}
             >
-              <span>{citation(hit, format)}</span>
+              <span>{citation(hit, format, labels)}</span>
               <span>{hit.snippet}</span>
             </button>
           </li>
@@ -85,8 +105,9 @@ export function ReaderSearch({
 function citation(
   hit: ReaderSearchHit,
   format: ReaderSearchProps['format'],
+  labels: NonNullable<ReaderSearchProps['labels']>,
 ): string {
   return format === 'pdf' && hit.locator.format === 'pdf'
-    ? `第 ${hit.locator.startPage} 页`
-    : (hit.sectionTitle ?? '当前章节');
+    ? labels.page(hit.locator.startPage)
+    : (hit.sectionTitle ?? labels.currentSection);
 }

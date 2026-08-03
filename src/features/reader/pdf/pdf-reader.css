@@ -1,12 +1,12 @@
 .pdf-reader {
   position: relative;
   overflow: auto;
-  height: 100%;
+  min-height: min(75vh, 56rem);
 }
 .pdf-reader .pdf-viewer-container {
   position: relative;
   overflow: auto;
-  height: 100%;
+  min-height: inherit;
 }
 .pdf-marker-overlay {
   pointer-events: none;

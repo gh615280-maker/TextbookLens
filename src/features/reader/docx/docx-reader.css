@@ -1,7 +1,6 @@
 .docx-reader {
   position: relative;
-  overflow: auto;
-  height: 100%;
+  min-height: min(75vh, 56rem);
 }
 .docx-marker-overlay {
   pointer-events: none;

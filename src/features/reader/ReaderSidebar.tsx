@@ -1,8 +1,15 @@
-export function ReaderSidebar() {
+interface ReaderSidebarProps {
+  title?: string;
+  emptyMessage?: string;
+}
+
+export function ReaderSidebar({
+  title = '目录',
+  emptyMessage = '此教材没有可用目录。',
+}: ReaderSidebarProps) {
   return (
-    <aside className="reader-sidebar" aria-label="目录">
-      <h2>目录</h2>
-      <p>章节目录将在打开教材后显示。</p>
-    </aside>
+    <nav className="reader-sidebar" aria-label={title}>
+      <p>{emptyMessage}</p>
+    </nav>
   );
 }

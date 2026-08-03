@@ -44,9 +44,7 @@ describe('App', () => {
     render(<App initialEntries={['/books/book-1/read']} />);
 
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
-    expect(
-      await screen.findByRole('button', { name: '折叠目录' }),
-    ).toBeVisible();
+    expect(await screen.findByRole('button', { name: '目录' })).toBeVisible();
   });
 
   it('moves focus to the main landmark through the skip link', async () => {

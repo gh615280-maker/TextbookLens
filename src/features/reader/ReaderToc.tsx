@@ -6,12 +6,18 @@ import type { DocumentLocator } from '../../lib/generated/document';
 interface ReaderTocProps {
   sections: readonly ReaderSection[];
   currentSectionId?: string | null;
+  label?: string;
+  expandLabel?: string;
+  collapseLabel?: string;
   onNavigate(locator: DocumentLocator): Promise<boolean> | boolean;
 }
 
 export function ReaderToc({
   sections,
   currentSectionId = null,
+  label = '教材目录',
+  expandLabel = 'Expand',
+  collapseLabel = 'Collapse',
   onNavigate,
 }: ReaderTocProps) {
   const [expanded, setExpanded] = useState(
@@ -41,7 +47,7 @@ export function ReaderToc({
             {nested.length > 0 && (
               <button
                 type="button"
-                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${section.title}`}
+                aria-label={`${isExpanded ? collapseLabel : expandLabel} ${section.title}`}
                 aria-expanded={isExpanded}
                 onClick={() =>
                   setExpanded((value) => {
@@ -75,11 +81,8 @@ export function ReaderToc({
       );
     });
   return (
-    <aside className="reader-sidebar" aria-label="目录">
-      <h2>目录</h2>
-      <nav aria-label="教材目录">
-        <ul>{render(null, 0)}</ul>
-      </nav>
-    </aside>
+    <nav className="reader-sidebar" aria-label={label}>
+      <ul>{render(null, 0)}</ul>
+    </nav>
   );
 }
