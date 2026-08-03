@@ -1,8 +1,9 @@
 # ADR 0004: Fixed first-party provider protocol matrix
 
-- Status: Accepted for Phase 4 Task 1
+- Status: Accepted for the Phase 4R text-provider baseline
 - Last verified: 2026-08-03
-- Scope: protocol facts only; no adapter or transport is implemented by this ADR.
+- Scope: text protocol and shared text-contract facts only; multimodal capabilities remain in ADR
+  0005 and later work.
 
 ## Decision
 
@@ -29,6 +30,26 @@ Gemini protocol facts were re-verified on 2026-08-03 from the official Google AP
 | Anthropic | `https://api.anthropic.com` | `GET /v1/models/{model}` | `POST /v1/messages` with `stream: true` | `x-api-key: <key>`, `anthropic-version: 2023-06-01`, `content-type: application/json`; map system text to `system`, messages to `messages`, and output limit to `max_tokens`. | `content_block_delta` with `text_delta` / `message_delta.usage` / `message_stop`. | `ping`, tool/input JSON, thinking, signature, and unknown event types. | [models](https://platform.claude.com/docs/en/about-claude/models/overview), [Messages](https://platform.claude.com/docs/en/api/messages/create), [streaming](https://platform.claude.com/docs/en/build-with-claude/streaming), [versioning](https://platform.claude.com/docs/en/api/versioning) |
 | DeepSeek | `https://api.deepseek.com` | `GET /models`, then require the selected ID in the returned model list | `POST /chat/completions` with `stream: true`, using the OpenAI-format API | `Authorization` with the `Bearer` scheme (secret injected only at send time), `Content-Type: application/json`; map normalized messages to `messages`, output limit to `max_tokens`, and model to `model`. | `choices[].delta.content` / final `usage` stream chunk / `choices[].finish_reason`. | `reasoning_content`, tool calls, logprobs, and unknown fields. | [API quick start](https://api-docs.deepseek.com/), [chat completions](https://api-docs.deepseek.com/api/create-chat-completion/), [current model facts](https://api-docs.deepseek.com/quick_start/pricing/) |
 | Kimi | `https://api.moonshot.ai/v1` | `GET /models`, then require the selected ID in the returned model list | `POST /chat/completions` with `stream: true` | `Authorization` with the `Bearer` scheme (secret injected only at send time), `Content-Type: application/json`; map normalized messages to `messages`, output limit to `max_completion_tokens`, and model to `model`. | `choices[].delta.content` / final `usage` stream chunk / `choices[].finish_reason`. | `reasoning_content`, tool calls, and unknown fields. | [model list](https://platform.kimi.ai/docs/models), [Kimi K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart), [chat API](https://platform.kimi.ai/docs/api/chat) |
+
+## Phase 4R shared text contract (verified 2026-08-03)
+
+The implementation contract was verified at code HEAD `e4d12c2` through the public
+`AiProvider`, `UnifiedChatRequest`, `UnifiedStreamEvent`, and `AiError` boundary. The shared layer
+does not own or generalize provider production origins, credential headers, request bodies, or
+success terminals.
+
+| Provider | Successful text terminal | Incomplete/error behavior | Cancellation behavior |
+| --- | --- | --- | --- |
+| OpenAI | At least one nonempty `response.output_text.delta`, then a `response.completed` whose response status is `completed`; optional final usage precedes exactly one `Completed`. | Empty output, incomplete/cancelled/failed response events, malformed known events, generic `[DONE]`, or EOF fail without completion. | Cancellation before headers, after a delta, or while terminal-adjacent usage/completion is queued emits no later delta, usage, or completion. |
+| Gemini | Candidate zero contributes nonempty non-thought text and terminates with exactly `STOP` or `MAX_TOKENS`; that finish is the explicit terminal and does not require `[DONE]`. | Thought/signature data, nonzero candidates, and unknown additions are not visible. Prompt blocks, no candidate, malformed parts, empty visible output, unsafe/unknown finish, generic `[DONE]`, or EOF fail without completion. | The same shared cancellation rule applies without changing Gemini's terminal policy. |
+| Anthropic | A started message contains visible text-block output, a terminal `message_delta` reports `end_turn` or `stop_sequence`, and `message_stop` then emits exactly one `Completed`. | Thinking/signature/input-JSON blocks stay hidden. Empty output, unsafe stop reasons, malformed ordering, error events, missing terminal delta, or missing `message_stop` fail. | Cancellation wins before headers, after visible text, and between terminal usage parsing and `message_stop`. |
+| DeepSeek | Candidate zero emits visible content, `finish_reason` is `stop`, and the later `[DONE]` produces exactly one `Completed`; usage-only chunks may occur after the safe finish. | `reasoning_content` stays hidden. Empty output, usage or `[DONE]` without a safe finish, non-`stop` finish, malformed/vendor error, safe finish without `[DONE]`, or EOF fail. | Cancellation wins before headers, after visible text, and after the finish/usage boundary but before `[DONE]` is consumed. |
+| Kimi | Candidate zero emits visible content, `finish_reason` is `stop`, and the later `[DONE]` produces exactly one `Completed`; usage-only chunks may occur after the safe finish. | `reasoning_content` stays hidden. Empty output, usage or `[DONE]` without a safe finish, non-`stop` finish, malformed/vendor error, safe finish without `[DONE]`, or EOF fail. | Cancellation wins before headers, after visible text, and after the finish/usage boundary but before `[DONE]` is consumed. |
+
+Across all five providers, a vendor body and prior request/response text are not retained by
+normalized errors. `Debug`, `Display`, error source chains, serialized error DTOs, and tracing
+contain only stable safe classifications. The contract evidence uses loopback servers, synthetic
+fixtures, and synthetic credentials only.
 
 ## Registry verification record
 
