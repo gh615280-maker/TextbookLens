@@ -146,7 +146,7 @@ export class IndexingCoordinator {
           }
         } finally {
           sourceBytes?.fill(0);
-          if (source) new Uint8Array(source).fill(0);
+          if (source && source.byteLength > 0) new Uint8Array(source).fill(0);
           source = undefined;
         }
       }

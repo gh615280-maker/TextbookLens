@@ -229,6 +229,56 @@ describe('IndexingCoordinator', () => {
     expect(api.calls).not.toContain('cancel');
   });
 
+  it('submits once when the renderer transfers each source and releases every capture', async () => {
+    vi.useFakeTimers();
+    const api = new FakeApi();
+    api.batches.push({ claims: [claim(0), claim(1)] });
+    const pages = [rendered(3), rendered(4)];
+    const renderer = vi.fn<LocalPageRenderer>(async (source) => {
+      const transferred = structuredClone(source, { transfer: [source] });
+      new Uint8Array(transferred).fill(0);
+      return pages.shift()!;
+    });
+    const coordinator = new IndexingCoordinator(api, renderer);
+    const events: IndexingEvent[] = [];
+    coordinator.subscribe((event) => events.push(event));
+
+    coordinator.start();
+    await vi.waitFor(() => expect(api.submissions).toHaveLength(1));
+
+    expect(renderer).toHaveBeenCalledTimes(2);
+    expect(
+      renderer.mock.calls.every(([source]) => source.byteLength === 0),
+    ).toBe(true);
+    expect(
+      api.sources.every((source) => source.every((byte) => byte === 0)),
+    ).toBe(true);
+    expect(api.calls.filter((call) => call === 'submit')).toHaveLength(1);
+    expect(events).toEqual([
+      {
+        runId: RUN_ID,
+        pageId: claim(0).pageId,
+        status: 'parsing',
+        safeErrorCode: null,
+      },
+      {
+        runId: RUN_ID,
+        pageId: claim(1).pageId,
+        status: 'parsing',
+        safeErrorCode: null,
+      },
+    ]);
+    const submittedBytes = api.submissions[0].map((item) => item.bytes);
+    await vi.waitFor(() =>
+      expect(
+        submittedBytes.every((bytes) => bytes.every((byte) => byte === 0)),
+      ).toBe(true),
+    );
+    await coordinator.stop();
+    expect(coordinator.running).toBe(false);
+    expect(api.calls).not.toContain('cancel');
+  });
+
   it('releases a render that resolves after global shutdown without cancelling Rust', async () => {
     const api = new FakeApi();
     api.batches.push({ claims: [claim(0)] });
