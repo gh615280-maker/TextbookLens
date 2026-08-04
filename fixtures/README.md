@@ -2,9 +2,9 @@
 
 These tiny fixtures are generated deterministically from one shared semantic source for PDF, EPUB, and DOCX import tests. The metadata baseline is `2026-08-01T00:00:00.000Z`.
 
-The `source/vision/` images are project-owned 2×2-pixel synthetic color swatches used only by
-loopback provider contract tests. They contain no textbook or user content and are licensed under
-Apache-2.0.
+`scanned-textbook.pdf` and `mixed-quality-textbook.pdf` are self-made synthetic fixtures: their image-only pages are generated from deterministic colored rectangles, contain no source textbook content, and are licensed under Apache-2.0.
+
+The `source/vision/` images are project-owned 2×2-pixel synthetic color swatches used only by loopback provider contract tests. They contain no textbook or user content and are licensed under Apache-2.0.
 
 ## Licensing
 
@@ -29,6 +29,8 @@ Run `npm run fixtures:build`, followed by `npm run fixtures:verify`. The committ
 | `fixtures/textbook.pdf`                               | `9c054676cf6090d6dfb8ad38690e883103df0bb95eb67819bcb2ba7352b5518e` |
 | `fixtures/textbook.epub`                              | `67fa01aecd47cdf47b8faa34b7f31e51d280d43fea14de66cf817166cbd3c94d` |
 | `fixtures/textbook.docx`                              | `188dfe5630166b767bb3dbb2ea9329447751f0c47b087adca140d8ad1c84a238` |
+| `fixtures/source/scanned-textbook.pdf`                | `8b4d3d6e8bf08d5f31c4ae150f1ec85b407921ed6e4470b40f72c5ce091732ee` |
+| `fixtures/source/mixed-quality-textbook.pdf`          | `e707ffa8de016d56d5d334dcd75d7e14dcf198e5507e344f77391626de71b527` |
 
 ## Vision operation fixtures
 

@@ -9,6 +9,8 @@ import type {
   NormalizedSectionInput,
 } from '../../../lib/generated/document';
 import type { UserFacingError } from '../../../lib/errors';
+import { assessPdfPageQuality } from '../../indexing/pdf-quality';
+import type { LocalPdfPageQualityDto } from '../../indexing/indexing-contract';
 import { stableBlockId, stableSectionId } from '../id';
 import type {
   DocumentParser,
@@ -16,7 +18,11 @@ import type {
   ParserSink,
 } from '../parser-contract';
 import { isEquationText } from './html-blocks';
-import { normalizePdfPage, normalizeWhitespace } from './pdf-layout';
+import {
+  normalizePdfPage,
+  normalizeWhitespace,
+  pdfTextItems,
+} from './pdf-layout';
 
 GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.mjs',
@@ -67,9 +73,7 @@ export class PdfParser implements DocumentParser {
           const textContent = await page.getTextContent();
           throwIfAborted(context.signal);
           blocks = normalizePdfPage(
-            textContent.items
-              .filter(isTextItem)
-              .map(({ str, transform, width }) => ({ str, transform, width })),
+            pdfTextItems(textContent.items.filter(isTextItem)),
           );
         } finally {
           page.cleanup();
@@ -127,6 +131,54 @@ export class PdfParser implements DocumentParser {
       await document?.cleanup();
       await loadingTask?.destroy();
     }
+  }
+}
+
+/**
+ * Reads a local in-memory PDF with PDF.js and returns only safe quality candidates.
+ * The import parser does not persist or upload this information; Task 4 owns run creation.
+ */
+export async function inspectLocalPdfPageQuality(
+  source: ArrayBuffer,
+  signal: AbortSignal,
+): Promise<LocalPdfPageQualityDto[]> {
+  throwIfAborted(signal);
+  const loadingTask = getDocument({
+    data: new Uint8Array(source),
+    isEvalSupported: false,
+  } as never);
+  let document: Awaited<ReturnType<typeof getDocument>['promise']> | undefined;
+  try {
+    document = await loadingTask.promise;
+    const qualities: LocalPdfPageQualityDto[] = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      throwIfAborted(signal);
+      const page = await document.getPage(pageNumber);
+      try {
+        const [viewport, textContent] = await Promise.all([
+          page.getViewport({ scale: 1, rotation: 0 }),
+          page.getTextContent(),
+        ]);
+        throwIfAborted(signal);
+        qualities.push(
+          assessPdfPageQuality({
+            pageNumber,
+            width: viewport.width,
+            height: viewport.height,
+            items: pdfTextItems(textContent.items.filter(isTextItem)),
+          }),
+        );
+      } finally {
+        page.cleanup();
+      }
+    }
+    return qualities;
+  } catch (error) {
+    if (signal.aborted) throw abortError();
+    throw classifyPdfError(error);
+  } finally {
+    await document?.cleanup();
+    await loadingTask.destroy();
   }
 }
 

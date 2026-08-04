@@ -38,6 +38,8 @@ const imagePath = 'fixtures/source/figure-energy.png';
 const pdfPath = 'fixtures/textbook.pdf';
 const epubPath = 'fixtures/textbook.epub';
 const docxPath = 'fixtures/textbook.docx';
+const scannedPdfPath = 'fixtures/source/scanned-textbook.pdf';
+const mixedQualityPdfPath = 'fixtures/source/mixed-quality-textbook.pdf';
 const readmePath = 'fixtures/README.md';
 
 const hashedFiles = [
@@ -48,6 +50,8 @@ const hashedFiles = [
   pdfPath,
   epubPath,
   docxPath,
+  scannedPdfPath,
+  mixedQualityPdfPath,
 ];
 const fixtureFiles = [...hashedFiles, readmePath];
 
@@ -126,6 +130,35 @@ function createEnergyPng() {
     fillRect(191 + step, 64 + step, 3, 3, [31, 41, 55]);
     fillRect(191 + step, 94 - step, 3, 3, [31, 41, 55]);
   }
+  return PNG.sync.write(png, {
+    colorType: 6,
+    inputColorType: 6,
+    bitDepth: 8,
+    deflateLevel: 9,
+  });
+}
+
+function createSyntheticScannedPagePng() {
+  const png = new PNG({ width: 600, height: 842, colorType: 6 });
+  const fillRect = (x, y, width, height, color) => {
+    for (let row = y; row < y + height; row += 1) {
+      for (let column = x; column < x + width; column += 1) {
+        const offset = (png.width * row + column) << 2;
+        png.data[offset] = color[0];
+        png.data[offset + 1] = color[1];
+        png.data[offset + 2] = color[2];
+        png.data[offset + 3] = color[3] ?? 255;
+      }
+    }
+  };
+  fillRect(0, 0, png.width, png.height, [252, 249, 238]);
+  fillRect(56, 74, 488, 10, [30, 41, 59]);
+  fillRect(56, 104, 320, 6, [71, 85, 105]);
+  for (let line = 0; line < 18; line += 1)
+    fillRect(56, 148 + line * 27, 410 - ((line * 29) % 130), 5, [71, 85, 105]);
+  fillRect(72, 672, 456, 96, [219, 234, 254]);
+  fillRect(94, 696, 118, 50, [37, 99, 235]);
+  fillRect(390, 690, 86, 58, [245, 158, 11]);
   return PNG.sync.write(png, {
     colorType: 6,
     inputColorType: 6,
@@ -244,6 +277,54 @@ async function createPdf(content, fontBytes, imageBytes) {
     }
   }
 
+  return Buffer.from(
+    await document.save({ useObjectStreams: false, addDefaultPage: false }),
+  );
+}
+
+async function createScannedPdf(scannedPageBytes) {
+  const document = await PDFDocument.create({ updateMetadata: false });
+  document.setTitle('Synthetic scanned textbook page');
+  document.setAuthor('TextbookLens Contributors');
+  document.setCreator('TextbookLens fixture generator');
+  document.setProducer('TextbookLens fixture generator');
+  document.setCreationDate(baselineDate);
+  document.setModificationDate(baselineDate);
+  const image = await document.embedPng(scannedPageBytes);
+  const page = document.addPage([600, 842]);
+  page.drawImage(image, { x: 0, y: 0, width: 600, height: 842 });
+  return Buffer.from(
+    await document.save({ useObjectStreams: false, addDefaultPage: false }),
+  );
+}
+
+async function createMixedQualityPdf(fontBytes, scannedPageBytes) {
+  const document = await PDFDocument.create({ updateMetadata: false });
+  document.registerFontkit(fontkit);
+  document.setTitle('Synthetic mixed-quality textbook pages');
+  document.setAuthor('TextbookLens Contributors');
+  document.setCreator('TextbookLens fixture generator');
+  document.setProducer('TextbookLens fixture generator');
+  document.setCreationDate(baselineDate);
+  document.setModificationDate(baselineDate);
+  const font = await document.embedFont(fontBytes, { subset: false });
+  const textPage = document.addPage([600, 842]);
+  textPage.drawText('Synthetic selectable textbook page', {
+    x: 56,
+    y: 770,
+    size: 20,
+    font,
+    color: rgb(0.08, 0.12, 0.2),
+  });
+  drawWrappedText(
+    textPage,
+    font,
+    'This project-owned test page has enough selectable text for the local PDF quality detector to classify it as reliable text without a model or a network request.',
+    { x: 56, y: 716, size: 14, maxWidth: 488 },
+  );
+  const image = await document.embedPng(scannedPageBytes);
+  const scannedPage = document.addPage([600, 842]);
+  scannedPage.drawImage(image, { x: 0, y: 0, width: 600, height: 842 });
   return Buffer.from(
     await document.save({ useObjectStreams: false, addDefaultPage: false }),
   );
@@ -428,6 +509,10 @@ async function createReadme() {
 
 These tiny fixtures are generated deterministically from one shared semantic source for PDF, EPUB, and DOCX import tests. The metadata baseline is \`${baselineIso}\`.
 
+\`scanned-textbook.pdf\` and \`mixed-quality-textbook.pdf\` are self-made synthetic fixtures: their image-only pages are generated from deterministic colored rectangles, contain no source textbook content, and are licensed under Apache-2.0.
+
+The \`source/vision/\` images are project-owned 2×2-pixel synthetic color swatches used only by loopback provider contract tests. They contain no textbook or user content and are licensed under Apache-2.0.
+
 ## Licensing
 
 - \`textbook-content.json\`, \`figure-energy.png\`, and the generated PDF/EPUB/DOCX documents are project-owned TextbookLens test material licensed under Apache-2.0.
@@ -445,6 +530,13 @@ Run \`npm run fixtures:build\`, followed by \`npm run fixtures:verify\`. The com
 | Path | SHA-256 |
 |---|---|
 ${rows.join('\n')}
+
+## Vision operation fixtures
+
+| Path | Format / dimensions | SHA-256 |
+| --- | --- | --- |
+| \`fixtures/source/vision/tiny-blue.png\` | PNG / 2×2 | \`daec3255de7a4747c9771880cc860ec451f948cc94c2596acfa5d79d577d704e\` |
+| \`fixtures/source/vision/tiny-orange.jpg\` | JPEG / 2×2 | \`ef6aee1291db2afa2be3930c58ff8277044c3d0035cc11a25e276a3ce7da405a\` |
 `,
     { parser: 'markdown' },
   );
@@ -461,10 +553,19 @@ async function buildFixtures() {
 
   await mkdir(absolute('fixtures/source'), { recursive: true });
   const imageBytes = createEnergyPng();
+  const scannedPageBytes = createSyntheticScannedPagePng();
   await writeFile(absolute(imagePath), imageBytes);
   await writeFile(
     absolute(pdfPath),
     await createPdf(content, fontBytes, imageBytes),
+  );
+  await writeFile(
+    absolute(scannedPdfPath),
+    await createScannedPdf(scannedPageBytes),
+  );
+  await writeFile(
+    absolute(mixedQualityPdfPath),
+    await createMixedQualityPdf(fontBytes, scannedPageBytes),
   );
   await writeFile(absolute(epubPath), await createEpub(content, imageBytes));
   await writeFile(absolute(docxPath), await createDocx(content, imageBytes));
@@ -508,6 +609,8 @@ async function verifyFixtures() {
     [fontPath, [0x4f, 0x54, 0x54, 0x4f]],
     [imagePath, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
     [pdfPath, [0x25, 0x50, 0x44, 0x46, 0x2d]],
+    [scannedPdfPath, [0x25, 0x50, 0x44, 0x46, 0x2d]],
+    [mixedQualityPdfPath, [0x25, 0x50, 0x44, 0x46, 0x2d]],
     [epubPath, [0x50, 0x4b, 0x03, 0x04]],
     [docxPath, [0x50, 0x4b, 0x03, 0x04]],
   ];
@@ -531,6 +634,20 @@ async function verifyFixtures() {
         `${pdfPath}: expected two pages and shared title/author metadata`,
       );
     }
+    const scannedPdf = await PDFDocument.load(files.get(scannedPdfPath), {
+      updateMetadata: false,
+    });
+    if (scannedPdf.getPageCount() !== 1)
+      failures.push(
+        `${scannedPdfPath}: expected one synthetic image-only page`,
+      );
+    const mixedPdf = await PDFDocument.load(files.get(mixedQualityPdfPath), {
+      updateMetadata: false,
+    });
+    if (mixedPdf.getPageCount() !== 2)
+      failures.push(
+        `${mixedQualityPdfPath}: expected selectable and image-only pages`,
+      );
 
     const epubFirst = firstZipEntry(files.get(epubPath));
     if (epubFirst.name !== 'mimetype' || epubFirst.compression !== 0) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizePdfPage } from './pdf-layout';
+import { normalizePdfPage, pdfTextItems } from './pdf-layout';
 
 describe('normalizePdfPage', () => {
   it('merges a baseline left-to-right and preserves formulas', () => {
@@ -27,6 +27,15 @@ describe('normalizePdfPage', () => {
       'first line second line',
       'next paragraph',
     ]);
+  });
+
+  it('copies only primitive PDF text geometry for the local quality boundary', () => {
+    const source = item('stable text', 48, 700);
+    const result = pdfTextItems([source]);
+
+    expect(result).toEqual([source]);
+    expect(result[0]).not.toBe(source);
+    expect(result[0]?.transform).not.toBe(source.transform);
   });
 });
 

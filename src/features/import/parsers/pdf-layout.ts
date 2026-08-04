@@ -11,6 +11,21 @@ export interface PdfTextBlock {
 const BASELINE_TOLERANCE = 3;
 const PARAGRAPH_GAP = 30;
 
+/** Keeps only the primitive text geometry required by the parser and local quality checks. */
+export function pdfTextItems(
+  items: readonly {
+    str: string;
+    transform: readonly number[];
+    width: number;
+  }[],
+): PdfTextItem[] {
+  return items.map(({ str, transform, width }) => ({
+    str,
+    transform: [...transform],
+    width,
+  }));
+}
+
 /** Converts PDF.js text items into reading-order paragraphs without geometry. */
 export function normalizePdfPage(
   items: readonly PdfTextItem[],
