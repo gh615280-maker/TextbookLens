@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { BookSummary } from './generated/book';
 import { parseBookSummary } from './ipc';
 
 function summary(overrides: Record<string, unknown> = {}) {
@@ -61,7 +62,8 @@ describe('BookSummary IPC validation', () => {
     [
       'missing aggregate',
       (() => {
-        const { indexAggregate: _aggregate, ...value } = summary();
+        const value = { ...summary() } as Partial<BookSummary>;
+        delete value.indexAggregate;
         return value;
       })(),
     ],
