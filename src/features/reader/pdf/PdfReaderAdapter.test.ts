@@ -16,6 +16,7 @@ describe('PdfReaderAdapter', () => {
     const viewer = {
       setDocument: vi.fn(),
       cleanup: vi.fn(),
+      firstPagePromise: Promise.resolve(),
       currentPageNumber: 1,
       currentScale: 1,
       pagesRotation: 0,
@@ -49,10 +50,108 @@ describe('PdfReaderAdapter', () => {
     expect(destroy).toHaveBeenCalledOnce();
   });
 
+  it('restores the initial page only after the real viewer readiness boundary', async () => {
+    const ready = deferred<void>();
+    const assignedPages: number[] = [];
+    const viewer = {
+      setDocument: vi.fn(),
+      cleanup: vi.fn(),
+      firstPagePromise: ready.promise,
+      get currentPageNumber() {
+        return assignedPages.at(-1) ?? 1;
+      },
+      set currentPageNumber(page: number) {
+        assignedPages.push(page);
+      },
+      currentScale: 1,
+      pagesRotation: 0,
+    };
+    const adapter = new PdfReaderAdapter(
+      document.body,
+      events,
+      () => ({
+        promise: Promise.resolve({ numPages: 3, cleanup: vi.fn() }),
+        destroy: vi.fn(),
+      }),
+      () => viewer,
+    );
+
+    const opening = adapter.open(
+      { kind: 'document_bytes', bytes: new Uint8Array([1]).buffer },
+      { format: 'pdf', startPage: 2, endPage: 2, rectsByPage: null },
+    );
+    await vi.waitFor(() => expect(viewer.setDocument).toHaveBeenCalledOnce());
+    expect(assignedPages).toEqual([]);
+
+    ready.resolve();
+    await opening;
+
+    expect(assignedPages).toEqual([2]);
+    expect(adapter.getProgress()).toMatchObject({
+      fraction: 2 / 3,
+      locator: { startPage: 2 },
+    });
+    adapter.dispose();
+  });
+
+  it('ignores viewer readiness that arrives after disposal and releases resources once', async () => {
+    const ready = deferred<void>();
+    const cleanup = vi.fn();
+    const destroy = vi.fn();
+    const assignedPages: number[] = [];
+    const viewer = {
+      setDocument: vi.fn(),
+      cleanup: vi.fn(),
+      firstPagePromise: ready.promise,
+      get currentPageNumber() {
+        return assignedPages.at(-1) ?? 1;
+      },
+      set currentPageNumber(page: number) {
+        assignedPages.push(page);
+      },
+      currentScale: 1,
+      pagesRotation: 0,
+    };
+    const adapter = new PdfReaderAdapter(
+      document.body,
+      events,
+      () => ({
+        promise: Promise.resolve({ numPages: 3, cleanup }),
+        destroy,
+      }),
+      () => viewer,
+    );
+
+    const opening = adapter.open(
+      { kind: 'document_bytes', bytes: new Uint8Array([1]).buffer },
+      { format: 'pdf', startPage: 2, endPage: 2, rectsByPage: null },
+    );
+    await vi.waitFor(() => expect(viewer.setDocument).toHaveBeenCalledOnce());
+    adapter.dispose();
+    ready.resolve();
+    await opening;
+
+    expect(assignedPages).toEqual([]);
+    expect(viewer.cleanup).toHaveBeenCalledOnce();
+    expect(cleanup).toHaveBeenCalledOnce();
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(document.body).not.toHaveClass('pdf-reader');
+    expect(document.body).toBeEmptyDOMElement();
+    expect(
+      await adapter.navigate({
+        format: 'pdf',
+        startPage: 2,
+        endPage: 2,
+        rectsByPage: null,
+      }),
+    ).toEqual({ found: false });
+  });
+
   it('reports primary, unique page-confined fallback, and ambiguous unresolved recovery', async () => {
     const viewer = {
       setDocument: vi.fn(),
       cleanup: vi.fn(),
+      firstPagePromise: Promise.resolve(),
       currentPageNumber: 1,
       currentScale: 1,
       pagesRotation: 0,
@@ -126,3 +225,11 @@ describe('PdfReaderAdapter', () => {
     Range.prototype.getClientRects = getClientRects;
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}

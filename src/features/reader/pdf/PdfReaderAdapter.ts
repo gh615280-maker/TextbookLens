@@ -31,6 +31,7 @@ type PdfLoader = (bytes: ArrayBuffer) => PdfLoadingTask;
 interface ViewerLike {
   setDocument(document: PdfDocumentHandle): void;
   cleanup(): void;
+  readonly firstPagePromise: Promise<unknown> | null;
   currentPageNumber: number;
   currentScale: number;
   pagesRotation: number;
@@ -94,6 +95,13 @@ export class PdfReaderAdapter implements ReaderAdapter {
     links.setDocument(documentHandle);
     links.setViewer(viewer);
     viewer.setDocument(documentHandle);
+    await viewer.firstPagePromise;
+    if (
+      generation !== this.#generation ||
+      this.#task !== task ||
+      this.#viewer !== viewer
+    )
+      return;
     this.#page = initial?.format === 'pdf' ? initial.startPage : 1;
     viewer.currentPageNumber = this.#page;
     eventBus.on('pagechanging', (event: { pageNumber: number }) => {
