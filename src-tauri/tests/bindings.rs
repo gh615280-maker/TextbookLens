@@ -2,15 +2,20 @@ use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
     AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookSummary, CapabilitySupport,
-    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, LearningEvent,
+    ContentSource, ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime,
+    IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
+    IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
+    IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
+    IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent,
     LearningRequest, LocalTextQuality, NormalizedBookInput, NormalizedRect, OnboardingStateDto,
     OnboardingStep, PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
     ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
     ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary,
-    RemoteCleanupStatus, TeachingInstructionDto, UiLanguage, UnifiedChatRequest, UnifiedMessage,
-    UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis,
-    UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction, ValidationResult,
-    VisionAssetMeta, stable_block_id, stable_section_id,
+    RemoteCleanupStatus, SafeIndexErrorDto, TeachingInstructionDto, UiLanguage, UnifiedChatRequest,
+    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
+    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
+    ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
+    stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -40,6 +45,96 @@ fn stable_block_id_uses_book_namespace() {
         stable_block_id(book, 3, 7).to_string(),
         "2af8bb3b-d9be-5fb6-9246-86a57e8eec56"
     );
+}
+
+#[test]
+fn indexing_ids_are_application_generated_and_namespace_stable() {
+    let book = uuid::uuid!("4f9a2c86-0da8-4dd4-a255-39b4cff89c66");
+    let run = uuid::uuid!("e74fb7e3-4f9c-4a3f-ae87-a8204dff4d61");
+    let page = stable_index_page_id(run, 7);
+    let block = stable_index_page_block_id(book, 7, run, "page-analysis-v1", 3);
+    let chunk = stable_index_search_chunk_id(block, ContentSource::AiTranscribed, 0);
+
+    assert_eq!(page, stable_index_page_id(run, 7));
+    assert_ne!(page, stable_index_page_id(run, 8));
+    assert_eq!(block.get_version_num(), 5);
+    assert_eq!(chunk.get_version_num(), 5);
+    assert_ne!(
+        chunk,
+        stable_index_search_chunk_id(block, ContentSource::AiDescription, 0)
+    );
+}
+
+#[test]
+fn indexing_statuses_round_trip_exact_and_safe_dtos_hide_attempt_ownership() {
+    let statuses = [
+        IndexPageStatus::NotRequired,
+        IndexPageStatus::Queued,
+        IndexPageStatus::Rendering,
+        IndexPageStatus::Sending,
+        IndexPageStatus::Parsing,
+        IndexPageStatus::Validating,
+        IndexPageStatus::Indexed,
+        IndexPageStatus::NeedsReview,
+        IndexPageStatus::Failed,
+        IndexPageStatus::Cancelled,
+    ];
+    let serialized = statuses
+        .into_iter()
+        .map(|status| serde_json::to_value(status).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        serialized,
+        [
+            serde_json::json!("not_required"),
+            serde_json::json!("queued"),
+            serde_json::json!("rendering"),
+            serde_json::json!("sending"),
+            serde_json::json!("parsing"),
+            serde_json::json!("validating"),
+            serde_json::json!("indexed"),
+            serde_json::json!("needs_review"),
+            serde_json::json!("failed"),
+            serde_json::json!("cancelled"),
+        ]
+    );
+
+    let timestamp = chrono::DateTime::parse_from_rfc3339("2026-08-04T00:00:00.000Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let review = IndexPageReviewDto {
+        id: uuid::Uuid::new_v4(),
+        run_id: uuid::Uuid::new_v4(),
+        book_id: uuid::Uuid::new_v4(),
+        page_number: 1,
+        quality_reason: IndexQualityReason::NoText,
+        status: IndexPageStatus::Failed,
+        review_reason: None,
+        safe_error: Some(SafeIndexErrorDto {
+            code: IndexFailureCode::IndexAttemptInterrupted,
+            message: IndexFailureCode::IndexAttemptInterrupted
+                .safe_message()
+                .to_owned(),
+            retryable: true,
+        }),
+        content_version: 0,
+        blocks: Vec::new(),
+        corrections: Vec::new(),
+        updated_at: timestamp,
+    };
+    let json = serde_json::to_string(&review).unwrap();
+    for forbidden in [
+        "attemptId",
+        "sourceSha256",
+        "renderSha256",
+        "responseSha256",
+        "encryptedReference",
+        "remoteResource",
+        "imageBytes",
+        "providerBody",
+    ] {
+        assert!(!json.contains(forbidden), "safe DTO leaked {forbidden}");
+    }
 }
 
 #[test]
@@ -134,6 +229,23 @@ fn export_bindings() {
     UntrustedPageAnalysis::export_all(&config).unwrap();
     ProviderPageAnalysis::export_all(&config).unwrap();
     RemoteCleanupStatus::export_all(&config).unwrap();
+    IndexRunStatus::export_all(&config).unwrap();
+    IndexPageStatus::export_all(&config).unwrap();
+    IndexQualityReason::export_all(&config).unwrap();
+    IndexAggregateStatus::export_all(&config).unwrap();
+    IndexFailureCode::export_all(&config).unwrap();
+    IndexReviewReason::export_all(&config).unwrap();
+    SafeIndexErrorDto::export_all(&config).unwrap();
+    IndexPageStatusCountsDto::export_all(&config).unwrap();
+    IndexRunAggregateDto::export_all(&config).unwrap();
+    IndexPageReviewDto::export_all(&config).unwrap();
+    ContentSource::export_all(&config).unwrap();
+    IndexPageBlockKind::export_all(&config).unwrap();
+    IndexCorrectionValueKind::export_all(&config).unwrap();
+    IndexCorrectionConflictState::export_all(&config).unwrap();
+    IndexTableCellDto::export_all(&config).unwrap();
+    IndexPageBlockReviewDto::export_all(&config).unwrap();
+    IndexCorrectionReviewDto::export_all(&config).unwrap();
     AppSettingsDto::export_all(&config).unwrap();
     OnboardingStep::export_all(&config).unwrap();
     LocalTextQuality::export_all(&config).unwrap();
