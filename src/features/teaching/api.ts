@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
-import { toUserError } from '../../lib/errors';
+import { toUserError, type UserFacingError } from '../../lib/errors';
 import type {
   TeachingInstructionDto,
   UpdateTeachingInstruction,
@@ -9,6 +10,7 @@ import type { AppSettingsDto } from '../../lib/generated/settings';
 import type { ProviderProfileSummary } from '../../lib/generated/provider';
 
 export interface TeachingTestRequest {
+  sessionId: string;
   requestId: string;
   instruction: string;
   question: string;
@@ -20,6 +22,7 @@ export interface TeachingTestEvent {
   text?: string;
   inputTokens?: number;
   outputTokens?: number;
+  code?: UserFacingError['code'];
 }
 
 export interface TeachingApi {
@@ -29,7 +32,7 @@ export interface TeachingApi {
   ): Promise<TeachingInstructionDto>;
   hasAvailableLearningProfile(): Promise<boolean>;
   startTest?(request: TeachingTestRequest): Promise<void>;
-  cancelTest?(requestId: string): Promise<void>;
+  cancelTest?(sessionId: string, requestId: string): Promise<void>;
   listenTest?(handler: (event: TeachingTestEvent) => void): Promise<() => void>;
 }
 
@@ -71,5 +74,29 @@ export class TauriTeachingApi implements TeachingApi {
     } catch (error) {
       throw toUserError(error);
     }
+  }
+
+  async startTest(request: TeachingTestRequest) {
+    try {
+      await invoke('start_teaching_test', { request });
+    } catch (error) {
+      throw toUserError(error);
+    }
+  }
+
+  async cancelTest(sessionId: string, requestId: string) {
+    try {
+      await invoke('cancel_teaching_test', {
+        request: { sessionId, requestId },
+      });
+    } catch (error) {
+      throw toUserError(error);
+    }
+  }
+
+  async listenTest(handler: (event: TeachingTestEvent) => void) {
+    return listen<TeachingTestEvent>('teaching-test-event', (event) => {
+      handler(event.payload);
+    });
   }
 }
