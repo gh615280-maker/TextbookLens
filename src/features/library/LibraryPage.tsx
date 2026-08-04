@@ -19,6 +19,7 @@ import { pickTextbook } from '../import/picker';
 import { TauriLibraryApi, type LibraryApi } from './api';
 import { LibraryCommandBar } from './LibraryCommandBar';
 import { LibraryDetails } from './LibraryDetails';
+import { LibraryDropTarget } from './LibraryDropTarget';
 import { LibraryGrid } from './LibraryGrid';
 import {
   getVisibleBooks,
@@ -107,10 +108,18 @@ export function LibraryPage({
       const operation = coordinator.importDocument(
         sourcePath,
         (event) => dispatchImport({ type: 'progress', event }),
-        (book) => dispatchImport({ type: 'identify', bookId: book.id }),
+        (book) => {
+          // This is safe Rust-returned metadata, not the selected source path.
+          // Showing it immediately keeps durable imports visible across navigation.
+          setBooks((current) => upsertBook(current, book));
+          dispatchImport({ type: 'identify', bookId: book.id });
+          dispatchLibrary({ type: 'select', bookId: book.id });
+        },
       );
       const ready = await operation;
+      setBooks((current) => upsertBook(current, ready));
       dispatchImport({ type: 'finish' });
+      dispatchLibrary({ type: 'select', bookId: ready.id });
       navigate(`/books/${ready.id}/read`);
     } catch (error) {
       const normalized = toUserError(error);
@@ -121,6 +130,12 @@ export function LibraryPage({
       );
       await refresh();
     }
+  }
+
+  async function runDroppedImports(sourcePaths: readonly string[]) {
+    // Keep the OS-provided paths on this stack only. Each coordinator call hands
+    // the path straight to Rust, which verifies the file and owns the app copy.
+    for (const sourcePath of sourcePaths) await runImport(sourcePath);
   }
 
   async function retry(bookId: string) {
@@ -219,49 +234,60 @@ export function LibraryPage({
         </div>
       ) : null}
 
-      <div
-        className="library-explorer"
-        style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)' }}
-      >
-        <LibrarySidebar
-          filter={libraryState.filter}
-          onFilterChange={(filter) =>
-            dispatchLibrary({ type: 'setFilter', filter })
-          }
-        />
+      <LibraryDropTarget onDrop={runDroppedImports}>
         <div
-          className="library-explorer__content"
-          style={{ flex: '999 1 32rem', minWidth: 0 }}
+          className="library-explorer"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)' }}
         >
-          {loading ? (
-            <p aria-live="polite">{message('library.loading')}</p>
-          ) : null}
-          {!loading && visibleBooks.length === 0 ? (
-            <p className="empty-state">{message('library.empty')}</p>
-          ) : null}
-          {!loading &&
-          visibleBooks.length > 0 &&
-          libraryState.view === 'large' ? (
-            <LibraryGrid
-              books={visibleBooks}
-              focusedBookId={libraryState.focusedBookId}
-              selectedBookId={libraryState.selectedBookId}
-              label={message('library.itemsLabel')}
-              {...itemActions}
-            />
-          ) : null}
-          {!loading &&
-          visibleBooks.length > 0 &&
-          libraryState.view === 'details' ? (
-            <LibraryDetails
-              books={visibleBooks}
-              focusedBookId={libraryState.focusedBookId}
-              selectedBookId={libraryState.selectedBookId}
-              {...itemActions}
-            />
-          ) : null}
+          <LibrarySidebar
+            filter={libraryState.filter}
+            onFilterChange={(filter) =>
+              dispatchLibrary({ type: 'setFilter', filter })
+            }
+          />
+          <div
+            className="library-explorer__content"
+            style={{ flex: '999 1 32rem', minWidth: 0 }}
+          >
+            {loading ? (
+              <p aria-live="polite">{message('library.loading')}</p>
+            ) : null}
+            {!loading && visibleBooks.length === 0 ? (
+              <p className="empty-state">{message('library.empty')}</p>
+            ) : null}
+            {!loading &&
+            visibleBooks.length > 0 &&
+            libraryState.view === 'large' ? (
+              <LibraryGrid
+                books={visibleBooks}
+                focusedBookId={libraryState.focusedBookId}
+                selectedBookId={libraryState.selectedBookId}
+                label={message('library.itemsLabel')}
+                {...itemActions}
+              />
+            ) : null}
+            {!loading &&
+            visibleBooks.length > 0 &&
+            libraryState.view === 'details' ? (
+              <LibraryDetails
+                books={visibleBooks}
+                focusedBookId={libraryState.focusedBookId}
+                selectedBookId={libraryState.selectedBookId}
+                {...itemActions}
+              />
+            ) : null}
+          </div>
         </div>
-      </div>
+      </LibraryDropTarget>
     </section>
   );
+}
+
+function upsertBook(
+  current: readonly BookSummary[],
+  next: BookSummary,
+): BookSummary[] {
+  const index = current.findIndex((book) => book.id === next.id);
+  if (index === -1) return [next, ...current];
+  return current.map((book) => (book.id === next.id ? next : book));
 }
