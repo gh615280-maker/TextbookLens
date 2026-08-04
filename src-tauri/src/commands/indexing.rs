@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use tauri::{
     AppHandle, Emitter, State,
     ipc::{InvokeBody, Request as IpcRequest, Response},
@@ -6,12 +7,74 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
+    db::corrections::{
+        CorrectionConflictDecision, DeleteIndexCorrection, ResolveIndexCorrectionConflict,
+        SaveIndexCorrection, delete_index_correction as delete_index_correction_repository,
+        resolve_index_correction_conflict as resolve_index_correction_conflict_repository,
+        save_index_correction as save_index_correction_repository,
+    },
+    domain::{IndexCorrectionReviewDto, IndexCorrectionValueKind},
     errors::{AppError, AppErrorCode, AppErrorDto},
     indexing::coordinator::{
         ConfirmIndexOperationRequest, IndexCoordinatorService, IndexingEventDto,
         RenderClaimBatchDto, RenderedPageCaptureMetadata, decode_rendered_submissions,
     },
 };
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveIndexCorrectionRequest {
+    pub book_id: Uuid,
+    pub page_id: Uuid,
+    pub target_block_id: Uuid,
+    pub target_content_version: u32,
+    pub value_kind: IndexCorrectionValueKind,
+    pub original_value_sha256: String,
+    pub corrected_value: String,
+    pub expected_revision: u32,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolveCorrectionDecisionRequest {
+    Keep,
+    Accept,
+    Compare,
+}
+
+impl From<ResolveCorrectionDecisionRequest> for CorrectionConflictDecision {
+    fn from(value: ResolveCorrectionDecisionRequest) -> Self {
+        match value {
+            ResolveCorrectionDecisionRequest::Keep => Self::Keep,
+            ResolveCorrectionDecisionRequest::Accept => Self::Accept,
+            ResolveCorrectionDecisionRequest::Compare => Self::Compare,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolveIndexCorrectionConflictRequest {
+    pub book_id: Uuid,
+    pub page_id: Uuid,
+    pub correction_id: Uuid,
+    pub target_content_version: u32,
+    pub current_value_sha256: Option<String>,
+    pub expected_revision: u32,
+    pub decision: ResolveCorrectionDecisionRequest,
+    pub compared_corrected_value: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeleteIndexCorrectionRequest {
+    pub book_id: Uuid,
+    pub page_id: Uuid,
+    pub correction_id: Uuid,
+    pub target_content_version: u32,
+    pub current_value_sha256: Option<String>,
+    pub expected_revision: u32,
+}
 
 const INDEXING_EVENT_NAME: &str = "textbooklens://indexing-progress";
 const CAPTURE_METADATA_HEADER: &str = "x-textbooklens-index-captures";
@@ -177,4 +240,68 @@ pub async fn retry_index_page(
         .retry_page(page_id, attempt_id)
         .await
         .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn save_index_correction(
+    state: State<'_, AppState>,
+    request: SaveIndexCorrectionRequest,
+) -> Result<IndexCorrectionReviewDto, AppErrorDto> {
+    save_index_correction_repository(
+        state.db.pool(),
+        SaveIndexCorrection {
+            book_id: request.book_id,
+            page_id: request.page_id,
+            target_block_id: request.target_block_id,
+            target_content_version: request.target_content_version,
+            value_kind: request.value_kind,
+            original_value_sha256: request.original_value_sha256,
+            corrected_value: request.corrected_value,
+            expected_revision: request.expected_revision,
+        },
+    )
+    .await
+    .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn resolve_index_correction_conflict(
+    state: State<'_, AppState>,
+    request: ResolveIndexCorrectionConflictRequest,
+) -> Result<Option<IndexCorrectionReviewDto>, AppErrorDto> {
+    resolve_index_correction_conflict_repository(
+        state.db.pool(),
+        ResolveIndexCorrectionConflict {
+            book_id: request.book_id,
+            page_id: request.page_id,
+            correction_id: request.correction_id,
+            target_content_version: request.target_content_version,
+            current_value_sha256: request.current_value_sha256,
+            expected_revision: request.expected_revision,
+            decision: request.decision.into(),
+            compared_corrected_value: request.compared_corrected_value,
+        },
+    )
+    .await
+    .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn delete_index_correction(
+    state: State<'_, AppState>,
+    request: DeleteIndexCorrectionRequest,
+) -> Result<(), AppErrorDto> {
+    delete_index_correction_repository(
+        state.db.pool(),
+        DeleteIndexCorrection {
+            book_id: request.book_id,
+            page_id: request.page_id,
+            correction_id: request.correction_id,
+            target_content_version: request.target_content_version,
+            current_value_sha256: request.current_value_sha256,
+            expected_revision: request.expected_revision,
+        },
+    )
+    .await
+    .map_err(AppErrorDto::from)
 }
