@@ -215,6 +215,13 @@ class SyntheticAiIndexBackend {
       importErrorMessage: null,
       importErrorStage: null,
       readingProgress: 0,
+      indexAggregate: {
+        status: 'not_required',
+        totalPages: 0,
+        indexedPages: 0,
+        reviewPages: 0,
+        failedPages: 0,
+      },
       createdAt: fixedTimestamp,
       updatedAt: fixedTimestamp,
       lastOpenedAt: null,

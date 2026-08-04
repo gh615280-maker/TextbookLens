@@ -22,6 +22,13 @@ const readyOnboardingState = {
     importErrorMessage: null,
     importErrorStage: null,
     readingProgress: 0,
+    indexAggregate: {
+      status: 'not_required',
+      totalPages: 0,
+      indexedPages: 0,
+      reviewPages: 0,
+      failedPages: 0,
+    },
     createdAt: '2026-08-01T00:00:00Z',
     updatedAt: '2026-08-01T00:00:00Z',
     lastOpenedAt: null,
@@ -44,6 +51,7 @@ test.beforeEach(async ({ page }) => {
     ).__TAURI_INTERNALS__ = {
       async invoke(command) {
         if (command === 'get_onboarding_state') return onboardingState;
+        if (command === 'list_books') return [onboardingState.selectedBook];
         throw new Error(`Unexpected IPC command: ${command}`);
       },
     };
@@ -77,7 +85,7 @@ test('normal, onboarding, and reader routes use their distinct shells', async ({
   await page.goto('/library');
   await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible();
   await expect(page.getByRole('button', { name: '应用语言' })).toBeVisible();
-  await expect(page.getByRole('toolbar')).toHaveCount(0);
+  await expect(page.getByRole('toolbar', { name: '书库命令' })).toBeVisible();
 
   await page.goto('/onboarding');
   await expect(page.getByRole('heading', { name: '开始使用' })).toBeVisible();
