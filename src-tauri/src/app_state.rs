@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::{
     ai::registry::ProviderCapabilityRegistry, credentials::CredentialStore, db::Database,
     documents::import::ImportCancellationRegistry, errors::AppResult,
+    indexing::state::IndexCancellationRegistry,
 };
 
 #[derive(Clone, Debug)]
@@ -39,12 +40,17 @@ impl AppPaths {
             logs,
         })
     }
+
+    pub fn indexing_scratch(&self) -> PathBuf {
+        self.cache.join("indexing-pages")
+    }
 }
 
 pub struct AppState {
     pub db: Database,
     pub paths: AppPaths,
     pub import_cancellations: ImportCancellationRegistry,
+    pub indexing_cancellations: IndexCancellationRegistry,
     pub learning_cancellations: Mutex<HashSet<Uuid>>,
     pub log_guard: WorkerGuard,
     pub credential_store: Arc<dyn CredentialStore>,
@@ -63,6 +69,7 @@ impl AppState {
             db,
             paths,
             import_cancellations: ImportCancellationRegistry::default(),
+            indexing_cancellations: IndexCancellationRegistry::default(),
             learning_cancellations: Mutex::new(HashSet::new()),
             log_guard,
             credential_store,

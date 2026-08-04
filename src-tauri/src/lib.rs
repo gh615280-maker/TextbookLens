@@ -16,6 +16,7 @@ pub mod document_repository;
 pub mod documents;
 pub mod domain;
 pub mod errors;
+pub mod indexing;
 pub mod learning;
 pub mod logging;
 pub mod retrieval;
@@ -31,6 +32,7 @@ pub fn run() {
             let log_guard = logging::init(&paths.logs)?;
             let database = db::Database::open(&paths.database)?;
             db::settings::recover_interrupted_imports(database.pool(), &paths)?;
+            indexing::recovery::recover_on_startup(database.pool(), &paths.indexing_scratch())?;
             let credential_store = Arc::new(credentials::KeyringCredentialStore::new());
             app.manage(app_state::AppState::new(
                 database,
