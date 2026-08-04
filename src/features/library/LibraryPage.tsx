@@ -223,6 +223,8 @@ export function LibraryPage({
     onDeleteFailed: (bookId: string) => void deleteFailed(bookId),
     onFocus: (bookId: string) => dispatchLibrary({ type: 'focus', bookId }),
     onIndexStatus: (book: BookSummary) => void showIndexStatus(book),
+    onStartIndex: (book: BookSummary) =>
+      navigate(`/books/${encodeURIComponent(book.id)}/index-start`),
     onMoveFocus: moveFocus,
     onOpen: (bookId: string) => navigate(`/books/${bookId}/read`),
     onRequestRemove: (book: BookSummary) => {

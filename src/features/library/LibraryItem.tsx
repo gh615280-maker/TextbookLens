@@ -19,6 +19,7 @@ interface LibraryItemProps {
   onOpen(bookId: string): void;
   onRetry(bookId: string): void;
   onIndexStatus(book: BookSummary): void;
+  onStartIndex(book: BookSummary): void;
   onRequestRemove(book: BookSummary): void;
   onSelect(bookId: string): void;
 }
@@ -34,6 +35,7 @@ export function LibraryItem({
   onOpen,
   onRetry,
   onIndexStatus,
+  onStartIndex,
   onRequestRemove,
   onSelect,
 }: LibraryItemProps) {
@@ -112,7 +114,11 @@ export function LibraryItem({
         <span role="gridcell">{book.format.toUpperCase()}</span>
         <span role="gridcell">{status}</span>
         <span role="gridcell">
-          <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
+          <BookIndexStatus
+            book={book}
+            onOpenStatus={onIndexStatus}
+            onStartIndex={onStartIndex}
+          />
         </span>
         <span role="gridcell">{lastOpened}</span>
         <span role="gridcell">
@@ -163,7 +169,11 @@ export function LibraryItem({
         <span>{status}</span>
         <LibraryItemStatus book={book} id={id} />
       </button>
-      <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
+      <BookIndexStatus
+        book={book}
+        onOpenStatus={onIndexStatus}
+        onStartIndex={onStartIndex}
+      />
       {book.importStatus === 'failed' ? (
         <LibraryItemActions
           book={book}

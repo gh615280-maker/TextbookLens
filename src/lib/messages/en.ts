@@ -134,4 +134,5 @@ export const en = {
   'library.indexStatus.partial': 'Partial',
   'library.indexStatus.needs_review': 'Needs review',
   'library.indexStatus.failed': 'Failed',
+  'library.indexStart': 'AI-assisted index',
 } satisfies MessageCatalog;

@@ -79,6 +79,7 @@ describe('library context menu', () => {
           onFocus={vi.fn()}
           onDeleteFailed={vi.fn()}
           onIndexStatus={onIndexStatus}
+          onStartIndex={vi.fn()}
           onMoveFocus={vi.fn()}
           onOpen={vi.fn()}
           onRequestRemove={vi.fn()}

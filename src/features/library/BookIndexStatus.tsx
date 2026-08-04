@@ -4,14 +4,26 @@ import type { BookSummary } from '../../lib/generated/book';
 interface BookIndexStatusProps {
   book: BookSummary;
   onOpenStatus(book: BookSummary): void;
+  onStartIndex(book: BookSummary): void;
 }
 
-export function BookIndexStatus({ book, onOpenStatus }: BookIndexStatusProps) {
+export function BookIndexStatus({
+  book,
+  onOpenStatus,
+  onStartIndex,
+}: BookIndexStatusProps) {
   const message = useMessage();
   const aggregate = book.indexAggregate;
   const unavailable = aggregate.status === 'not_required';
   const label = message(`library.indexStatus.${aggregate.status}`);
 
+  if (book.importStatus === 'ready' && book.format === 'pdf' && unavailable) {
+    return (
+      <button type="button" onClick={() => onStartIndex(book)}>
+        {message('library.indexStart')}
+      </button>
+    );
+  }
   return (
     <button
       aria-label={message('library.indexStatus.action', { title: book.title })}

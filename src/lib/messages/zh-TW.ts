@@ -129,4 +129,5 @@ export const zhTW = {
   'library.indexStatus.partial': '\u90e8\u5206\u5b8c\u6210',
   'library.indexStatus.needs_review': '\u9700\u8981\u8907\u6838',
   'library.indexStatus.failed': '\u7d22\u5f15\u5931\u6557',
+  'library.indexStart': 'AI 輔助索引',
 } satisfies MessageCatalog;

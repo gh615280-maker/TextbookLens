@@ -72,6 +72,7 @@ function KeyboardGrid({ onOpen }: { onOpen: (bookId: string) => void }) {
       onFocus={setFocusedBookId}
       onDeleteFailed={vi.fn()}
       onIndexStatus={vi.fn()}
+      onStartIndex={vi.fn()}
       onMoveFocus={(bookId, offset) => {
         const index = books.findIndex((candidate) => candidate.id === bookId);
         const next = books[index + offset];
@@ -128,6 +129,7 @@ describe('library views', () => {
           onFocus={vi.fn()}
           onDeleteFailed={vi.fn()}
           onIndexStatus={vi.fn()}
+          onStartIndex={vi.fn()}
           onMoveFocus={vi.fn()}
           onOpen={onOpen}
           onRequestRemove={vi.fn()}
