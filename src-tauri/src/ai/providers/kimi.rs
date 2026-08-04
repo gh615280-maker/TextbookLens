@@ -10,8 +10,9 @@ use zeroize::Zeroizing;
 
 use crate::{
     domain::{
-        AiOperation, CapabilitySupport, ImageLimits, ImageMime, ProviderKind, ProviderPageAnalysis,
-        StructuredPageRequest, UnifiedMessage, UnifiedVisionRequest, ValidationResult,
+        AiOperation, CapabilitySupport, ImageLimits, ImageMime, ProviderKind,
+        StructuredAnalysisOutcome, StructuredPageRequest, UnifiedMessage, UnifiedVisionRequest,
+        ValidationResult,
     },
     errors::{AppError, AppErrorCode, AppResult},
 };
@@ -170,7 +171,7 @@ impl AiProvider for KimiProvider {
         credential: &SecretString,
         request: StructuredPageRequest,
         cancel: CancellationToken,
-    ) -> AppResult<ProviderPageAnalysis> {
+    ) -> AppResult<StructuredAnalysisOutcome> {
         let limits = self.verified_limits(&request.model, AiOperation::StructuredPageAnalysis)?;
         let book_id = request
             .pages
@@ -206,7 +207,7 @@ impl AiProvider for KimiProvider {
         if cancel.is_cancelled() {
             return Err(cancelled());
         }
-        Ok(analysis)
+        Ok(StructuredAnalysisOutcome::inline(analysis))
     }
 }
 

@@ -18,7 +18,10 @@ use wiremock::{
     matchers::{method, path},
 };
 
-use super::{registry::ProviderCapabilityRegistry, runtime::ProviderRuntime};
+use super::{
+    multimodal::stage_vision_asset, registry::ProviderCapabilityRegistry, runtime::ProviderRuntime,
+    structured::PAGE_ANALYSIS_SCHEMA_VERSION,
+};
 use crate::{
     commands::credentials::{
         SaveProviderProfileRequest, replace_provider_profile_credential_impl,
@@ -27,8 +30,9 @@ use crate::{
     credentials::CredentialStore,
     db::{Database, providers},
     domain::{
-        AiOperation, ProviderKind, ProviderOperationConsentDecision, UnifiedChatRequest,
-        UnifiedMessage, UnifiedRole, UnifiedStreamEvent,
+        AiOperation, ImageLimits, ImageMime, ProviderKind, ProviderOperationConsentDecision,
+        RemoteCleanupHandle, StructuredPageRequest, UnifiedChatRequest, UnifiedMessage,
+        UnifiedRole, UnifiedStreamEvent,
     },
     errors::{AppError, AppErrorCode, AppErrorDto, AppResult},
 };
@@ -309,6 +313,100 @@ async fn loaded_provider_denies_model_mismatch_locally_without_sensitive_leakage
     for surface in surfaces {
         assert!(!surface.contains(credential_sentinel));
         assert!(!surface.contains(request_sentinel));
+    }
+}
+
+#[tokio::test]
+async fn loaded_provider_runs_only_captured_structured_model_inline_and_honours_cancellation() {
+    let (_temporary, database) = test_database();
+    let store = Arc::new(ScriptedStore::default());
+    let profile_id = Uuid::new_v4();
+    insert_profile(database.pool(), profile_id, "openai", "gpt-5.6", 32_000).await;
+    let credential_sentinel = "synthetic-structured-runtime-credential";
+    store.seed(&providers::credential_key(profile_id), credential_sentinel);
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            include_str!("../../../fixtures/providers/openai/structured-ok.json"),
+            "application/json",
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let runtime = test_runtime(store, &server);
+    let loaded = runtime
+        .load(
+            database.pool(),
+            profile_id,
+            AiOperation::StructuredPageAnalysis,
+        )
+        .await
+        .unwrap();
+    let book_id = Uuid::new_v4();
+
+    let outcome = loaded
+        .analyze_pages(
+            test_structured_request(book_id, "gpt-5.6"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome.analysis.schema_version,
+        PAGE_ANALYSIS_SCHEMA_VERSION
+    );
+    assert!(outcome.cleanup.is_none());
+    assert!(!format!("{outcome:?}").contains("synthetic visible page text"));
+
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    let error = loaded
+        .analyze_pages(test_structured_request(book_id, "gpt-5.6"), cancelled)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, AppErrorCode::ImportCancelled);
+
+    let mismatch = loaded
+        .analyze_pages(
+            test_structured_request(book_id, "runtime-request-model-sentinel"),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(mismatch.code, AppErrorCode::InvalidInput);
+
+    let wrong_provider = RemoteCleanupHandle::new(
+        ProviderKind::Gemini,
+        SecretString::from("runtime-cleanup-mismatch-sentinel"),
+    );
+    let mismatch = loaded
+        .cleanup_remote_resource(&wrong_provider, CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(mismatch.code, AppErrorCode::InvalidInput);
+
+    let inline_only = RemoteCleanupHandle::new(
+        ProviderKind::OpenAi,
+        SecretString::from("runtime-cleanup-inline-sentinel"),
+    );
+    let unsupported = loaded
+        .cleanup_remote_resource(&inline_only, CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(unsupported.stable_code(), "UNSUPPORTED_PROVIDER_CAPABILITY");
+
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1, "all denials must happen before HTTP");
+    let surfaces = format!("{outcome:?} {error:?} {mismatch:?} {unsupported:?} {loaded:?}");
+    for sentinel in [
+        credential_sentinel,
+        "runtime-request-model-sentinel",
+        "runtime-cleanup-mismatch-sentinel",
+        "runtime-cleanup-inline-sentinel",
+        "synthetic visible page text",
+    ] {
+        assert!(!surfaces.contains(sentinel));
     }
 }
 
@@ -657,6 +755,26 @@ fn test_chat_request(model: &str) -> UnifiedChatRequest {
         }],
         max_output_tokens: 32,
         expected_language: Some("en".to_owned()),
+    }
+}
+
+fn test_structured_request(book_id: Uuid, model: &str) -> StructuredPageRequest {
+    let limits = ImageLimits {
+        max_images: 4,
+        max_encoded_bytes_each: 4 * 1024 * 1024,
+        max_total_encoded_bytes: 12 * 1024 * 1024,
+        max_dimension_px: 4_096,
+        max_decoded_pixels_each: 8_847_360,
+    };
+    let bytes = include_bytes!("../../../fixtures/source/vision/tiny-blue.png").to_vec();
+    StructuredPageRequest {
+        model: model.to_owned(),
+        pages: vec![
+            stage_vision_asset(book_id, Uuid::new_v4(), ImageMime::Png, 2, 2, bytes, limits)
+                .unwrap(),
+        ],
+        schema_version: PAGE_ANALYSIS_SCHEMA_VERSION.to_owned(),
+        max_output_bytes: 4_096,
     }
 }
 

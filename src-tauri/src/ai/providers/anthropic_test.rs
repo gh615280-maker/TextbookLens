@@ -219,9 +219,10 @@ async fn structured_pages_require_end_turn_visible_json_then_bounded_decode() {
         )
         .await
         .unwrap();
-    assert_eq!(result.schema_version, PAGE_ANALYSIS_SCHEMA_VERSION);
+    assert_eq!(result.analysis.schema_version, PAGE_ANALYSIS_SCHEMA_VERSION);
+    assert!(result.cleanup.is_none());
     assert_eq!(
-        result.pages[0].blocks[0].plain_text,
+        result.analysis.pages[0].blocks[0].plain_text,
         "synthetic visible page text"
     );
 

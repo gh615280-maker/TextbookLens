@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     domain::{
-        ProviderKind, ProviderPageAnalysis, StructuredPageRequest, UnifiedMessage,
+        ProviderKind, StructuredAnalysisOutcome, StructuredPageRequest, UnifiedMessage,
         UnifiedVisionRequest, ValidationResult,
     },
     errors::{AppError, AppResult},
@@ -144,7 +144,7 @@ impl AiProvider for DeepSeekProvider {
         _credential: &SecretString,
         _request: StructuredPageRequest,
         _cancel: CancellationToken,
-    ) -> AppResult<ProviderPageAnalysis> {
+    ) -> AppResult<StructuredAnalysisOutcome> {
         Err(AppError::unsupported_provider_capability())
     }
 }

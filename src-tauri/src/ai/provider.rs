@@ -7,8 +7,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::error::AiError;
 pub use crate::domain::{
-    ProviderKind, ProviderPageAnalysis, StructuredPageRequest, UnifiedChatRequest, UnifiedMessage,
-    UnifiedRole, UnifiedStreamEvent, UnifiedVisionRequest, ValidationResult,
+    ProviderKind, RemoteCleanupHandle, StructuredAnalysisOutcome, StructuredPageRequest,
+    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UnifiedVisionRequest,
+    ValidationResult,
 };
 use crate::errors::{AppError, AppResult};
 
@@ -49,7 +50,16 @@ pub trait AiProvider: Send + Sync {
         _credential: &SecretString,
         _request: StructuredPageRequest,
         _cancel: CancellationToken,
-    ) -> AppResult<ProviderPageAnalysis> {
+    ) -> AppResult<StructuredAnalysisOutcome> {
+        Err(unsupported_capability())
+    }
+
+    async fn cleanup_remote_resource(
+        &self,
+        _credential: &SecretString,
+        _handle: &RemoteCleanupHandle,
+        _cancel: CancellationToken,
+    ) -> AppResult<()> {
         Err(unsupported_capability())
     }
 }

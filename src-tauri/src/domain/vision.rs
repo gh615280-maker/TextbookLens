@@ -100,6 +100,32 @@ pub struct ProviderPageAnalysis {
     pub pages: Vec<UntrustedPageAnalysis>,
 }
 
+/// Rust-only result of a structured page operation. Provider content and an
+/// optional remote identifier never cross serialization or Debug boundaries.
+pub struct StructuredAnalysisOutcome {
+    pub analysis: ProviderPageAnalysis,
+    pub cleanup: Option<RemoteCleanupHandle>,
+}
+
+impl StructuredAnalysisOutcome {
+    pub fn inline(analysis: ProviderPageAnalysis) -> Self {
+        Self {
+            analysis,
+            cleanup: None,
+        }
+    }
+}
+
+impl fmt::Debug for StructuredAnalysisOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("StructuredAnalysisOutcome")
+            .field("analysis", &"[REDACTED]")
+            .field("has_cleanup", &self.cleanup.is_some())
+            .finish()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[ts(export_to = "vision.ts")]

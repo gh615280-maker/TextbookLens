@@ -366,9 +366,13 @@ async fn operation_contract_supported_operations_match_exact_capability_truth() 
             )
             .await
             .unwrap_or_else(|error| panic!("{case:?} structured failed: {error:?}"));
-        assert_eq!(analysis.schema_version, PAGE_ANALYSIS_SCHEMA_VERSION);
-        assert_eq!(analysis.pages.len(), 1);
-        let analysis_json = serde_json::to_string(&analysis).unwrap();
+        assert_eq!(
+            analysis.analysis.schema_version,
+            PAGE_ANALYSIS_SCHEMA_VERSION
+        );
+        assert_eq!(analysis.analysis.pages.len(), 1);
+        assert!(analysis.cleanup.is_none());
+        let analysis_json = serde_json::to_string(&analysis.analysis).unwrap();
         for hidden in [
             "hidden-structured-thinking",
             "hidden-structured-signature",

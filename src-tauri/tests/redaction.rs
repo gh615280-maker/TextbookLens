@@ -9,8 +9,10 @@ use textbooklens_lib::{
     credentials::{CredentialStore, MemoryCredentialStore},
     db::providers,
     domain::{
-        ImageLimits, ImageMime, ProviderKind, RemoteCleanupHandle, StructuredPageRequest,
-        UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedVisionRequest,
+        ImageLimits, ImageMime, PageAnalysisBlockKind, ProviderKind, ProviderPageAnalysis,
+        RemoteCleanupHandle, StructuredAnalysisOutcome, StructuredPageRequest, UnifiedChatRequest,
+        UnifiedMessage, UnifiedRole, UnifiedVisionRequest, UntrustedPageAnalysis,
+        UntrustedPageBlock,
     },
     errors::{AppError, AppErrorDto, redact},
 };
@@ -156,6 +158,38 @@ fn multimodal_debug_and_error_dto_omit_raw_base64_schema_and_cleanup_sentinels()
     ] {
         assert!(!error_json.contains(sentinel));
     }
+}
+
+#[test]
+fn structured_outcome_debug_omits_analysis_content_and_optional_handle() {
+    let content_sentinel = "fixture-outcome-analysis-sentinel";
+    let cleanup_sentinel = "fixture-outcome-cleanup-sentinel";
+    let outcome = StructuredAnalysisOutcome {
+        analysis: ProviderPageAnalysis {
+            schema_version: "textbooklens.page-analysis.v1".to_owned(),
+            pages: vec![UntrustedPageAnalysis {
+                page_number: 1,
+                blocks: vec![UntrustedPageBlock {
+                    ordinal: 0,
+                    kind: PageAnalysisBlockKind::Paragraph,
+                    plain_text: content_sentinel.to_owned(),
+                    bounds: None,
+                    latex: None,
+                    table_cells: None,
+                    visual_description: None,
+                }],
+            }],
+        },
+        cleanup: Some(RemoteCleanupHandle::new(
+            ProviderKind::OpenAi,
+            SecretString::from(cleanup_sentinel),
+        )),
+    };
+    let debug = format!("{outcome:?}");
+
+    assert!(!debug.contains(content_sentinel));
+    assert!(!debug.contains(cleanup_sentinel));
+    assert!(debug.contains("has_cleanup"));
 }
 
 fn asset_with_suffix(

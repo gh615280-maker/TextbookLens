@@ -20,7 +20,8 @@ use crate::{
     credentials::CredentialStore,
     db::providers,
     domain::{
-        AiOperation, CapabilitySupport, ProviderKind, ProviderProfileSummary, ValidationResult,
+        AiOperation, CapabilitySupport, ProviderKind, ProviderProfileSummary, RemoteCleanupHandle,
+        StructuredAnalysisOutcome, StructuredPageRequest, ValidationResult,
     },
     errors::{AppError, AppErrorCode, AppResult},
 };
@@ -246,6 +247,45 @@ impl LoadedProvider {
             .stream_chat(&self.credential, request, cancel)
             .await
             .map_err(|error| error.into_app_error())
+    }
+
+    /// Executes the one structured operation captured by `load`; adapter and
+    /// credential remain private to this boundary.
+    pub async fn analyze_pages(
+        &self,
+        request: StructuredPageRequest,
+        cancel: CancellationToken,
+    ) -> AppResult<StructuredAnalysisOutcome> {
+        if self.operation != AiOperation::StructuredPageAnalysis
+            || request.model != self.profile.model_id
+        {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
+        if cancel.is_cancelled() {
+            return Err(AppError::new(AppErrorCode::ImportCancelled));
+        }
+        self.adapter
+            .analyze_pages(&self.credential, request, cancel)
+            .await
+    }
+
+    /// Deletes only a handle owned by the captured structured provider.
+    pub async fn cleanup_remote_resource(
+        &self,
+        handle: &RemoteCleanupHandle,
+        cancel: CancellationToken,
+    ) -> AppResult<()> {
+        if self.operation != AiOperation::StructuredPageAnalysis
+            || handle.provider() != &self.profile.kind
+        {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
+        if cancel.is_cancelled() {
+            return Err(AppError::new(AppErrorCode::ImportCancelled));
+        }
+        self.adapter
+            .cleanup_remote_resource(&self.credential, handle, cancel)
+            .await
     }
 }
 
