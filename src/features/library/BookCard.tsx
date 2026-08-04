@@ -4,8 +4,10 @@ import { formatPersistedUtc, type TimeFormatOptions } from '../../lib/time';
 interface BookCardProps {
   book: BookSummary;
   onOpen(bookId: string): void;
+  onIndex(bookId: string): void;
   onRetry(bookId: string): void;
   onDelete(bookId: string): void;
+  indexLabel?: string;
   timeFormat?: TimeFormatOptions;
 }
 
@@ -18,8 +20,10 @@ const stageLabels: Record<ImportErrorStage, string> = {
 export function BookCard({
   book,
   onOpen,
+  onIndex,
   onRetry,
   onDelete,
+  indexLabel = 'AI-assisted index',
   timeFormat,
 }: BookCardProps) {
   const ready = book.importStatus === 'ready';
@@ -51,6 +55,11 @@ export function BookCard({
             <button type="button" onClick={() => onOpen(book.id)}>
               打开《{book.title}》
             </button>
+            {book.format === 'pdf' ? (
+              <button type="button" onClick={() => onIndex(book.id)}>
+                {indexLabel}
+              </button>
+            ) : null}
           </>
         ) : (
           <div

@@ -50,6 +50,34 @@ export const en = {
   'teaching.leave': 'Leave page',
   'teaching.stay': 'Stay',
   'example.greeting': 'Hello, {name}',
+  'indexStart.action': 'AI-assisted index',
+  'indexStart.title': 'AI-assisted indexing',
+  'indexStart.description':
+    'Check this PDF locally and send only pages with unreliable text after confirmation.',
+  'indexStart.preparing': 'Checking the local PDF and vision profile…',
+  'indexStart.confirmTitle': 'Start AI-assisted indexing?',
+  'indexStart.details': 'Profile: {profile}. Model: {model}. Pages: {pages}.',
+  'indexStart.sent':
+    'Local page images for these {pages} abnormal pages will be sent for structured page analysis. This may incur provider charges.',
+  'indexStart.noPrompt':
+    'Do not show this index-start prompt again for this profile',
+  'indexStart.reject': 'Continue without AI indexing',
+  'indexStart.confirm': 'Confirm and start',
+  'indexStart.starting': 'Starting index run…',
+  'indexStart.startFailed':
+    'The index run could not be started. Review the profile and try again.',
+  'indexStart.notReadyPdf':
+    'AI-assisted indexing is available only for ready PDF books. This book can still be opened locally.',
+  'indexStart.reliableOnly':
+    'This PDF already has reliable local text. AI-assisted page indexing is not needed.',
+  'indexStart.profileMissing':
+    'Choose a verified vision profile with an available credential before starting AI-assisted indexing.',
+  'indexStart.localFailure':
+    'The PDF could not be checked locally. No page was sent. You can continue local reading or try again later.',
+  'indexStart.configure': 'Configure AI services',
+  'indexStart.continueReading': 'Continue local reading',
+  'indexStart.localLimitation':
+    'This PDF has unreliable or no local text. Search and text-based AI are limited; local page reading remains available.',
   'indexQuality.title': 'Index quality',
   'indexQuality.description':
     'Review local indexing results and manage the durable run.',

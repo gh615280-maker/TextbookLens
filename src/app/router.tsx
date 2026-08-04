@@ -13,6 +13,7 @@ import { ReaderPage } from '../features/reader/ReaderPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { TeachingInstructionsPage } from '../features/teaching/TeachingInstructionsPage';
 import { IndexQualityPage } from '../features/indexing/IndexQualityPage';
+import { IndexStartPage } from '../features/indexing/IndexStartPage';
 
 export const appRoutes: RouteObject[] = [
   {
@@ -52,6 +53,10 @@ export const appRoutes: RouteObject[] = [
           {
             path: '/books/:bookId/index-quality/:runId',
             element: <IndexQualityPage />,
+          },
+          {
+            path: '/books/:bookId/index-start',
+            element: <IndexStartPage />,
           },
         ],
       },

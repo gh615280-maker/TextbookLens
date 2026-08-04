@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -98,11 +98,32 @@ vi.mock('./docx/DocxReaderAdapter', () => ({
 }));
 
 afterEach(() => {
+  cleanup();
   vi.clearAllMocks();
   state.commands.length = 0;
 });
 
 describe('ReaderPage', () => {
+  it('shows the stable local-reading limitation after rejecting AI indexing', () => {
+    render(
+      <LanguageHarness>
+        <MemoryRouter initialEntries={['/reader/book-1?index=local-only']}>
+          <Routes>
+            <Route path="/reader/:bookId" element={<ReaderPage />} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageHarness>,
+    );
+
+    expect(
+      screen.getByRole('status', {
+        name: '',
+      }),
+    ).toHaveTextContent(
+      'This PDF has unreliable or no local text. Search and text-based AI are limited; local page reading remains available.',
+    );
+  });
+
   it('opens the format adapter in the mounted document region and disposes it', async () => {
     const view = render(
       <LanguageHarness>

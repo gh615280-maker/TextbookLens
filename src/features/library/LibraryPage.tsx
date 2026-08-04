@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { useMessage } from '../../app/LanguageProvider';
 import { toUserError, type UserFacingError } from '../../lib/errors';
 import type { BookSummary } from '../../lib/generated/book';
 import { TauriImportIpc } from '../../lib/ipc';
@@ -29,6 +30,7 @@ export function LibraryPage({
   importCoordinator,
 }: LibraryPageProps = {}) {
   const navigate = useNavigate();
+  const message = useMessage();
   const [api] = useState<LibraryApi>(() => libraryApi ?? new TauriLibraryApi());
   const [coordinator] = useState<ImportCoordinatorPort>(
     () =>
@@ -184,7 +186,9 @@ export function LibraryPage({
           <BookCard
             key={book.id}
             book={book}
+            indexLabel={message('indexStart.action')}
             onDelete={(bookId) => void deleteFailed(bookId)}
+            onIndex={(bookId) => navigate(`/books/${bookId}/index-start`)}
             onOpen={(bookId) => navigate(`/books/${bookId}/read`)}
             onRetry={(bookId) => void retry(bookId)}
           />

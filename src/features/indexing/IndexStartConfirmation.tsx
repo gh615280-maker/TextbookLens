@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
+import { useMessage } from '../../app/LanguageProvider';
 import type { ConfirmIndexOperationRequest, IndexingApi } from './api';
 
 export interface IndexStartConfirmationProps {
@@ -8,6 +9,7 @@ export interface IndexStartConfirmationProps {
   modelName: string;
   api: Pick<IndexingApi, 'confirmOperation' | 'createRun'>;
   onSetProfileNoPrompt?(profileId: string): Promise<void>;
+  onReject(): void;
   onStarted(runId: string): void;
 }
 
@@ -18,47 +20,62 @@ export function IndexStartConfirmation({
   modelName,
   api,
   onSetProfileNoPrompt,
+  onReject,
   onStarted,
 }: IndexStartConfirmationProps) {
+  const message = useMessage();
   const [noPrompt, setNoPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const inFlightRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   async function confirm() {
-    if (busy) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setBusy(true);
     setError(null);
     try {
       // This always obtains a new, single-use token from the durable coordinator.
       const token = await api.confirmOperation(request);
+      if (!mountedRef.current) return;
       if (noPrompt) await onSetProfileNoPrompt?.(request.providerProfileId);
+      if (!mountedRef.current) return;
       const runId = await api.createRun(token, request);
-      onStarted(runId);
+      if (mountedRef.current) onStarted(runId);
     } catch {
-      setError(
-        'The index run could not be started. Review the profile and try again.',
-      );
+      if (mountedRef.current) setError(message('indexStart.startFailed'));
     } finally {
-      setBusy(false);
+      inFlightRef.current = false;
+      if (mountedRef.current) setBusy(false);
     }
   }
 
   return (
     <div
       aria-describedby="index-start-description"
+      aria-labelledby="index-start-confirm-title"
       aria-modal="true"
       role="dialog"
     >
-      <h2>Start AI-assisted indexing?</h2>
+      <h2 id="index-start-confirm-title">
+        {message('indexStart.confirmTitle')}
+      </h2>
       <p id="index-start-description">
-        Profile: {profileName}. Model: {modelName}. Pages:{' '}
-        {request.pages.length}.
+        {message('indexStart.details', {
+          profile: profileName,
+          model: modelName,
+          pages: request.pages.length,
+        })}
       </p>
-      <p>
-        The local page images for these {request.pages.length} page
-        {request.pages.length === 1 ? '' : 's'} will be sent to this provider
-        for structured page analysis. This may incur provider charges.
-      </p>
+      <p>{message('indexStart.sent', { pages: request.pages.length })}</p>
       <label>
         <input
           checked={noPrompt}
@@ -66,12 +83,19 @@ export function IndexStartConfirmation({
           type="checkbox"
           onChange={(event) => setNoPrompt(event.currentTarget.checked)}
         />
-        Do not show this index-start prompt again for this profile
+        {message('indexStart.noPrompt')}
       </label>
       {error ? <p role="alert">{error}</p> : null}
-      <button disabled={busy} type="button" onClick={() => void confirm()}>
-        {busy ? 'Starting index run…' : 'Confirm and start'}
-      </button>
+      <div className="button-row">
+        <button disabled={busy} type="button" onClick={onReject}>
+          {message('indexStart.reject')}
+        </button>
+        <button disabled={busy} type="button" onClick={() => void confirm()}>
+          {busy
+            ? message('indexStart.starting')
+            : message('indexStart.confirm')}
+        </button>
+      </div>
     </div>
   );
 }

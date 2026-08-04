@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 
 import { useLanguage } from '../../app/LanguageProvider';
 import type { DocumentLocator } from '../../lib/generated/document';
@@ -16,7 +16,8 @@ import { ReaderLayout } from './ReaderLayout';
 
 export function ReaderPage() {
   const { bookId } = useParams();
-  const { uiLanguage } = useLanguage();
+  const [searchParams] = useSearchParams();
+  const { message, uiLanguage } = useLanguage();
   const api = useMemo(() => new TauriReaderApi(), []);
   const [settings, setSettings] = useState<ReaderSettings | null>(null);
   const [bootstrap, setBootstrap] = useState<ReaderBootstrap | null>(null);
@@ -100,25 +101,32 @@ export function ReaderPage() {
       .catch(() => {});
   };
   return (
-    <ReaderLayout
-      title={bootstrap?.book.title ?? (bookId ? '阅读教材' : '阅读器')}
-      language={uiLanguage}
-      location={formatLocation(currentLocator, uiLanguage)}
-      firstHintVisible={firstHintVisible}
-      onCompleteFirstHint={completeFirstHint}
-      bookId={bookId ?? null}
-      format={bootstrap?.book.format ?? 'pdf'}
-      sections={sections}
-      settings={settings ?? undefined}
-      panelContent={panelContent}
-      search={api.searchBook.bind(api)}
-      onSettingsChange={updateSettings}
-      onNavigate={(locator) =>
-        controllerRef.current?.navigate(locator) ?? Promise.resolve(false)
-      }
-      readerContainerRef={readerContainerRef}
-      markerHistoryRef={markerHistoryRef}
-    />
+    <>
+      {searchParams.get('index') === 'local-only' ? (
+        <p aria-live="polite" role="status">
+          {message('indexStart.localLimitation')}
+        </p>
+      ) : null}
+      <ReaderLayout
+        title={bootstrap?.book.title ?? (bookId ? '阅读教材' : '阅读器')}
+        language={uiLanguage}
+        location={formatLocation(currentLocator, uiLanguage)}
+        firstHintVisible={firstHintVisible}
+        onCompleteFirstHint={completeFirstHint}
+        bookId={bookId ?? null}
+        format={bootstrap?.book.format ?? 'pdf'}
+        sections={sections}
+        settings={settings ?? undefined}
+        panelContent={panelContent}
+        search={api.searchBook.bind(api)}
+        onSettingsChange={updateSettings}
+        onNavigate={(locator) =>
+          controllerRef.current?.navigate(locator) ?? Promise.resolve(false)
+        }
+        readerContainerRef={readerContainerRef}
+        markerHistoryRef={markerHistoryRef}
+      />
+    </>
   );
 }
 

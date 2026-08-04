@@ -37,6 +37,7 @@ describe('BookCard', () => {
       <BookCard
         book={book()}
         onDelete={vi.fn()}
+        onIndex={vi.fn()}
         onOpen={onOpen}
         onRetry={vi.fn()}
         timeFormat={{ locale: 'en-GB', timeZone: 'Asia/Shanghai' }}
@@ -66,6 +67,7 @@ describe('BookCard', () => {
           importErrorStage: 'parsing',
         })}
         onDelete={onDelete}
+        onIndex={vi.fn()}
         onOpen={vi.fn()}
         onRetry={onRetry}
       />,
@@ -85,6 +87,7 @@ describe('BookCard', () => {
       <BookCard
         book={book({ importStatus: 'indexing' })}
         onDelete={vi.fn()}
+        onIndex={vi.fn()}
         onOpen={vi.fn()}
         onRetry={vi.fn()}
       />,
@@ -97,5 +100,35 @@ describe('BookCard', () => {
     expect(
       screen.getByRole('button', { name: '重新选择并重试' }),
     ).toBeEnabled();
+  });
+
+  it('offers AI-assisted indexing only for ready PDF books', async () => {
+    const user = userEvent.setup();
+    const onIndex = vi.fn();
+    const view = render(
+      <BookCard
+        book={book()}
+        onDelete={vi.fn()}
+        onIndex={onIndex}
+        onOpen={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'AI-assisted index' }));
+    expect(onIndex).toHaveBeenCalledWith(BOOK_ID);
+
+    view.rerender(
+      <BookCard
+        book={book({ format: 'epub' })}
+        onDelete={vi.fn()}
+        onIndex={onIndex}
+        onOpen={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByRole('button', { name: 'AI-assisted index' }),
+    ).not.toBeInTheDocument();
   });
 });

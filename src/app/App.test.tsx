@@ -44,6 +44,15 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: '目录' })).toBeVisible();
   });
 
+  it('mounts the real AI index start route inside the product shell', async () => {
+    render(<App initialEntries={['/books/book-1/index-start']} />);
+
+    expect(
+      await screen.findByRole('heading', { name: 'AI-assisted indexing' }),
+    ).toBeVisible();
+    expect(screen.getByRole('navigation')).toBeVisible();
+  });
+
   it('moves focus to the main landmark through the skip link', async () => {
     const user = userEvent.setup();
     render(<App initialEntries={['/settings']} />);
