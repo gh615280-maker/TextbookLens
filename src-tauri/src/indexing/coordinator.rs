@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex as AsyncMutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -59,6 +59,7 @@ const APPLICATION_MAX_DECODED_PIXELS_EACH: u64 = 8_847_360;
 const MAX_PENDING_OPERATION_TOKENS: usize = 64;
 const MAX_AUTHORIZED_RUNS: usize = 64;
 const MAX_RETRY_IDEMPOTENCY_RECORDS: usize = 4_096;
+const RETRY_LOCK_STRIPES: usize = 64;
 const OPERATION_TOKEN_TTL: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,7 +97,7 @@ struct OperationState {
     pending: HashMap<Uuid, PendingOperation>,
     authorized_runs: HashMap<Uuid, OperationBinding>,
     active_claims: HashMap<(Uuid, Uuid, Uuid), CancellationToken>,
-    retry_results: HashMap<(Uuid, Uuid), Uuid>,
+    retry_results: HashMap<(Uuid, String), Uuid>,
 }
 
 struct PendingOperation {
@@ -108,6 +109,7 @@ struct PendingOperation {
 pub struct IndexOperationRegistry {
     state: Arc<Mutex<OperationState>>,
     provider_slots: Arc<Semaphore>,
+    retry_locks: Arc<Vec<AsyncMutex<()>>>,
 }
 
 impl Default for IndexOperationRegistry {
@@ -115,6 +117,11 @@ impl Default for IndexOperationRegistry {
         Self {
             state: Arc::new(Mutex::new(OperationState::default())),
             provider_slots: Arc::new(Semaphore::new(MAX_COORDINATOR_BATCH_PAGES)),
+            retry_locks: Arc::new(
+                (0..RETRY_LOCK_STRIPES)
+                    .map(|_| AsyncMutex::new(()))
+                    .collect(),
+            ),
         }
     }
 }
@@ -242,21 +249,39 @@ impl IndexOperationRegistry {
         }
     }
 
-    fn retry_result(&self, page_id: Uuid, old_attempt_id: Uuid) -> Option<Uuid> {
+    fn retry_lock(&self, page_id: Uuid) -> &AsyncMutex<()> {
+        let index = (page_id.as_u128() % RETRY_LOCK_STRIPES as u128) as usize;
+        &self.retry_locks[index]
+    }
+
+    fn retry_result(&self, page_id: Uuid, expected_updated_at: &str) -> Option<Uuid> {
         self.state
             .lock()
             .retry_results
-            .get(&(page_id, old_attempt_id))
+            .get(&(page_id, expected_updated_at.to_owned()))
             .copied()
     }
 
-    fn remember_retry(&self, page_id: Uuid, old_attempt_id: Uuid, new_attempt_id: Uuid) {
+    fn forget_retry(&self, page_id: Uuid, expected_updated_at: &str) {
+        self.state
+            .lock()
+            .retry_results
+            .remove(&(page_id, expected_updated_at.to_owned()));
+    }
+
+    fn remember_retry(&self, page_id: Uuid, expected_updated_at: &str, new_attempt_id: Uuid) {
         let mut state = self.state.lock();
-        if state.retry_results.len() < MAX_RETRY_IDEMPOTENCY_RECORDS {
-            state
-                .retry_results
-                .insert((page_id, old_attempt_id), new_attempt_id);
+        state
+            .retry_results
+            .retain(|(candidate_page_id, _), _| *candidate_page_id != page_id);
+        if state.retry_results.len() >= MAX_RETRY_IDEMPOTENCY_RECORDS
+            && let Some(key) = state.retry_results.keys().next().cloned()
+        {
+            state.retry_results.remove(&key);
         }
+        state
+            .retry_results
+            .insert((page_id, expected_updated_at.to_owned()), new_attempt_id);
     }
 }
 
@@ -855,49 +880,45 @@ impl IndexCoordinatorService {
         }
     }
 
-    pub async fn retry_page(&self, page_id: Uuid, attempt_id: Uuid) -> AppResult<Uuid> {
-        if let Some(result) = self.operations.retry_result(page_id, attempt_id) {
-            return Ok(result);
-        }
-        let row = sqlx::query("SELECT status, attempt_id FROM index_pages WHERE id = ?")
-            .bind(page_id.to_string())
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    pub async fn retry_page(&self, page_id: Uuid, expected_updated_at: &str) -> AppResult<Uuid> {
+        validate_retry_version(expected_updated_at)?;
+        let _retry_guard = self.operations.retry_lock(page_id).lock().await;
+        let row = sqlx::query(
+            "SELECT run_id, status, attempt_id, updated_at FROM index_pages WHERE id = ?",
+        )
+        .bind(page_id.to_string())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+        let run_id = parse_uuid(&row.try_get::<String, _>("run_id")?)?;
         let current_attempt = parse_uuid(&row.try_get::<String, _>("attempt_id")?)?;
         let status = IndexPageStatus::from_database(&row.try_get::<String, _>("status")?)
             .ok_or_else(database_error)?;
-        if status == IndexPageStatus::Queued && current_attempt == attempt_id {
-            return Ok(current_attempt);
+        let current_updated_at = row.try_get::<String, _>("updated_at")?;
+        indexing::parse_timestamp(&current_updated_at)?;
+
+        if let Some(result) = self.operations.retry_result(page_id, expected_updated_at) {
+            if status == IndexPageStatus::Queued && current_attempt == result {
+                return Ok(result);
+            }
+            self.operations.forget_retry(page_id, expected_updated_at);
+            return Err(AppError::new(AppErrorCode::RequestConflict));
         }
-        if current_attempt != attempt_id
+
+        if current_updated_at != expected_updated_at
             || !matches!(
                 status,
-                IndexPageStatus::Failed
-                    | IndexPageStatus::Cancelled
-                    | IndexPageStatus::Indexed
-                    | IndexPageStatus::NeedsReview
+                IndexPageStatus::Failed | IndexPageStatus::NeedsReview
             )
         {
             return Err(AppError::new(AppErrorCode::RequestConflict));
         }
-        let new_attempt = match state::retry(&self.pool, page_id, status, attempt_id).await {
-            Ok(new_attempt) => new_attempt,
-            Err(error) if error.code == AppErrorCode::RequestConflict => {
-                if let Some(result) = self.operations.retry_result(page_id, attempt_id) {
-                    return Ok(result);
-                }
-                return Err(error);
-            }
-            Err(error) => return Err(error),
-        };
-        self.operations.finish_claim(
-            page_id_for_run(&self.pool, page_id).await?,
-            page_id,
-            attempt_id,
-        );
+
+        let new_attempt = state::retry(&self.pool, page_id, status, current_attempt).await?;
         self.operations
-            .remember_retry(page_id, attempt_id, new_attempt);
+            .finish_claim(run_id, page_id, current_attempt);
+        self.operations
+            .remember_retry(page_id, expected_updated_at, new_attempt);
         Ok(new_attempt)
     }
 }
@@ -2100,15 +2121,6 @@ async fn assert_run_matches_binding(
     Ok(())
 }
 
-async fn page_id_for_run(pool: &SqlitePool, page_id: Uuid) -> AppResult<Uuid> {
-    let run_id: String = sqlx::query_scalar("SELECT run_id FROM index_pages WHERE id = ?")
-        .bind(page_id.to_string())
-        .fetch_optional(pool)
-        .await?
-        .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
-    parse_uuid(&run_id)
-}
-
 fn canonical_pages(mut pages: Vec<IndexPageSeed>) -> AppResult<Vec<IndexPageSeed>> {
     if pages.is_empty() || pages.len() > MAX_INDEX_OPERATION_PAGES {
         return Err(invalid_input());
@@ -2259,6 +2271,12 @@ fn validate_sha256(value: &str) -> AppResult<()> {
     } else {
         Err(invalid_input())
     }
+}
+
+fn validate_retry_version(value: &str) -> AppResult<()> {
+    indexing::parse_timestamp(value)
+        .map(|_| ())
+        .map_err(|_| invalid_input())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

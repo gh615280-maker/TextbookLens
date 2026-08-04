@@ -457,7 +457,7 @@ fn captured_profile_model_is_rechecked_before_provider_execution() {
 }
 
 #[test]
-fn provider_failure_is_page_local_retryable_and_does_not_create_content() {
+fn provider_failure_retry_uses_safe_version_and_is_page_local_and_idempotent() {
     let fixture = Fixture::new();
     tauri::async_runtime::block_on(async {
         let executor = Arc::new(FakeExecutor {
@@ -502,15 +502,98 @@ fn provider_failure_is_page_local_retryable_and_does_not_create_content() {
                 .exists()
             );
         }
-        let first_retry = service
-            .retry_page(batch.claims[0].page_id, batch.claims[0].attempt_id)
+        let failed_page = batch.claims[0].page_id;
+        let good_page = batch.claims[1].page_id;
+        sqlx::query(
+            "UPDATE index_pages SET status = 'indexed', content_version = 1, content_sha256 = ?, safe_error_code = NULL, safe_error_message = NULL, retryable = 0, updated_at = '2026-08-04T00:00:01.000Z' WHERE id = ?",
+        )
+        .bind("c".repeat(64))
+        .bind(good_page.to_string())
+        .execute(fixture.database.pool())
+        .await
+        .unwrap();
+        let expected_updated_at: String =
+            sqlx::query_scalar("SELECT updated_at FROM index_pages WHERE id = ?")
+                .bind(failed_page.to_string())
+                .fetch_one(fixture.database.pool())
+                .await
+                .unwrap();
+
+        let malformed = service
+            .retry_page(failed_page, "2026-08-04T00:00:00Z")
+            .await
+            .unwrap_err();
+        assert_eq!(malformed.code, AppErrorCode::InvalidInput);
+
+        let (first_retry, concurrent_retry) = tokio::join!(
+            service.retry_page(failed_page, &expected_updated_at),
+            service.retry_page(failed_page, &expected_updated_at),
+        );
+        let first_retry = first_retry.unwrap();
+        assert_eq!(first_retry, concurrent_retry.unwrap());
+        assert_eq!(
+            service
+                .retry_page(failed_page, &expected_updated_at)
+                .await
+                .unwrap(),
+            first_retry
+        );
+
+        let page_rows = sqlx::query(
+            "SELECT id, status, attempt_id, attempt_count FROM index_pages WHERE run_id = ? ORDER BY page_number",
+        )
+        .bind(run_id.to_string())
+        .fetch_all(fixture.database.pool())
+        .await
+        .unwrap();
+        let retried = page_rows
+            .iter()
+            .find(|row| row.get::<String, _>("id") == failed_page.to_string())
+            .unwrap();
+        assert_eq!(retried.get::<String, _>("status"), "queued");
+        assert_eq!(
+            retried.get::<String, _>("attempt_id"),
+            first_retry.to_string()
+        );
+        assert_eq!(retried.get::<i64, _>("attempt_count"), 2);
+        let unchanged = page_rows
+            .iter()
+            .find(|row| row.get::<String, _>("id") == good_page.to_string())
+            .unwrap();
+        assert_eq!(unchanged.get::<String, _>("status"), "indexed");
+        assert_eq!(unchanged.get::<i64, _>("attempt_count"), 1);
+
+        sqlx::query(
+            "UPDATE index_pages SET status = 'failed', safe_error_code = 'INDEX_PROVIDER_FAILED', safe_error_message = 'Provider request failed safely.', retryable = 1, updated_at = '2026-08-04T00:00:02.000Z' WHERE id = ? AND attempt_id = ?",
+        )
+        .bind(failed_page.to_string())
+        .bind(first_retry.to_string())
+        .execute(fixture.database.pool())
+        .await
+        .unwrap();
+        let stale = service
+            .retry_page(failed_page, &expected_updated_at)
+            .await
+            .unwrap_err();
+        assert_eq!(stale.code, AppErrorCode::RequestConflict);
+        let second_retry = service
+            .retry_page(failed_page, "2026-08-04T00:00:02.000Z")
             .await
             .unwrap();
-        let repeated_retry = service
-            .retry_page(batch.claims[0].page_id, batch.claims[0].attempt_id)
+        assert_ne!(second_retry, first_retry);
+
+        let illegal_good_retry = service
+            .retry_page(good_page, "2026-08-04T00:00:01.000Z")
             .await
-            .unwrap();
-        assert_eq!(first_retry, repeated_retry);
+            .unwrap_err();
+        assert_eq!(illegal_good_retry.code, AppErrorCode::RequestConflict);
+        let unchanged_after: (String, i64) =
+            sqlx::query_as("SELECT status, attempt_count FROM index_pages WHERE id = ?")
+                .bind(good_page.to_string())
+                .fetch_one(fixture.database.pool())
+                .await
+                .unwrap();
+        assert_eq!(unchanged_after, ("indexed".to_owned(), 1));
     });
 }
 

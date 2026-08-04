@@ -17,6 +17,10 @@ import type { RenderedPdfPageDto } from './indexing-contract';
 
 const uuidSchema = z.uuid();
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/u);
+const databaseTimestampSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u)
+  .refine((value) => Number.isFinite(Date.parse(value)));
 const statusSchema = z.enum([
   'not_required',
   'queued',
@@ -199,7 +203,7 @@ const reviewSchema = z
         .strict(),
     ),
     corrections: z.array(correctionSchema),
-    updatedAt: z.string(),
+    updatedAt: databaseTimestampSchema,
   })
   .strict();
 const aggregateSchema = z
@@ -344,7 +348,7 @@ export interface IndexingApi {
   pauseRun(runId: string): Promise<void>;
   resumeRun(runId: string): Promise<void>;
   cancelRun(runId: string): Promise<void>;
-  retryPage(pageId: string, attemptId: string): Promise<string>;
+  retryPage(pageId: string, expectedUpdatedAt: string): Promise<unknown>;
   getRunAggregate(runId: string): Promise<IndexRunAggregateDto>;
   listPageReviews(runId: string): Promise<IndexPageReviewDto[]>;
   getPageReview(pageId: string): Promise<IndexPageReviewDto>;
@@ -493,10 +497,10 @@ export class TauriIndexingApi implements IndexingApi {
     await invokeSafe('cancel_index_run', { runId: uuidSchema.parse(runId) });
   }
 
-  async retryPage(pageId: string, attemptId: string): Promise<string> {
-    return invokeSafeUuid('retry_index_page', {
+  async retryPage(pageId: string, expectedUpdatedAt: string): Promise<void> {
+    await invokeSafe('retry_index_page', {
       pageId: uuidSchema.parse(pageId),
-      attemptId: uuidSchema.parse(attemptId),
+      expectedUpdatedAt: databaseTimestampSchema.parse(expectedUpdatedAt),
     });
   }
 

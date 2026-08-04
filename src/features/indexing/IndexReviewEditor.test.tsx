@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -32,7 +32,10 @@ const page = {
   updatedAt: '2026-08-04T00:00:00.000Z',
 };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('IndexReviewEditor', () => {
   it('renders a local ephemeral preview and saves CAS correction data without provider calls', async () => {
@@ -95,5 +98,101 @@ describe('IndexReviewEditor', () => {
     expect(changed).toHaveBeenCalledOnce();
     view.unmount();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:synthetic');
+  });
+
+  it('retries once with the safe review version and refreshes only after success', async () => {
+    const user = userEvent.setup();
+    let resolveRetry!: (attemptId: string) => void;
+    const retryPage = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveRetry = resolve;
+        }),
+    );
+    const changed = vi.fn();
+    const createObjectURL = vi.fn(() => 'blob:synthetic-retry');
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() });
+    render(
+      <IndexReviewEditor
+        page={page}
+        api={{
+          saveCorrection: vi.fn(),
+          resolveCorrectionConflict: vi.fn(),
+          deleteCorrection: vi.fn(),
+          retryPage,
+        }}
+        onChanged={changed}
+        readerApi={{ readBookSource: async () => new Uint8Array([1]) }}
+        renderPage={async () => ({
+          schemaVersion: 1,
+          mimeType: 'image/png',
+          width: 1,
+          height: 1,
+          decodedPixelCount: 1,
+          encodedByteLength: 1,
+          sha256: 'a'.repeat(64),
+          bytes: new Uint8Array([1]),
+        })}
+      />,
+    );
+    await screen.findByRole('img', { name: 'Local original page 7' });
+
+    const retryButton = screen.getByRole('button', { name: 'Retry page' });
+    await user.click(retryButton);
+    expect(retryButton).toBeDisabled();
+    await user.click(retryButton);
+    expect(retryPage).toHaveBeenCalledOnce();
+    expect(retryPage).toHaveBeenCalledWith(page.id, page.updatedAt);
+    expect(changed).not.toHaveBeenCalled();
+
+    resolveRetry('55555555-5555-4555-8555-555555555555');
+    await waitFor(() => expect(changed).toHaveBeenCalledOnce());
+    expect(retryButton).toBeEnabled();
+  });
+
+  it('keeps a stale retry conflict safe and does not refresh', async () => {
+    const user = userEvent.setup();
+    const changed = vi.fn();
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:synthetic-conflict'),
+      revokeObjectURL: vi.fn(),
+    });
+    render(
+      <IndexReviewEditor
+        page={page}
+        api={{
+          saveCorrection: vi.fn(),
+          resolveCorrectionConflict: vi.fn(),
+          deleteCorrection: vi.fn(),
+          retryPage: vi
+            .fn()
+            .mockRejectedValue(new Error('private-attempt-sentinel')),
+        }}
+        onChanged={changed}
+        readerApi={{ readBookSource: async () => new Uint8Array([1]) }}
+        renderPage={async () => ({
+          schemaVersion: 1,
+          mimeType: 'image/png',
+          width: 1,
+          height: 1,
+          decodedPixelCount: 1,
+          encodedByteLength: 1,
+          sha256: 'a'.repeat(64),
+          bytes: new Uint8Array([1]),
+        })}
+      />,
+    );
+    await screen.findByRole('img', { name: 'Local original page 7' });
+
+    await user.click(screen.getByRole('button', { name: 'Retry page' }));
+    expect(
+      await screen.findByText(
+        'The page could not be retried. Review the durable run state and try again.',
+      ),
+    ).toHaveAttribute('role', 'alert');
+    expect(
+      screen.queryByText(/private-attempt-sentinel/u),
+    ).not.toBeInTheDocument();
+    expect(changed).not.toHaveBeenCalled();
   });
 });

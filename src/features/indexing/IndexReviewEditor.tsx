@@ -198,7 +198,7 @@ export function IndexReviewEditor({
     setBusy(true);
     setActionError(null);
     try {
-      await api.retryPage(page.id, crypto.randomUUID());
+      await api.retryPage(page.id, page.updatedAt);
       onChanged();
     } catch {
       setActionError(

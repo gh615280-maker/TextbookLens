@@ -239,11 +239,12 @@ pub async fn cancel_index_run(state: State<'_, AppState>, run_id: Uuid) -> Resul
 pub async fn retry_index_page(
     state: State<'_, AppState>,
     page_id: Uuid,
-    attempt_id: Uuid,
-) -> Result<Uuid, AppErrorDto> {
+    expected_updated_at: String,
+) -> Result<(), AppErrorDto> {
     service(&state)
-        .retry_page(page_id, attempt_id)
+        .retry_page(page_id, &expected_updated_at)
         .await
+        .map(|_| ())
         .map_err(AppErrorDto::from)
 }
 
