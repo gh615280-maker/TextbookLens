@@ -22,6 +22,90 @@ const importStatusSchema = z.enum([
   'failed',
 ]);
 const importStageSchema = z.enum(['copying', 'parsing', 'indexing']);
+const indexAggregateStatusSchema = z.enum([
+  'not_required',
+  'ready',
+  'partial',
+  'needs_review',
+  'failed',
+]);
+const indexPageCountSchema = z.int().nonnegative().max(1_000_000);
+const indexAggregateSchema = z
+  .object({
+    status: indexAggregateStatusSchema,
+    totalPages: indexPageCountSchema,
+    indexedPages: indexPageCountSchema,
+    reviewPages: indexPageCountSchema,
+    failedPages: indexPageCountSchema,
+  })
+  .strict()
+  .superRefine((aggregate, context) => {
+    const accounted =
+      aggregate.indexedPages + aggregate.reviewPages + aggregate.failedPages;
+    if (accounted > aggregate.totalPages) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Index aggregate counts exceed totalPages.',
+      });
+    }
+
+    switch (aggregate.status) {
+      case 'not_required':
+        if (aggregate.totalPages !== 0 || accounted !== 0) {
+          context.addIssue({
+            code: 'custom',
+            message: 'A not-required aggregate has no indexed pages.',
+          });
+        }
+        break;
+      case 'ready':
+        if (
+          aggregate.totalPages === 0 ||
+          aggregate.reviewPages !== 0 ||
+          aggregate.failedPages !== 0
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message: 'A ready aggregate has no review or failed pages.',
+          });
+        }
+        break;
+      case 'partial':
+        if (
+          aggregate.totalPages === 0 ||
+          (aggregate.failedPages === 0 && accounted === aggregate.totalPages)
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'A partial aggregate must retain unresolved or failed work.',
+          });
+        }
+        break;
+      case 'needs_review':
+        if (aggregate.reviewPages === 0 || aggregate.failedPages !== 0) {
+          context.addIssue({
+            code: 'custom',
+            message:
+              'A review aggregate must have review pages and no failures.',
+          });
+        }
+        break;
+      case 'failed':
+        if (
+          aggregate.failedPages === 0 ||
+          aggregate.indexedPages !== 0 ||
+          aggregate.reviewPages !== 0 ||
+          aggregate.failedPages !== aggregate.totalPages
+        ) {
+          context.addIssue({
+            code: 'custom',
+            message: 'A failed aggregate has only failed pages.',
+          });
+        }
+        break;
+    }
+  });
 const bookSummarySchema = z
   .object({
     id: z.uuid(),
@@ -35,6 +119,7 @@ const bookSummarySchema = z
     importErrorMessage: z.string().nullable(),
     importErrorStage: importStageSchema.nullable(),
     readingProgress: z.number().min(0).max(1),
+    indexAggregate: indexAggregateSchema,
     createdAt: z.string(),
     updatedAt: z.string(),
     lastOpenedAt: z.string().nullable(),

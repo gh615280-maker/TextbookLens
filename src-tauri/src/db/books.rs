@@ -3,7 +3,10 @@ use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use uuid::Uuid;
 
 use crate::{
-    domain::{BookFormat, BookSummary, DocumentLocator, ImportErrorStage, ImportStatus},
+    domain::{
+        BookFormat, BookIndexAggregateStatus, BookSummary, DocumentLocator, ImportErrorStage,
+        ImportStatus, IndexAggregate,
+    },
     errors::{AppError, AppErrorCode, AppResult},
 };
 
@@ -118,7 +121,10 @@ pub async fn claim_hash(
     let updated = match updated {
         Ok(updated) => updated,
         Err(error) if is_sha256_unique_violation(&error) => {
-            let duplicate = sqlx::query("SELECT * FROM books WHERE sha256 = ? AND id <> ?")
+            let duplicate = sqlx::query(BOOK_SUMMARY_PROJECTION)
+                .bind(Option::<String>::None)
+                .bind(Option::<String>::None)
+                .bind(Some(sha256))
                 .bind(sha256)
                 .bind(id.to_string())
                 .fetch_optional(&mut *transaction)
@@ -148,8 +154,12 @@ pub async fn claim_hash(
 }
 
 pub async fn get(pool: &SqlitePool, id: Uuid) -> AppResult<BookRecord> {
-    let row = sqlx::query("SELECT * FROM books WHERE id = ?")
+    let row = sqlx::query(BOOK_SUMMARY_PROJECTION)
+        .bind(Some(id.to_string()))
         .bind(id.to_string())
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
         .fetch_optional(pool)
         .await?
         .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
@@ -157,7 +167,12 @@ pub async fn get(pool: &SqlitePool, id: Uuid) -> AppResult<BookRecord> {
 }
 
 pub async fn list(pool: &SqlitePool) -> AppResult<Vec<BookSummary>> {
-    sqlx::query("SELECT * FROM books ORDER BY created_at DESC, id")
+    sqlx::query(BOOK_SUMMARY_PROJECTION)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
         .fetch_all(pool)
         .await?
         .iter()
@@ -286,8 +301,12 @@ async fn fetch_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     id: Uuid,
 ) -> AppResult<BookRecord> {
-    let row = sqlx::query("SELECT * FROM books WHERE id = ?")
+    let row = sqlx::query(BOOK_SUMMARY_PROJECTION)
+        .bind(Some(id.to_string()))
         .bind(id.to_string())
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
+        .bind(Option::<String>::None)
         .fetch_one(&mut **transaction)
         .await?;
     row_to_record(&row)
@@ -304,6 +323,7 @@ fn row_to_record(row: &SqliteRow) -> AppResult<BookRecord> {
         .try_get::<Option<String>, _>("last_opened_at")?
         .map(parse_datetime)
         .transpose()?;
+    let index_aggregate = index_aggregate_from_row(row)?;
     Ok(BookRecord {
         sha256: row.try_get("sha256")?,
         stored_path: row.try_get("stored_path")?,
@@ -322,11 +342,98 @@ fn row_to_record(row: &SqliteRow) -> AppResult<BookRecord> {
                 .map(|stage| parse_error_stage(&stage))
                 .transpose()?,
             reading_progress: row.try_get("reading_progress")?,
+            index_aggregate,
             created_at,
             updated_at,
             last_opened_at,
         },
     })
+}
+
+const BOOK_SUMMARY_PROJECTION: &str = r#"
+WITH ranked_runs AS (
+    SELECT
+        id,
+        book_id,
+        ROW_NUMBER() OVER (PARTITION BY book_id ORDER BY updated_at DESC, id DESC) AS row_number
+    FROM index_runs
+), index_aggregates AS (
+    SELECT
+        run.book_id,
+        COUNT(page.id) AS index_total_pages,
+        COALESCE(SUM(CASE WHEN page.status = 'indexed' THEN 1 ELSE 0 END), 0) AS index_indexed_pages,
+        COALESCE(SUM(CASE WHEN page.status = 'needs_review' THEN 1 ELSE 0 END), 0) AS index_review_pages,
+        COALESCE(SUM(CASE WHEN page.status IN ('failed', 'cancelled') THEN 1 ELSE 0 END), 0) AS index_failed_pages,
+        COALESCE(SUM(CASE WHEN page.status = 'not_required' THEN 1 ELSE 0 END), 0) AS index_not_required_pages,
+        COALESCE(SUM(CASE WHEN page.status IN ('queued', 'rendering', 'sending', 'parsing', 'validating') THEN 1 ELSE 0 END), 0) AS index_unresolved_pages,
+        COALESCE(SUM(CASE WHEN page.status NOT IN ('not_required', 'queued', 'rendering', 'sending', 'parsing', 'validating', 'indexed', 'needs_review', 'failed', 'cancelled') THEN 1 ELSE 0 END), 0) AS index_invalid_statuses
+    FROM ranked_runs run
+    LEFT JOIN index_pages page ON page.run_id = run.id AND page.book_id = run.book_id
+    WHERE run.row_number = 1
+    GROUP BY run.book_id
+)
+SELECT b.*, index_aggregates.index_total_pages, index_aggregates.index_indexed_pages,
+    index_aggregates.index_review_pages, index_aggregates.index_failed_pages,
+    index_aggregates.index_not_required_pages, index_aggregates.index_unresolved_pages,
+    index_aggregates.index_invalid_statuses
+FROM books b
+LEFT JOIN index_aggregates ON index_aggregates.book_id = b.id
+WHERE (? IS NULL OR b.id = ?)
+  AND (? IS NULL OR (b.sha256 = ? AND b.id <> ?))
+ORDER BY b.created_at DESC, b.id
+"#;
+
+fn index_aggregate_from_row(row: &SqliteRow) -> AppResult<IndexAggregate> {
+    let total_pages = optional_count(row, "index_total_pages")?;
+    let indexed_pages = optional_count(row, "index_indexed_pages")?;
+    let review_pages = optional_count(row, "index_review_pages")?;
+    let failed_pages = optional_count(row, "index_failed_pages")?;
+    let not_required_pages = optional_count(row, "index_not_required_pages")?;
+    let unresolved_pages = optional_count(row, "index_unresolved_pages")?;
+    let invalid_statuses = optional_count(row, "index_invalid_statuses")?;
+
+    if invalid_statuses != 0 {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+
+    let accounted_pages = indexed_pages
+        .checked_add(review_pages)
+        .and_then(|total| total.checked_add(failed_pages))
+        .and_then(|total| total.checked_add(not_required_pages))
+        .and_then(|total| total.checked_add(unresolved_pages))
+        .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?;
+    if accounted_pages != total_pages {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+
+    let status = if total_pages == 0 {
+        BookIndexAggregateStatus::NotRequired
+    } else if unresolved_pages > 0 {
+        BookIndexAggregateStatus::Partial
+    } else if failed_pages > 0 {
+        if indexed_pages + not_required_pages > 0 || review_pages > 0 {
+            BookIndexAggregateStatus::Partial
+        } else {
+            BookIndexAggregateStatus::Failed
+        }
+    } else if review_pages > 0 {
+        BookIndexAggregateStatus::NeedsReview
+    } else {
+        BookIndexAggregateStatus::Ready
+    };
+
+    Ok(IndexAggregate {
+        status,
+        total_pages,
+        indexed_pages,
+        review_pages,
+        failed_pages,
+    })
+}
+
+fn optional_count(row: &SqliteRow, column: &str) -> AppResult<u32> {
+    let value = row.try_get::<Option<i64>, _>(column)?.unwrap_or(0);
+    u32::try_from(value).map_err(|_| AppError::new(AppErrorCode::DatabaseError))
 }
 
 fn parse_datetime(value: String) -> AppResult<DateTime<Utc>> {

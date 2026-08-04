@@ -10,7 +10,7 @@ use textbooklens_lib::{
         ImportService, ImportStage,
     },
     documents::storage::{copy_source, noop_progress, validate_source},
-    domain::{ImportErrorStage, ImportStatus},
+    domain::{BookIndexAggregateStatus, ImportErrorStage, ImportStatus},
     errors::AppErrorCode,
 };
 use tokio_util::sync::CancellationToken;
@@ -69,6 +69,215 @@ async fn queued_status_maps_through_the_rust_book_summary() {
     assert_eq!(
         service.get_book(book_id).await.unwrap().import_status,
         ImportStatus::Queued
+    );
+}
+
+#[tokio::test]
+async fn book_summaries_project_the_latest_safe_index_aggregate_per_book() {
+    let (_temp, database, service) = test_service().await;
+    let first_book = uuid::Uuid::new_v4();
+    let second_book = uuid::Uuid::new_v4();
+    let older_run = uuid::Uuid::new_v4();
+    let latest_run = uuid::Uuid::new_v4();
+    let second_run = uuid::Uuid::new_v4();
+    let timestamp = "2026-08-04T00:00:00.000Z";
+    let later_timestamp = "2026-08-04T00:00:01.000Z";
+    let first_hash = "a".repeat(64);
+    let second_hash = "b".repeat(64);
+    let content_hash = "c".repeat(64);
+
+    for (book_id, title, filename, hash) in [
+        (first_book, "First", "first.pdf", &first_hash),
+        (second_book, "Second", "second.pdf", &second_hash),
+    ] {
+        sqlx::query(
+            "INSERT INTO books (id, title, format, original_filename, sha256, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'pdf', ?, ?, 'owned/original.pdf', 'ready', ?, ?)",
+        )
+        .bind(book_id.to_string())
+        .bind(title)
+        .bind(filename)
+        .bind(hash)
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(database.pool())
+        .await
+        .unwrap();
+    }
+    for (run_id, book_id, hash, updated_at) in [
+        (older_run, first_book, &first_hash, timestamp),
+        (latest_run, first_book, &first_hash, later_timestamp),
+        (second_run, second_book, &second_hash, later_timestamp),
+    ] {
+        sqlx::query(
+            "INSERT INTO index_runs (id, book_id, source_sha256, provider_kind, model_id, analysis_schema_version, render_version, parser_version, status, created_at, updated_at) VALUES (?, ?, ?, 'openai', 'model', 'v1', 'v1', 'v1', 'running', ?, ?)",
+        )
+        .bind(run_id.to_string())
+        .bind(book_id.to_string())
+        .bind(hash)
+        .bind(updated_at)
+        .bind(updated_at)
+        .execute(database.pool())
+        .await
+        .unwrap();
+    }
+    let attempt = uuid::Uuid::new_v4().to_string();
+    for (
+        run_id,
+        book_id,
+        page_number,
+        status,
+        review_reason,
+        safe_error_code,
+        safe_error_message,
+        content_version,
+    ) in [
+        (
+            latest_run, first_book, 1_i64, "indexed", None, None, None, 1_i64,
+        ),
+        (
+            latest_run,
+            first_book,
+            2_i64,
+            "needs_review",
+            Some("incomplete_content"),
+            None,
+            None,
+            1_i64,
+        ),
+        (
+            latest_run,
+            first_book,
+            3_i64,
+            "failed",
+            None,
+            Some("INDEX_PROVIDER_FAILED"),
+            Some("Provider request failed safely."),
+            0_i64,
+        ),
+        (
+            second_run,
+            second_book,
+            1_i64,
+            "failed",
+            None,
+            Some("INDEX_PROVIDER_FAILED"),
+            Some("Provider request failed safely."),
+            0_i64,
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO index_pages (id, run_id, book_id, page_number, quality_reason, status, attempt_id, attempt_count, safe_error_code, safe_error_message, review_reason_code, content_sha256, content_version, created_at, updated_at) VALUES (?, ?, ?, ?, 'no_text', ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(run_id.to_string())
+        .bind(book_id.to_string())
+        .bind(page_number)
+        .bind(status)
+        .bind(&attempt)
+        .bind(safe_error_code)
+        .bind(safe_error_message)
+        .bind(review_reason)
+        .bind(if content_version > 0 { Some(&content_hash) } else { None })
+        .bind(content_version)
+        .bind(later_timestamp)
+        .bind(later_timestamp)
+        .execute(database.pool())
+        .await
+        .unwrap();
+    }
+
+    let summaries = service.list_books().await.unwrap();
+    let first = summaries.iter().find(|book| book.id == first_book).unwrap();
+    assert_eq!(
+        first.index_aggregate.status,
+        BookIndexAggregateStatus::Partial
+    );
+    assert_eq!(first.index_aggregate.total_pages, 3);
+    assert_eq!(first.index_aggregate.indexed_pages, 1);
+    assert_eq!(first.index_aggregate.review_pages, 1);
+    assert_eq!(first.index_aggregate.failed_pages, 1);
+    let second = summaries
+        .iter()
+        .find(|book| book.id == second_book)
+        .unwrap();
+    assert_eq!(
+        second.index_aggregate.status,
+        BookIndexAggregateStatus::Failed
+    );
+    assert_eq!(second.index_aggregate.total_pages, 1);
+    assert_eq!(second.index_aggregate.failed_pages, 1);
+}
+
+#[tokio::test]
+async fn books_without_page_indexes_are_safely_not_required_and_corruption_fails_closed() {
+    let (_temp, database, service) = test_service().await;
+    let book_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO books (id, title, format, original_filename, import_status, created_at, updated_at) VALUES (?, 'Safe', 'pdf', 'safe.pdf', 'ready', '2026-08-04T00:00:00.000Z', '2026-08-04T00:00:00.000Z')",
+    )
+    .bind(book_id.to_string())
+    .execute(database.pool())
+    .await
+    .unwrap();
+    let summary = service.get_book(book_id).await.unwrap();
+    assert_eq!(
+        summary.index_aggregate.status,
+        BookIndexAggregateStatus::NotRequired
+    );
+    assert_eq!(summary.index_aggregate.total_pages, 0);
+
+    let hash = "d".repeat(64);
+    let run_id = uuid::Uuid::new_v4();
+    sqlx::query("UPDATE books SET sha256 = ?, stored_path = 'owned/safe.pdf' WHERE id = ?")
+        .bind(&hash)
+        .bind(book_id.to_string())
+        .execute(database.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO index_runs (id, book_id, source_sha256, provider_kind, model_id, analysis_schema_version, render_version, parser_version, status, created_at, updated_at) VALUES (?, ?, ?, 'openai', 'model', 'v1', 'v1', 'v1', 'running', '2026-08-04T00:00:01.000Z', '2026-08-04T00:00:01.000Z')",
+    )
+    .bind(run_id.to_string())
+    .bind(book_id.to_string())
+    .bind(&hash)
+    .execute(database.pool())
+    .await
+    .unwrap();
+    let mut connection = database.pool().acquire().await.unwrap();
+    sqlx::query("PRAGMA ignore_check_constraints = ON")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    let corrupt_insert = sqlx::query(
+        "INSERT INTO index_pages (id, run_id, book_id, page_number, quality_reason, status, attempt_id, attempt_count, created_at, updated_at) VALUES (?, ?, ?, 1, 'no_text', 'corrupt', ?, 1, '2026-08-04T00:00:01.000Z', '2026-08-04T00:00:01.000Z')",
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind(run_id.to_string())
+    .bind(book_id.to_string())
+    .bind(uuid::Uuid::new_v4().to_string())
+    .execute(&mut *connection)
+    .await;
+    let restore = sqlx::query("PRAGMA ignore_check_constraints = OFF")
+        .execute(&mut *connection)
+        .await;
+    let restored = match restore {
+        Ok(_) => {
+            sqlx::query_scalar::<_, i64>("PRAGMA ignore_check_constraints")
+                .fetch_one(&mut *connection)
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    if !matches!(restored, Ok(0)) {
+        let _ = connection.close().await;
+        panic!("failed to restore SQLite CHECK constraints: {restored:?}");
+    }
+    corrupt_insert.unwrap();
+    drop(connection);
+
+    assert_eq!(
+        service.get_book(book_id).await.unwrap_err().code,
+        AppErrorCode::DatabaseError
     );
 }
 

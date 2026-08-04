@@ -1,21 +1,22 @@
 use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
-    AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookSummary, CapabilitySupport,
-    ContentSource, ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime,
-    IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
-    IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
-    IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
-    IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent,
-    LearningRequest, LocalTextQuality, NormalizedBookInput, NormalizedRect, OnboardingStateDto,
-    OnboardingStep, PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
-    ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
-    ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary,
-    RemoteCleanupStatus, SafeIndexErrorDto, TeachingInstructionDto, UiLanguage, UnifiedChatRequest,
-    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
-    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
-    ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
-    stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
+    AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookIndexAggregateStatus, BookSummary,
+    CapabilitySupport, ContentSource, ConversationDto, CredentialStatus, DocumentLocator,
+    ImageLimits, ImageMime, IndexAggregate, IndexAggregateStatus, IndexCorrectionConflictState,
+    IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind,
+    IndexPageBlockReviewDto, IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto,
+    IndexQualityReason, IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto,
+    LearningEvent, LearningRequest, LocalTextQuality, NormalizedBookInput, NormalizedRect,
+    OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind, ProviderCapability,
+    ProviderCapabilityRegistryDto, ProviderModelCapability, ProviderOperationConsent,
+    ProviderOperationConsentCategory, ProviderOperationConsentDecision, ProviderPageAnalysis,
+    ProviderProfileSummary, RemoteCleanupStatus, SafeIndexErrorDto, TeachingInstructionDto,
+    UiLanguage, UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent,
+    UntrustedNormalizedRect, UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell,
+    UpdateTeachingInstruction, ValidationResult, VisionAssetMeta, stable_block_id,
+    stable_index_page_block_id, stable_index_page_id, stable_index_search_chunk_id,
+    stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -138,6 +139,42 @@ fn indexing_statuses_round_trip_exact_and_safe_dtos_hide_attempt_ownership() {
 }
 
 #[test]
+fn library_index_aggregate_is_safe_and_uses_only_frozen_statuses() {
+    let statuses = [
+        BookIndexAggregateStatus::NotRequired,
+        BookIndexAggregateStatus::Ready,
+        BookIndexAggregateStatus::Partial,
+        BookIndexAggregateStatus::NeedsReview,
+        BookIndexAggregateStatus::Failed,
+    ];
+    assert_eq!(
+        statuses
+            .into_iter()
+            .map(|status| serde_json::to_value(status).unwrap())
+            .collect::<Vec<_>>(),
+        [
+            serde_json::json!("not_required"),
+            serde_json::json!("ready"),
+            serde_json::json!("partial"),
+            serde_json::json!("needs_review"),
+            serde_json::json!("failed"),
+        ]
+    );
+
+    let aggregate = IndexAggregate {
+        status: BookIndexAggregateStatus::Ready,
+        total_pages: 3,
+        indexed_pages: 2,
+        review_pages: 0,
+        failed_pages: 0,
+    };
+    let serialized = serde_json::to_string(&aggregate).unwrap();
+    for forbidden in ["source", "path", "content", "attempt", "provider", "sha256"] {
+        assert!(!serialized.to_lowercase().contains(forbidden));
+    }
+}
+
+#[test]
 fn block_kind_serializes_to_the_canonical_parser_contract() {
     let kinds = [
         BlockKind::Heading,
@@ -199,6 +236,8 @@ fn export_bindings() {
     let config = Config::new().with_out_dir(output_dir);
 
     BookSummary::export_all(&config).unwrap();
+    IndexAggregate::export_all(&config).unwrap();
+    BookIndexAggregateStatus::export_all(&config).unwrap();
     NormalizedBookInput::export_all(&config).unwrap();
     AnnotationDto::export_all(&config).unwrap();
     ConversationDto::export_all(&config).unwrap();

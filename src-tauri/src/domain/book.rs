@@ -33,6 +33,31 @@ pub enum ImportErrorStage {
     Indexing,
 }
 
+/// The safe, per-book view of durable Phase 9 indexing results.
+///
+/// This deliberately contains no provider, attempt, source, or content data.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "book.ts")]
+pub enum BookIndexAggregateStatus {
+    NotRequired,
+    Ready,
+    Partial,
+    NeedsReview,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "book.ts")]
+pub struct IndexAggregate {
+    pub status: BookIndexAggregateStatus,
+    pub total_pages: u32,
+    pub indexed_pages: u32,
+    pub review_pages: u32,
+    pub failed_pages: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "book.ts")]
@@ -48,6 +73,7 @@ pub struct BookSummary {
     pub import_error_message: Option<String>,
     pub import_error_stage: Option<ImportErrorStage>,
     pub reading_progress: f64,
+    pub index_aggregate: IndexAggregate,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub last_opened_at: Option<DateTime<Utc>>,

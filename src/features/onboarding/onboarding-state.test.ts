@@ -18,6 +18,13 @@ const book = {
   importErrorMessage: null,
   importErrorStage: null,
   readingProgress: 0,
+  indexAggregate: {
+    status: 'not_required' as const,
+    totalPages: 0,
+    indexedPages: 0,
+    reviewPages: 0,
+    failedPages: 0,
+  },
   createdAt: '2026-08-03T00:00:00Z',
   updatedAt: '2026-08-03T00:00:00Z',
   lastOpenedAt: null,

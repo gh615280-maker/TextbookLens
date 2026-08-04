@@ -2,8 +2,17 @@
 
 export type BookFormat = "pdf" | "epub" | "docx";
 
-export type BookSummary = { id: string, title: string, originalFilename: string, author: string | null, language: string | null, format: BookFormat, importStatus: ImportStatus, importErrorCode: string | null, importErrorMessage: string | null, importErrorStage: ImportErrorStage | null, readingProgress: number, createdAt: string, updatedAt: string, lastOpenedAt: string | null, };
+/**
+ * The safe, per-book view of durable Phase 9 indexing results.
+ *
+ * This deliberately contains no provider, attempt, source, or content data.
+ */
+export type BookIndexAggregateStatus = "not_required" | "ready" | "partial" | "needs_review" | "failed";
+
+export type BookSummary = { id: string, title: string, originalFilename: string, author: string | null, language: string | null, format: BookFormat, importStatus: ImportStatus, importErrorCode: string | null, importErrorMessage: string | null, importErrorStage: ImportErrorStage | null, readingProgress: number, indexAggregate: IndexAggregate, createdAt: string, updatedAt: string, lastOpenedAt: string | null, };
 
 export type ImportErrorStage = "copying" | "parsing" | "indexing";
 
 export type ImportStatus = "queued" | "copying" | "parsing" | "indexing" | "ready" | "failed";
+
+export type IndexAggregate = { status: BookIndexAggregateStatus, totalPages: number, indexedPages: number, reviewPages: number, failedPages: number, };
