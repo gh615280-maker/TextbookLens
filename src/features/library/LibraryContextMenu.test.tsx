@@ -88,7 +88,7 @@ describe('library context menu', () => {
       </WithLanguage>,
     );
 
-    const item = screen.getByRole('option', { name: 'Alpha' });
+    const item = screen.getByRole('button', { name: 'Alpha' });
     item.focus();
     fireEvent.contextMenu(item);
     screen.getByRole('menu', { name: 'Book actions' });
@@ -145,7 +145,7 @@ describe('library context menu', () => {
       </WithLanguage>,
     );
 
-    const item = await screen.findByRole('option', { name: 'Alpha' });
+    const item = await screen.findByRole('button', { name: 'Alpha' });
     fireEvent.contextMenu(item);
     await user.click(screen.getByRole('menuitem', { name: 'Index status' }));
     await waitFor(() =>
@@ -186,7 +186,7 @@ describe('library context menu', () => {
       </WithLanguage>,
     );
 
-    const item = await screen.findByRole('option', { name: 'Alpha' });
+    const item = await screen.findByRole('button', { name: 'Alpha' });
     fireEvent.contextMenu(item);
     await user.click(screen.getByRole('menuitem', { name: 'Remove' }));
     expect(screen.getByRole('dialog')).toHaveTextContent(

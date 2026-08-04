@@ -32,10 +32,9 @@ export function LibraryGrid({
   label,
 }: LibraryGridProps) {
   return (
-    <div
+    <ul
       aria-label={label}
       className="library-grid"
-      role="listbox"
       style={{
         display: 'grid',
         gap: 'var(--space-3)',
@@ -59,6 +58,6 @@ export function LibraryGrid({
           onSelect={onSelect}
         />
       ))}
-    </div>
+    </ul>
   );
 }

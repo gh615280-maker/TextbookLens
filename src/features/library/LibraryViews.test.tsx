@@ -97,15 +97,15 @@ describe('library views', () => {
       </WithLanguage>,
     );
 
-    const alpha = screen.getByRole('option', { name: 'Alpha' });
-    const beta = screen.getByRole('option', { name: 'Beta' });
+    const alpha = screen.getByRole('button', { name: 'Alpha' });
+    const beta = screen.getByRole('button', { name: 'Beta' });
     alpha.focus();
     await user.keyboard('{ArrowRight}');
     expect(beta).toHaveFocus();
-    expect(alpha).toHaveAttribute('aria-selected', 'false');
+    expect(alpha).toHaveAttribute('aria-pressed', 'false');
 
     await user.keyboard(' ');
-    expect(beta).toHaveAttribute('aria-selected', 'true');
+    expect(beta).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('Selected')).toBeVisible();
     await user.keyboard('{Enter}');
     expect(onOpen).toHaveBeenCalledWith('book-b');

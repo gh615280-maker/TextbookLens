@@ -93,34 +93,37 @@ export function LibraryItem({
 
   if (view === 'details') {
     return (
-      <>
-        <div
-          {...commonProps}
-          aria-selected={selected}
-          ref={(element) => {
-            triggerRef.current = element;
-          }}
-          role="row"
-        >
-          <span role="gridcell">
+      <div role="row">
+        <span role="gridcell">
+          <button
+            {...commonProps}
+            aria-label={book.title}
+            aria-pressed={selected}
+            ref={(element) => {
+              triggerRef.current = element;
+            }}
+            type="button"
+          >
             {book.title}
-            {selected ? <span> ({message('library.selected')})</span> : null}
-            <LibraryItemStatus book={book} id={id} />
-            {book.importStatus === 'failed' ? (
-              <LibraryItemActions
-                book={book}
-                onDeleteFailed={onDeleteFailed}
-                onRetry={onRetry}
-              />
-            ) : null}
-          </span>
-          <span role="gridcell">{book.format.toUpperCase()}</span>
-          <span role="gridcell">{status}</span>
-          <span role="gridcell">
-            <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
-          </span>
-          <span role="gridcell">{lastOpened}</span>
-        </div>
+            {selected ? ` (${message('library.selected')})` : ''}
+          </button>
+          <LibraryItemStatus book={book} id={id} />
+        </span>
+        <span role="gridcell">{book.format.toUpperCase()}</span>
+        <span role="gridcell">{status}</span>
+        <span role="gridcell">
+          <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
+        </span>
+        <span role="gridcell">{lastOpened}</span>
+        <span role="gridcell">
+          {book.importStatus === 'failed' ? (
+            <LibraryItemActions
+              book={book}
+              onDeleteFailed={onDeleteFailed}
+              onRetry={onRetry}
+            />
+          ) : null}
+        </span>
         {menuOpen ? (
           <LibraryContextMenu
             canOpen={openable}
@@ -135,21 +138,21 @@ export function LibraryItem({
             onShowIndexStatus={() => onIndexStatus(book)}
           />
         ) : null}
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      <div
+    <li>
+      <button
         {...commonProps}
         aria-label={book.title}
-        aria-selected={selected}
+        aria-pressed={selected}
         className="library-item"
         ref={(element) => {
           triggerRef.current = element;
         }}
-        role="option"
+        type="button"
       >
         <span aria-hidden="true" className="library-item__icon">
           {book.format.toUpperCase()}
@@ -158,9 +161,9 @@ export function LibraryItem({
         {selected ? <span>{message('library.selected')}</span> : null}
         <span>{book.format.toUpperCase()}</span>
         <span>{status}</span>
-        <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
         <LibraryItemStatus book={book} id={id} />
-      </div>
+      </button>
+      <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
       {book.importStatus === 'failed' ? (
         <LibraryItemActions
           book={book}
@@ -182,7 +185,7 @@ export function LibraryItem({
           onShowIndexStatus={() => onIndexStatus(book)}
         />
       ) : null}
-    </>
+    </li>
   );
 }
 
