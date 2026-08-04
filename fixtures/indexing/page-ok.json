@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "textbooklens.page-analysis.v1",
+  "pages": [
+    {
+      "pageNumber": 7,
+      "blocks": [
+        {
+          "ordinal": 0,
+          "kind": "title",
+          "plainText": "Synthetic energy identities",
+          "bounds": { "x": 0.1, "y": 0.05, "width": 0.8, "height": 0.08 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": null
+        },
+        {
+          "ordinal": 1,
+          "kind": "paragraph",
+          "plainText": "For a closed synthetic system, the total energy remains constant.",
+          "bounds": { "x": 0.1, "y": 0.18, "width": 0.8, "height": 0.16 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": null
+        },
+        {
+          "ordinal": 2,
+          "kind": "formula",
+          "plainText": "Total energy equals kinetic plus potential energy.",
+          "bounds": { "x": 0.2, "y": 0.4, "width": 0.6, "height": 0.1 },
+          "latex": "E = K + U",
+          "tableCells": null,
+          "visualDescription": null
+        },
+        {
+          "ordinal": 3,
+          "kind": "table",
+          "plainText": "Synthetic measurements",
+          "bounds": { "x": 0.1, "y": 0.56, "width": 0.8, "height": 0.18 },
+          "latex": null,
+          "tableCells": [
+            { "row": 0, "column": 0, "rowSpan": 1, "columnSpan": 1, "text": "time" },
+            { "row": 0, "column": 1, "rowSpan": 1, "columnSpan": 1, "text": "energy" },
+            { "row": 1, "column": 0, "rowSpan": 1, "columnSpan": 1, "text": "0" },
+            { "row": 1, "column": 1, "rowSpan": 1, "columnSpan": 1, "text": "10" }
+          ],
+          "visualDescription": null
+        },
+        {
+          "ordinal": 4,
+          "kind": "figure",
+          "plainText": "",
+          "bounds": { "x": 0.15, "y": 0.78, "width": 0.7, "height": 0.16 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": "A synthetic line remains level across the horizontal axis."
+        }
+      ]
+    }
+  ]
+}

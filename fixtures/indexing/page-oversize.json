@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "textbooklens.page-analysis.v1",
+  "pages": [
+    {
+      "pageNumber": 10,
+      "blocks": [
+        {
+          "ordinal": 0,
+          "kind": "transcript",
+          "plainText": "Synthetic bounded seed used to prove the exact response-byte ceiling without retaining a provider body.",
+          "bounds": { "x": 0.05, "y": 0.05, "width": 0.9, "height": 0.9 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": null
+        }
+      ]
+    }
+  ]
+}

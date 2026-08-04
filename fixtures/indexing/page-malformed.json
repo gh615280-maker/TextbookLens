@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "textbooklens.page-analysis.v1",
+  "pages": [
+    {
+      "pageNumber": 9,
+      "blocks": [
+        {
+          "ordinal": 0,
+          "kind": "paragraph",
+          "plainText": "Synthetic first block.",
+          "bounds": { "x": 0.1, "y": 0.1, "width": 0.8, "height": 0.2 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": null
+        },
+        {
+          "ordinal": 0,
+          "kind": "paragraph",
+          "plainText": "Synthetic duplicate ordinal.",
+          "bounds": { "x": 0.1, "y": 0.4, "width": 0.8, "height": 0.2 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": null
+        }
+      ]
+    }
+  ]
+}

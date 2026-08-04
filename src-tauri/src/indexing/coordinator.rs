@@ -30,12 +30,18 @@ use crate::{
     },
     documents::source::read_book_source_bytes,
     domain::{
-        AiOperation, CapabilitySupport, ImageLimits, ImageMime, IndexFailureCode, IndexPageStatus,
-        IndexQualityReason, ProviderKind, ProviderOperationConsent, ProviderPageAnalysis,
-        RemoteCleanupHandle, StructuredAnalysisOutcome, StructuredPageRequest,
+        AiOperation, CapabilitySupport, DocumentLocator, ImageLimits, ImageMime, IndexFailureCode,
+        IndexPageStatus, IndexQualityReason, ProviderKind, ProviderOperationConsent,
+        ProviderPageAnalysis, RemoteCleanupHandle, StructuredAnalysisOutcome,
+        StructuredPageRequest,
     },
     errors::{AppError, AppErrorCode, AppResult},
-    indexing::{recovery::scratch_path, remote_cleanup, state},
+    indexing::{
+        commit::{PageCommitRequest, commit_validated_page},
+        recovery::scratch_path,
+        remote_cleanup, state,
+        validator::{RequestedPageValidation, validate_batch},
+    },
 };
 
 pub const INDEX_RENDER_VERSION: &str = "pdfjs-render-v1";
@@ -1455,9 +1461,34 @@ async fn submit_with_executor(
         }
     }
 
-    for (run_id, page_id, attempt_id, cancel) in &active {
-        let status = page_attempt_status(&service.pool, *page_id, *attempt_id).await?;
-        if cancel.is_cancelled() && status == IndexPageStatus::Parsing {
+    validate_and_commit_received(
+        service,
+        active,
+        outcome.analysis,
+        response_bytes.len(),
+        events,
+    )
+    .await
+}
+
+async fn validate_and_commit_received(
+    service: &IndexCoordinatorService,
+    active: Vec<(Uuid, Uuid, Uuid, CancellationToken)>,
+    analysis: ProviderPageAnalysis,
+    response_bytes: usize,
+    mut events: Vec<IndexingEventDto>,
+) -> AppResult<ReceivedAnalysis> {
+    let run_id = active
+        .first()
+        .map(|(run_id, _, _, _)| *run_id)
+        .ok_or_else(invalid_input)?;
+
+    // Cancellation barrier: after receipt but before local semantic validation.
+    for (_, page_id, attempt_id, cancel) in &active {
+        if cancel.is_cancelled()
+            && page_attempt_status(&service.pool, *page_id, *attempt_id).await?
+                == IndexPageStatus::Parsing
+        {
             state::cancel(
                 &service.pool,
                 *page_id,
@@ -1465,27 +1496,244 @@ async fn submit_with_executor(
                 *attempt_id,
             )
             .await?;
-            if let Some(event) = events.iter_mut().find(|event| event.page_id == *page_id) {
-                event.status = IndexPageStatus::Cancelled;
-                event.safe_error_code = None;
+            update_event(&mut events, *page_id, IndexPageStatus::Cancelled, None);
+        }
+    }
+
+    let mut requested_pages = Vec::with_capacity(active.len());
+    for (_, page_id, attempt_id, _) in &active {
+        let (book_id, page_number) =
+            load_page_identity(&service.pool, *page_id, *attempt_id).await?;
+        requested_pages.push(RequestedPageValidation {
+            page_number,
+            local_text: load_local_page_text(&service.pool, book_id, page_number).await?,
+        });
+    }
+    let validation = match validate_batch(&analysis, response_bytes, &requested_pages) {
+        Ok(validation) => validation,
+        Err(_) => {
+            for (_, page_id, attempt_id, _) in &active {
+                if page_attempt_status(&service.pool, *page_id, *attempt_id).await?
+                    == IndexPageStatus::Parsing
+                {
+                    state::fail(
+                        &service.pool,
+                        *page_id,
+                        IndexPageStatus::Parsing,
+                        *attempt_id,
+                        IndexFailureCode::IndexResponseInvalid,
+                        true,
+                    )
+                    .await?;
+                    update_event(
+                        &mut events,
+                        *page_id,
+                        IndexPageStatus::Failed,
+                        Some(IndexFailureCode::IndexResponseInvalid),
+                    );
+                }
             }
-        } else if status != IndexPageStatus::Parsing && status != IndexPageStatus::Cancelled {
+            finish_received_claims(service, &active).await;
+            finalize_terminal_run(&service.pool, run_id).await;
+            return Ok(ReceivedAnalysis {
+                analysis: None,
+                events,
+            });
+        }
+    };
+    let validation_by_page = validation
+        .into_iter()
+        .map(|page| (page.page_number, page.result))
+        .collect::<HashMap<_, _>>();
+
+    for (event_run_id, page_id, attempt_id, cancel) in &active {
+        let status = page_attempt_status(&service.pool, *page_id, *attempt_id).await?;
+        if status == IndexPageStatus::Cancelled {
+            continue;
+        }
+        if status != IndexPageStatus::Parsing {
             return Err(AppError::new(AppErrorCode::RequestConflict));
         }
+        if cancel.is_cancelled() {
+            state::cancel(
+                &service.pool,
+                *page_id,
+                IndexPageStatus::Parsing,
+                *attempt_id,
+            )
+            .await?;
+            update_event(&mut events, *page_id, IndexPageStatus::Cancelled, None);
+            continue;
+        }
+        let (_, page_number) = load_page_identity(&service.pool, *page_id, *attempt_id).await?;
+        let Some(result) = validation_by_page.get(&page_number) else {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        };
+        let page = match result {
+            Ok(page) => page,
+            Err(_) => {
+                state::fail(
+                    &service.pool,
+                    *page_id,
+                    IndexPageStatus::Parsing,
+                    *attempt_id,
+                    IndexFailureCode::IndexValidationFailed,
+                    true,
+                )
+                .await?;
+                update_event(
+                    &mut events,
+                    *page_id,
+                    IndexPageStatus::Failed,
+                    Some(IndexFailureCode::IndexValidationFailed),
+                );
+                continue;
+            }
+        };
+        match commit_validated_page(
+            &service.pool,
+            PageCommitRequest {
+                page_id: *page_id,
+                attempt_id: *attempt_id,
+                page,
+            },
+            cancel,
+        )
+        .await
+        {
+            Ok(outcome) => update_event(&mut events, *page_id, outcome.status, None),
+            Err(error) if error.code == AppErrorCode::ImportCancelled => {
+                state::cancel(
+                    &service.pool,
+                    *page_id,
+                    IndexPageStatus::Parsing,
+                    *attempt_id,
+                )
+                .await?;
+                update_event(&mut events, *page_id, IndexPageStatus::Cancelled, None);
+            }
+            Err(_) => {
+                let current = page_attempt_status(&service.pool, *page_id, *attempt_id).await?;
+                if current != IndexPageStatus::Parsing {
+                    return Err(AppError::new(AppErrorCode::RequestConflict));
+                }
+                state::fail(
+                    &service.pool,
+                    *page_id,
+                    IndexPageStatus::Parsing,
+                    *attempt_id,
+                    IndexFailureCode::IndexValidationFailed,
+                    true,
+                )
+                .await?;
+                update_event(
+                    &mut events,
+                    *page_id,
+                    IndexPageStatus::Failed,
+                    Some(IndexFailureCode::IndexValidationFailed),
+                );
+            }
+        }
+        debug_assert_eq!(*event_run_id, run_id);
+    }
+
+    finish_received_claims(service, &active).await;
+    finalize_terminal_run(&service.pool, run_id).await;
+    Ok(ReceivedAnalysis {
+        analysis: None,
+        events,
+    })
+}
+
+async fn finish_received_claims(
+    service: &IndexCoordinatorService,
+    active: &[(Uuid, Uuid, Uuid, CancellationToken)],
+) {
+    for (run_id, page_id, attempt_id, _) in active {
         service
             .operations
             .finish_claim(*run_id, *page_id, *attempt_id);
     }
-    let has_received = events
-        .iter()
-        .any(|event| event.status == IndexPageStatus::Parsing);
-    if !has_received {
-        finalize_cancel_if_possible(&service.pool, first_run_id).await;
+}
+
+async fn finalize_terminal_run(pool: &SqlitePool, run_id: Uuid) {
+    if let Ok(status) = load_run_status(pool, run_id).await {
+        let _ = state::finalize_run_if_terminal(pool, run_id, status).await;
     }
-    Ok(ReceivedAnalysis {
-        analysis: has_received.then_some(outcome.analysis),
-        events,
-    })
+}
+
+fn update_event(
+    events: &mut [IndexingEventDto],
+    page_id: Uuid,
+    status: IndexPageStatus,
+    safe_error_code: Option<IndexFailureCode>,
+) {
+    if let Some(event) = events.iter_mut().find(|event| event.page_id == page_id) {
+        event.status = status;
+        event.safe_error_code = safe_error_code;
+    }
+}
+
+async fn load_page_identity(
+    pool: &SqlitePool,
+    page_id: Uuid,
+    attempt_id: Uuid,
+) -> AppResult<(Uuid, u32)> {
+    let row =
+        sqlx::query("SELECT book_id, page_number FROM index_pages WHERE id = ? AND attempt_id = ?")
+            .bind(page_id.to_string())
+            .bind(attempt_id.to_string())
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
+    Ok((
+        parse_uuid(&row.try_get::<String, _>("book_id")?)?,
+        u32::try_from(row.try_get::<i64, _>("page_number")?).map_err(|_| database_error())?,
+    ))
+}
+
+async fn load_local_page_text(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    page_number: u32,
+) -> AppResult<Option<String>> {
+    const MAX_LOCAL_COMPARISON_CODE_POINTS: usize = 262_144;
+    let rows = sqlx::query(
+        "SELECT plain_text, locator_json FROM blocks WHERE book_id = ? ORDER BY section_id, ordinal",
+    )
+    .bind(book_id.to_string())
+    .fetch_all(pool)
+    .await?;
+    let mut text = String::new();
+    for row in rows {
+        let locator: DocumentLocator =
+            serde_json::from_str(&row.try_get::<String, _>("locator_json")?)
+                .map_err(AppError::database)?;
+        let belongs_to_page = matches!(
+            locator,
+            DocumentLocator::Pdf {
+                start_page,
+                end_page,
+                ..
+            } if (start_page..=end_page).contains(&page_number)
+        );
+        if !belongs_to_page {
+            continue;
+        }
+        let block_text: String = row.try_get("plain_text")?;
+        let next_count = text
+            .chars()
+            .count()
+            .saturating_add(block_text.chars().count());
+        if next_count > MAX_LOCAL_COMPARISON_CODE_POINTS {
+            return Ok(None);
+        }
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&block_text);
+    }
+    Ok((!text.trim().is_empty()).then_some(text))
 }
 
 async fn assert_owned_rendering_submissions(

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "textbooklens.page-analysis.v1",
+  "pages": [
+    {
+      "pageNumber": 8,
+      "blocks": [
+        {
+          "ordinal": 0,
+          "kind": "paragraph",
+          "plainText": "Synthetic overlapping passage one has enough visible text.",
+          "bounds": { "x": 0.1, "y": 0.1, "width": 0.7, "height": 0.25 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": null
+        },
+        {
+          "ordinal": 1,
+          "kind": "paragraph",
+          "plainText": "Synthetic overlapping passage two has different visible text.",
+          "bounds": { "x": 0.11, "y": 0.11, "width": 0.68, "height": 0.23 },
+          "latex": null,
+          "tableCells": null,
+          "visualDescription": null
+        }
+      ]
+    }
+  ]
+}

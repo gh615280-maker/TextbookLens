@@ -25,9 +25,9 @@ use crate::{
     credentials::{CredentialStore, MemoryCredentialStore},
     db::Database,
     domain::{
-        IndexPageStatus, IndexQualityReason, ProviderKind, ProviderPageAnalysis,
-        RemoteCleanupHandle, StructuredAnalysisOutcome, StructuredPageRequest,
-        UntrustedPageAnalysis,
+        IndexPageStatus, IndexQualityReason, PageAnalysisBlockKind, ProviderKind,
+        ProviderPageAnalysis, RemoteCleanupHandle, StructuredAnalysisOutcome,
+        StructuredPageRequest, UntrustedNormalizedRect, UntrustedPageAnalysis, UntrustedPageBlock,
     },
     errors::{AppError, AppErrorCode, AppResult},
     indexing::state::IndexCancellationRegistry,
@@ -78,7 +78,20 @@ impl AnalysisExecutor for FakeExecutor {
                 .into_iter()
                 .map(|page_number| UntrustedPageAnalysis {
                     page_number,
-                    blocks: Vec::new(),
+                    blocks: vec![UntrustedPageBlock {
+                        ordinal: 0,
+                        kind: PageAnalysisBlockKind::Transcript,
+                        plain_text: format!("Synthetic validated page {page_number} content"),
+                        bounds: Some(UntrustedNormalizedRect {
+                            x: 0.1,
+                            y: 0.1,
+                            width: 0.8,
+                            height: 0.2,
+                        }),
+                        latex: None,
+                        table_cells: None,
+                        visual_description: None,
+                    }],
                 })
                 .collect(),
         };
@@ -319,14 +332,14 @@ fn claimed_local_pages_are_bounded_batched_and_stop_at_received() {
             .map(|(index, claim)| submission(claim, index as u8))
             .collect();
         let received = service.submit_rendered_batch(submissions).await.unwrap();
-        assert!(received.analysis.is_some());
+        assert!(received.analysis.is_none());
         assert_eq!(executor.calls.load(Ordering::SeqCst), 1);
         assert_eq!(received.events.len(), 2);
         assert!(
             received
                 .events
                 .iter()
-                .all(|event| event.status == IndexPageStatus::Parsing)
+                .all(|event| event.status == IndexPageStatus::Indexed)
         );
         let statuses: Vec<String> = sqlx::query_scalar(
             "SELECT status FROM index_pages WHERE run_id = ? ORDER BY page_number",
@@ -335,7 +348,7 @@ fn claimed_local_pages_are_bounded_batched_and_stop_at_received() {
         .fetch_all(fixture.database.pool())
         .await
         .unwrap();
-        assert_eq!(statuses, vec!["parsing", "parsing"]);
+        assert_eq!(statuses, vec!["indexed", "indexed"]);
         for claim in &batch.claims {
             assert!(
                 !crate::indexing::recovery::scratch_path(
@@ -355,7 +368,7 @@ fn claimed_local_pages_are_bounded_batched_and_stop_at_received() {
                 .fetch_one(fixture.database.pool())
                 .await
                 .unwrap();
-        assert_eq!(block_count, 0);
+        assert_eq!(block_count, 2);
         assert_eq!(remote_count, 0);
     });
 }
@@ -664,12 +677,12 @@ fn synthetic_remote_outcome_is_tracked_without_blocking_received_state() {
             )
             .await
             .unwrap();
-        assert!(received.analysis.is_some());
+        assert!(received.analysis.is_none());
         assert!(
             received
                 .events
                 .iter()
-                .all(|event| event.status == IndexPageStatus::Parsing)
+                .all(|event| event.status == IndexPageStatus::Indexed)
         );
         let row = sqlx::query(
             "SELECT encrypted_reference, cleanup_status FROM provider_remote_resources WHERE run_id = ?",
@@ -720,7 +733,7 @@ fn synthetic_tracking_db_failure_calls_compensating_delete_after_received() {
             received
                 .events
                 .iter()
-                .all(|event| event.status == IndexPageStatus::Parsing)
+                .all(|event| event.status == IndexPageStatus::Indexed)
         );
         for _ in 0..100 {
             if executor.cleanup_calls.load(Ordering::SeqCst) == 1 {
