@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { useMessage } from '../../app/LanguageProvider';
+import { useLanguage, useMessage } from '../../app/LanguageProvider';
 import { toUserError, type UserFacingError } from '../../lib/errors';
 import type { BookSummary } from '../../lib/generated/book';
 import { TauriImportIpc } from '../../lib/ipc';
@@ -9,7 +9,6 @@ import {
   ImportCoordinator,
   type ImportCoordinatorPort,
 } from '../import/ImportCoordinator';
-import { ImportButton } from '../import/ImportButton';
 import {
   importViewReducer,
   initialImportViewState,
@@ -18,7 +17,15 @@ import { ImportProgress } from '../import/ImportProgress';
 import { createDocumentParserRegistry } from '../import/parser-registry';
 import { pickTextbook } from '../import/picker';
 import { TauriLibraryApi, type LibraryApi } from './api';
-import { BookCard } from './BookCard';
+import { LibraryCommandBar } from './LibraryCommandBar';
+import { LibraryDetails } from './LibraryDetails';
+import { LibraryGrid } from './LibraryGrid';
+import {
+  getVisibleBooks,
+  initialLibraryState,
+  libraryStateReducer,
+} from './library-state';
+import { LibrarySidebar } from './LibrarySidebar';
 
 export interface LibraryPageProps {
   libraryApi?: LibraryApi;
@@ -31,6 +38,7 @@ export function LibraryPage({
 }: LibraryPageProps = {}) {
   const navigate = useNavigate();
   const message = useMessage();
+  const { uiLanguage } = useLanguage();
   const [api] = useState<LibraryApi>(() => libraryApi ?? new TauriLibraryApi());
   const [coordinator] = useState<ImportCoordinatorPort>(
     () =>
@@ -43,9 +51,13 @@ export function LibraryPage({
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<UserFacingError | null>(null);
-  const [importState, dispatch] = useReducer(
+  const [importState, dispatchImport] = useReducer(
     importViewReducer,
     initialImportViewState,
+  );
+  const [libraryState, dispatchLibrary] = useReducer(
+    libraryStateReducer,
+    initialLibraryState,
   );
 
   const refresh = useCallback(async () => {
@@ -79,20 +91,30 @@ export function LibraryPage({
     };
   }, [api]);
 
+  const visibleBooks = getVisibleBooks(books, libraryState, uiLanguage);
+
+  useEffect(() => {
+    if (!libraryState.focusedBookId) return;
+    const next = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-book-id]'),
+    ).find((element) => element.dataset.bookId === libraryState.focusedBookId);
+    next?.focus();
+  }, [libraryState.focusedBookId, libraryState.view, visibleBooks]);
+
   async function runImport(sourcePath: string) {
-    dispatch({ type: 'start' });
+    dispatchImport({ type: 'start' });
     try {
       const operation = coordinator.importDocument(
         sourcePath,
-        (event) => dispatch({ type: 'progress', event }),
-        (book) => dispatch({ type: 'identify', bookId: book.id }),
+        (event) => dispatchImport({ type: 'progress', event }),
+        (book) => dispatchImport({ type: 'identify', bookId: book.id }),
       );
       const ready = await operation;
-      dispatch({ type: 'finish' });
+      dispatchImport({ type: 'finish' });
       navigate(`/books/${ready.id}/read`);
     } catch (error) {
       const normalized = toUserError(error);
-      dispatch(
+      dispatchImport(
         normalized.code === 'IMPORT_CANCELLED'
           ? { type: 'finish' }
           : { type: 'failed', error: normalized },
@@ -104,20 +126,20 @@ export function LibraryPage({
   async function retry(bookId: string) {
     const sourcePath = await pickTextbook();
     if (!sourcePath) return;
-    dispatch({ type: 'start' });
+    dispatchImport({ type: 'start' });
     try {
       const operation = coordinator.retryDocument(
         bookId,
         sourcePath,
-        (event) => dispatch({ type: 'progress', event }),
-        (book) => dispatch({ type: 'identify', bookId: book.id }),
+        (event) => dispatchImport({ type: 'progress', event }),
+        (book) => dispatchImport({ type: 'identify', bookId: book.id }),
       );
       const ready = await operation;
-      dispatch({ type: 'finish' });
+      dispatchImport({ type: 'finish' });
       navigate(`/books/${ready.id}/read`);
     } catch (error) {
       const normalized = toUserError(error);
-      dispatch(
+      dispatchImport(
         normalized.code === 'IMPORT_CANCELLED'
           ? { type: 'finish' }
           : { type: 'failed', error: normalized },
@@ -131,7 +153,7 @@ export function LibraryPage({
       await api.deleteFailedImport(bookId);
       await refresh();
     } catch (error) {
-      dispatch({ type: 'failed', error: toUserError(error) });
+      dispatchImport({ type: 'failed', error: toUserError(error) });
     }
   }
 
@@ -139,25 +161,45 @@ export function LibraryPage({
     if (importState.status !== 'running') return;
     if (importState.bookId) {
       void coordinator.cancel(importState.bookId).catch((error: unknown) => {
-        dispatch({ type: 'failed', error: toUserError(error) });
+        dispatchImport({ type: 'failed', error: toUserError(error) });
       });
     } else {
       coordinator.cancelPending();
     }
   }
 
+  function moveFocus(bookId: string, offset: -1 | 1) {
+    const index = visibleBooks.findIndex((book) => book.id === bookId);
+    if (index < 0) return;
+    const next = visibleBooks[index + offset];
+    if (next) dispatchLibrary({ type: 'focus', bookId: next.id });
+  }
+
+  const itemActions = {
+    onDelete: (bookId: string) => void deleteFailed(bookId),
+    onFocus: (bookId: string) => dispatchLibrary({ type: 'focus', bookId }),
+    onMoveFocus: moveFocus,
+    onOpen: (bookId: string) => navigate(`/books/${bookId}/read`),
+    onRetry: (bookId: string) => void retry(bookId),
+    onSelect: (bookId: string) => dispatchLibrary({ type: 'select', bookId }),
+  };
+
   return (
     <section aria-labelledby="library-title" className="library-page">
-      <div className="library-page__header">
-        <div>
-          <h1 id="library-title">书库</h1>
-          <p>教材保存在本机，可离线阅读和检索。</p>
-        </div>
-        <ImportButton
-          disabled={importState.status === 'running'}
-          onSelect={runImport}
-        />
-      </div>
+      <header className="library-page__header">
+        <h1 id="library-title">{message('page.library.title')}</h1>
+      </header>
+      <LibraryCommandBar
+        filter={libraryState.filter}
+        importDisabled={importState.status === 'running'}
+        query={libraryState.query}
+        sort={libraryState.sort}
+        view={libraryState.view}
+        onImport={runImport}
+        onQueryChange={(query) => dispatchLibrary({ type: 'setQuery', query })}
+        onSortChange={(sort) => dispatchLibrary({ type: 'setSort', sort })}
+        onViewChange={(view) => dispatchLibrary({ type: 'setView', view })}
+      />
 
       {importState.status === 'running' ? (
         <ImportProgress event={importState.event} onCancel={cancelImport} />
@@ -172,27 +214,53 @@ export function LibraryPage({
         <div className="inline-error" role="alert">
           <p>{loadError.message}</p>
           <button type="button" onClick={() => void refresh()}>
-            重试加载
+            {message('library.retryLoading')}
           </button>
         </div>
       ) : null}
 
-      {loading ? <p aria-live="polite">正在加载书库…</p> : null}
-      {!loading && books.length === 0 ? (
-        <p className="empty-state">尚未导入教材。</p>
-      ) : null}
-      <div className="book-grid" aria-label="教材列表">
-        {books.map((book) => (
-          <BookCard
-            key={book.id}
-            book={book}
-            indexLabel={message('indexStart.action')}
-            onDelete={(bookId) => void deleteFailed(bookId)}
-            onIndex={(bookId) => navigate(`/books/${bookId}/index-start`)}
-            onOpen={(bookId) => navigate(`/books/${bookId}/read`)}
-            onRetry={(bookId) => void retry(bookId)}
-          />
-        ))}
+      <div
+        className="library-explorer"
+        style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)' }}
+      >
+        <LibrarySidebar
+          filter={libraryState.filter}
+          onFilterChange={(filter) =>
+            dispatchLibrary({ type: 'setFilter', filter })
+          }
+        />
+        <div
+          className="library-explorer__content"
+          style={{ flex: '999 1 32rem', minWidth: 0 }}
+        >
+          {loading ? (
+            <p aria-live="polite">{message('library.loading')}</p>
+          ) : null}
+          {!loading && visibleBooks.length === 0 ? (
+            <p className="empty-state">{message('library.empty')}</p>
+          ) : null}
+          {!loading &&
+          visibleBooks.length > 0 &&
+          libraryState.view === 'large' ? (
+            <LibraryGrid
+              books={visibleBooks}
+              focusedBookId={libraryState.focusedBookId}
+              selectedBookId={libraryState.selectedBookId}
+              label={message('library.itemsLabel')}
+              {...itemActions}
+            />
+          ) : null}
+          {!loading &&
+          visibleBooks.length > 0 &&
+          libraryState.view === 'details' ? (
+            <LibraryDetails
+              books={visibleBooks}
+              focusedBookId={libraryState.focusedBookId}
+              selectedBookId={libraryState.selectedBookId}
+              {...itemActions}
+            />
+          ) : null}
+        </div>
       </div>
     </section>
   );
