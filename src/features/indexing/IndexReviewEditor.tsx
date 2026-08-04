@@ -107,14 +107,14 @@ export function IndexReviewEditor({
         if (active) setImageError(true);
       } finally {
         sourceBytes?.fill(0);
-        if (source) new Uint8Array(source).fill(0);
+        wipeSource(source);
         if (rendered) releaseRenderedPdfPage(rendered);
       }
     })();
     return () => {
       active = false;
       sourceBytes?.fill(0);
-      if (source) new Uint8Array(source).fill(0);
+      wipeSource(source);
       if (rendered) releaseRenderedPdfPage(rendered);
       if (url) URL.revokeObjectURL(url);
     };
@@ -351,4 +351,9 @@ function valueFor(
   if (correction) return correction.correctedValue;
   const block = page.blocks.find((item) => item.id === blockId);
   return (valueKind === 'text' ? block?.plainText : block?.latex) ?? '';
+}
+
+function wipeSource(source: ArrayBuffer | undefined): void {
+  if (!source || source.byteLength === 0) return;
+  new Uint8Array(source).fill(0);
 }

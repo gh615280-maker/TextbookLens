@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -56,6 +56,7 @@ describe('IndexReviewEditor', () => {
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
     const saveCorrection = vi.fn().mockResolvedValue({});
     const changed = vi.fn();
+    let renderedSource: ArrayBuffer | undefined;
     const view = render(
       <IndexReviewEditor
         page={page}
@@ -67,7 +68,14 @@ describe('IndexReviewEditor', () => {
         }}
         onChanged={changed}
         readerApi={{ readBookSource: async () => source }}
-        renderPage={async () => capture}
+        renderPage={async (localSource) => {
+          renderedSource = localSource;
+          const transferred = structuredClone(localSource, {
+            transfer: [localSource],
+          });
+          new Uint8Array(transferred).fill(0);
+          return capture;
+        }}
       />,
     );
 
@@ -75,6 +83,7 @@ describe('IndexReviewEditor', () => {
       await screen.findByRole('img', { name: 'Local original page 7' }),
     ).toHaveAttribute('src', 'blob:synthetic');
     expect(source.every((byte) => byte === 0)).toBe(true);
+    expect(renderedSource?.byteLength).toBe(0);
     expect(capture.bytes.every((byte) => byte === 0)).toBe(true);
     await user.clear(screen.getByLabelText('Editable value'));
     await user.type(
@@ -96,8 +105,69 @@ describe('IndexReviewEditor', () => {
       /^[0-9a-f]{64}$/u,
     );
     expect(changed).toHaveBeenCalledOnce();
-    view.unmount();
+    expect(() => view.unmount()).not.toThrow();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:synthetic');
+  });
+
+  it('releases a detached late preview after unmount without resurrecting local image state', async () => {
+    const source = new Uint8Array([4, 5, 6]);
+    const capture = {
+      schemaVersion: 1 as const,
+      mimeType: 'image/png' as const,
+      width: 1,
+      height: 1,
+      decodedPixelCount: 1,
+      encodedByteLength: 8,
+      sha256: 'b'.repeat(64),
+      bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    };
+    let resolveRender!: (value: typeof capture) => void;
+    let renderedSource: ArrayBuffer | undefined;
+    const createObjectURL = vi.fn(() => 'blob:late-preview');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const renderPage = vi.fn((localSource: ArrayBuffer) => {
+      renderedSource = localSource;
+      const transferred = structuredClone(localSource, {
+        transfer: [localSource],
+      });
+      new Uint8Array(transferred).fill(0);
+      return new Promise<typeof capture>((resolve) => {
+        resolveRender = resolve;
+      });
+    });
+    const view = render(
+      <IndexReviewEditor
+        page={page}
+        api={{
+          saveCorrection: vi.fn(),
+          resolveCorrectionConflict: vi.fn(),
+          deleteCorrection: vi.fn(),
+          retryPage: vi.fn(),
+        }}
+        onChanged={vi.fn()}
+        readerApi={{ readBookSource: async () => source }}
+        renderPage={renderPage}
+      />,
+    );
+
+    await waitFor(() => expect(renderPage).toHaveBeenCalledOnce());
+    expect(source.every((byte) => byte === 0)).toBe(true);
+    expect(renderedSource?.byteLength).toBe(0);
+    expect(() => view.unmount()).not.toThrow();
+
+    await act(async () => {
+      resolveRender(capture);
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(capture.bytes.every((byte) => byte === 0)).toBe(true),
+    );
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole('img', { name: 'Local original page 7' }),
+    ).not.toBeInTheDocument();
   });
 
   it('retries once with the safe review version and refreshes only after success', async () => {
