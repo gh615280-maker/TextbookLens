@@ -3,10 +3,13 @@ use std::{fmt, sync::Arc};
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use sqlx::SqlitePool;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::{
-    provider::{AiProvider, validate_credential, validate_model_id},
+    provider::{
+        AiProvider, ProviderStream, UnifiedChatRequest, validate_credential, validate_model_id,
+    },
     providers::{
         anthropic::AnthropicProvider, deepseek::DeepSeekProvider, gemini::GeminiProvider,
         kimi::KimiProvider, openai::OpenAiProvider,
@@ -224,6 +227,23 @@ impl LoadedProvider {
     pub async fn revalidate(&self) -> AppResult<ValidationResult> {
         self.adapter
             .validate(&self.credential, &self.profile.model_id)
+            .await
+            .map_err(|error| error.into_app_error())
+    }
+
+    /// Streams a text-learning request using the already captured profile,
+    /// credential, and provider adapter. This deliberately exposes no generic
+    /// execution or credential access outside the runtime boundary.
+    pub async fn stream_text_learning(
+        &self,
+        request: UnifiedChatRequest,
+        cancel: CancellationToken,
+    ) -> AppResult<ProviderStream> {
+        if self.operation != AiOperation::TextLearning || request.model != self.profile.model_id {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
+        self.adapter
+            .stream_chat(&self.credential, request, cancel)
             .await
             .map_err(|error| error.into_app_error())
     }

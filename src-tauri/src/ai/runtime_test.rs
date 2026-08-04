@@ -8,8 +8,10 @@ use std::{
 };
 
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
@@ -24,7 +26,10 @@ use crate::{
     },
     credentials::CredentialStore,
     db::{Database, providers},
-    domain::{AiOperation, ProviderKind, ProviderOperationConsentDecision},
+    domain::{
+        AiOperation, ProviderKind, ProviderOperationConsentDecision, UnifiedChatRequest,
+        UnifiedMessage, UnifiedRole, UnifiedStreamEvent,
+    },
     errors::{AppError, AppErrorCode, AppErrorDto, AppResult},
 };
 
@@ -225,6 +230,86 @@ async fn runtime_loads_only_the_uuid_key_and_rechecks_before_using_the_adapter()
         .await
         .unwrap_err();
     assert_eq!(error.code, AppErrorCode::ModelNotFound);
+}
+
+#[tokio::test]
+async fn loaded_provider_streams_only_its_captured_text_model_and_preserves_terminal_events() {
+    let (_temporary, database) = test_database();
+    let store = Arc::new(ScriptedStore::default());
+    let profile_id = Uuid::new_v4();
+    insert_profile(database.pool(), profile_id, "openai", "gpt-5.6", 32_000).await;
+    store.seed(
+        &providers::credential_key(profile_id),
+        "synthetic-stream-credential",
+    );
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"synthetic visible\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":null}}\n\n",
+            "text/event-stream",
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let runtime = test_runtime(store, &server);
+    let loaded = runtime
+        .load(database.pool(), profile_id, AiOperation::TextLearning)
+        .await
+        .unwrap();
+
+    let events = loaded
+        .stream_text_learning(test_chat_request("gpt-5.6"), CancellationToken::new())
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert!(events.iter().any(|event| matches!(
+        event,
+        Ok(UnifiedStreamEvent::TextDelta { text }) if text == "synthetic visible"
+    )));
+    assert!(matches!(
+        events.last(),
+        Some(Ok(UnifiedStreamEvent::Completed))
+    ));
+}
+
+#[tokio::test]
+async fn loaded_provider_denies_model_mismatch_locally_without_sensitive_leakage() {
+    let (_temporary, database) = test_database();
+    let store = Arc::new(ScriptedStore::default());
+    let profile_id = Uuid::new_v4();
+    insert_profile(database.pool(), profile_id, "openai", "gpt-5.6", 32_000).await;
+    let credential_sentinel = "runtime-credential-sentinel";
+    let request_sentinel = "runtime-request-sentinel";
+    store.seed(&providers::credential_key(profile_id), credential_sentinel);
+    let server = MockServer::start().await;
+    let runtime = test_runtime(store, &server);
+    let loaded = runtime
+        .load(database.pool(), profile_id, AiOperation::TextLearning)
+        .await
+        .unwrap();
+    let mut request = test_chat_request("wrong-model");
+    request.system = request_sentinel.to_owned();
+    request.messages[0].content = request_sentinel.to_owned();
+
+    let error = match loaded
+        .stream_text_learning(request, CancellationToken::new())
+        .await
+    {
+        Ok(_) => panic!("model mismatch must be denied before HTTP"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code, AppErrorCode::InvalidInput);
+    let surfaces = [
+        format!("{error:?}"),
+        error.to_string(),
+        serde_json::to_string(&AppErrorDto::from(error)).unwrap(),
+    ];
+    for surface in surfaces {
+        assert!(!surface.contains(credential_sentinel));
+        assert!(!surface.contains(request_sentinel));
+    }
 }
 
 #[tokio::test]
@@ -560,6 +645,19 @@ fn test_runtime(store: Arc<ScriptedStore>, server: &MockServer) -> ProviderRunti
         &server.uri(),
     )
     .unwrap()
+}
+
+fn test_chat_request(model: &str) -> UnifiedChatRequest {
+    UnifiedChatRequest {
+        model: model.to_owned(),
+        system: "synthetic system".to_owned(),
+        messages: vec![UnifiedMessage {
+            role: UnifiedRole::User,
+            content: "synthetic question".to_owned(),
+        }],
+        max_output_tokens: 32,
+        expected_language: Some("en".to_owned()),
+    }
 }
 
 fn save_request(credential: &str) -> SaveProviderProfileRequest {
