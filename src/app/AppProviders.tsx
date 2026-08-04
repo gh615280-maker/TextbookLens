@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 
 import { ErrorBoundary } from './ErrorBoundary';
 import { LanguageProvider } from './LanguageProvider';
+import { IndexingProvider } from '../features/indexing/IndexingProvider';
 
 interface AppProvidersProps {
   children: ReactNode;
@@ -10,7 +11,9 @@ interface AppProvidersProps {
 export function AppProviders({ children }: AppProvidersProps) {
   return (
     <LanguageProvider>
-      <ErrorBoundary>{children}</ErrorBoundary>
+      <IndexingProvider>
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </IndexingProvider>
     </LanguageProvider>
   );
 }

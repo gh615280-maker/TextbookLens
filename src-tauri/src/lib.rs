@@ -33,7 +33,14 @@ pub fn run() {
             let database = db::Database::open(&paths.database)?;
             db::settings::recover_interrupted_imports(database.pool(), &paths)?;
             indexing::recovery::recover_on_startup(database.pool(), &paths.indexing_scratch())?;
-            let credential_store = Arc::new(credentials::KeyringCredentialStore::new());
+            let credential_store: Arc<dyn credentials::CredentialStore> =
+                Arc::new(credentials::KeyringCredentialStore::new());
+            let remote_cleaner = indexing::remote_cleanup::RuntimeRemoteResourceCleaner::new(
+                credential_store.clone(),
+                provider_capabilities.clone(),
+            );
+            let remote_cleanup_pool = database.pool().clone();
+            let remote_cleanup_store = credential_store.clone();
             app.manage(app_state::AppState::new(
                 database,
                 paths,
@@ -41,6 +48,15 @@ pub fn run() {
                 credential_store,
                 provider_capabilities,
             ));
+            tauri::async_runtime::spawn(async move {
+                let _ = indexing::remote_cleanup::sweep_remote_resources(
+                    &remote_cleanup_pool,
+                    remote_cleanup_store.as_ref(),
+                    &remote_cleaner,
+                    tokio_util::sync::CancellationToken::new(),
+                )
+                .await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -70,6 +86,17 @@ pub fn run() {
             commands::documents::mark_import_failed,
             commands::documents::retry_import,
             commands::documents::search_book,
+            commands::indexing::confirm_index_operation,
+            commands::indexing::create_index_run,
+            commands::indexing::authorize_index_run,
+            commands::indexing::claim_index_render_batch,
+            commands::indexing::read_claimed_index_source,
+            commands::indexing::submit_index_render_batch,
+            commands::indexing::report_index_render_failure,
+            commands::indexing::pause_index_run,
+            commands::indexing::resume_index_run,
+            commands::indexing::cancel_index_run,
+            commands::indexing::retry_index_page,
             commands::settings::get_app_settings,
             commands::settings::initialize_ui_language,
             commands::settings::update_ui_language,
