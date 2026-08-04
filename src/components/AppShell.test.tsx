@@ -10,7 +10,7 @@ describe('AppShell', () => {
     clearMocks();
   });
 
-  it('renders the teaching placeholder and the Phase 7 AI Services page', async () => {
+  it('renders the Phase 8 teaching workspace and the Phase 7 AI Services page', async () => {
     installTauriMock((command) => {
       if (command === 'get_app_settings') {
         return {
@@ -25,7 +25,16 @@ describe('AppShell', () => {
           firstReaderHintCompleted: false,
         };
       }
+      if (command === 'get_teaching_instruction') {
+        return {
+          instruction: '',
+          revision: 0,
+          updatedAt: '2026-08-04T00:00:00Z',
+        };
+      }
       if (command === 'list_provider_profiles') return [];
+      if (command === 'plugin:event|listen') return 1;
+      if (command === 'plugin:event|unlisten') return null;
       if (command === 'list_provider_capabilities') {
         return {
           schemaVersion: 1,
@@ -54,12 +63,22 @@ describe('AppShell', () => {
       }
       throw new Error(`Unexpected Tauri command: ${command}`);
     });
+    (
+      window as Window & {
+        __TAURI_EVENT_PLUGIN_INTERNALS__: {
+          unregisterListener(event: string, id: number): void;
+        };
+      }
+    ).__TAURI_EVENT_PLUGIN_INTERNALS__.unregisterListener = () => {};
 
     const teaching = render(
       <App initialEntries={['/teaching-instructions']} />,
     );
 
-    expect(await screen.findByText('教学指令将在后续阶段实现。')).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: '教学指令' }),
+    ).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Instruction' })).toBeVisible();
 
     teaching.unmount();
     render(<App initialEntries={['/ai-services']} />);
