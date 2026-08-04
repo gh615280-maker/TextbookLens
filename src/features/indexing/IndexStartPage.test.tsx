@@ -55,6 +55,41 @@ describe('IndexStartPage', () => {
     expect(dependencies.updateConsent).not.toHaveBeenCalled();
   });
 
+  it('keeps confirmation and rejection reachable after PDF.js transfers the inspection buffer', async () => {
+    const source = new Uint8Array([7, 8, 9]);
+    let transferredSource: ArrayBuffer | undefined;
+    const dependencies = createDependencies({ source });
+    dependencies.inspectQuality.mockImplementation(async (localSource) => {
+      transferredSource = structuredClone(localSource, {
+        transfer: [localSource],
+      });
+      expect(localSource.byteLength).toBe(0);
+      return [quality(1, 'no_text', 'needs_review')];
+    });
+    renderPage(dependencies);
+
+    expect(
+      await screen.findByRole('dialog', {
+        name: 'Start AI-assisted indexing?',
+      }),
+    ).toBeVisible();
+    expect([...source]).toEqual([0, 0, 0]);
+    expect(transferredSource).toBeDefined();
+    expect(transferredSource?.byteLength).toBe(3);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Continue without AI indexing' }),
+    );
+
+    expect(
+      screen.getByText(`location:/books/${BOOK_ID}/read?index=local-only`),
+    ).toBeVisible();
+    expect(dependencies.confirmOperation).not.toHaveBeenCalled();
+    expect(dependencies.createRun).not.toHaveBeenCalled();
+    expect(dependencies.updateConsent).not.toHaveBeenCalled();
+    if (transferredSource) new Uint8Array(transferredSource).fill(0);
+  });
+
   it('uses the exact verified default profile and creates one run from one fresh token', async () => {
     const dependencies = createDependencies({
       source: new Uint8Array([1, 2, 3]),

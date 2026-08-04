@@ -240,6 +240,7 @@ function copySource(source: Uint8Array | ArrayBuffer): ArrayBuffer {
 function wipeSource(source: Uint8Array | ArrayBuffer | undefined): void {
   if (!source) return;
   if (source instanceof ArrayBuffer) {
+    if (source.byteLength === 0) return;
     new Uint8Array(source).fill(0);
     return;
   }
