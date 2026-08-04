@@ -12,6 +12,7 @@ import { AiServicesPage } from '../features/providers/AiServicesPage';
 import { ReaderPage } from '../features/reader/ReaderPage';
 import { SettingsPage } from '../features/settings/SettingsPage';
 import { TeachingInstructionsPage } from '../features/teaching/TeachingInstructionsPage';
+import { IndexQualityPage } from '../features/indexing/IndexQualityPage';
 
 export const appRoutes: RouteObject[] = [
   {
@@ -48,6 +49,10 @@ export const appRoutes: RouteObject[] = [
           { path: '/ai-services', element: <AiServicesPage /> },
           { path: '/books/:bookId/overview', element: <OverviewPage /> },
           { path: '/settings', element: <SettingsPage /> },
+          {
+            path: '/books/:bookId/index-quality/:runId',
+            element: <IndexQualityPage />,
+          },
         ],
       },
       {

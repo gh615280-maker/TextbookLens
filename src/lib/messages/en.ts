@@ -50,4 +50,9 @@ export const en = {
   'teaching.leave': 'Leave page',
   'teaching.stay': 'Stay',
   'example.greeting': 'Hello, {name}',
+  'indexQuality.title': 'Index quality',
+  'indexQuality.description':
+    'Review local indexing results and manage the durable run.',
+  'indexQuality.loading': 'Loading index status…',
+  'indexQuality.retryLoading': 'Retry loading',
 } satisfies MessageCatalog;

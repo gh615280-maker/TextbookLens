@@ -39,4 +39,9 @@ export const zhCN = {
   'teaching.leave': '离开页面',
   'teaching.stay': '留在此页',
   'example.greeting': '你好，{name}',
+  'indexQuality.title': 'Index quality',
+  'indexQuality.description':
+    'Review local indexing results and manage the durable run.',
+  'indexQuality.loading': 'Loading index status…',
+  'indexQuality.retryLoading': 'Retry loading',
 } as const;

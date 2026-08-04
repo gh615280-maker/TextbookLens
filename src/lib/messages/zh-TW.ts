@@ -41,4 +41,9 @@ export const zhTW = {
   'teaching.leave': '離開頁面',
   'teaching.stay': '留在此頁',
   'example.greeting': '你好，{name}',
+  'indexQuality.title': 'Index quality',
+  'indexQuality.description':
+    'Review local indexing results and manage the durable run.',
+  'indexQuality.loading': 'Loading index status…',
+  'indexQuality.retryLoading': 'Retry loading',
 } satisfies MessageCatalog;

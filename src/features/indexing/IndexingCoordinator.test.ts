@@ -109,6 +109,27 @@ class FakeApi implements IndexingApi {
   async retryPage(): Promise<string> {
     throw new Error('unused');
   }
+  async getRunAggregate(): Promise<never> {
+    throw new Error('unused');
+  }
+  async listPageReviews(): Promise<never> {
+    throw new Error('unused');
+  }
+  async getPageReview(): Promise<never> {
+    throw new Error('unused');
+  }
+  async listPageCorrections(): Promise<never> {
+    throw new Error('unused');
+  }
+  async saveCorrection(): Promise<never> {
+    throw new Error('unused');
+  }
+  async resolveCorrectionConflict(): Promise<never> {
+    throw new Error('unused');
+  }
+  async deleteCorrection(): Promise<void> {
+    throw new Error('unused');
+  }
 }
 
 describe('IndexingCoordinator', () => {

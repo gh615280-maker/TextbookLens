@@ -32,6 +32,27 @@ function idleApi(): IndexingApi {
     retryPage: async () => {
       throw new Error('unused');
     },
+    getRunAggregate: async () => {
+      throw new Error('unused');
+    },
+    listPageReviews: async () => {
+      throw new Error('unused');
+    },
+    getPageReview: async () => {
+      throw new Error('unused');
+    },
+    listPageCorrections: async () => {
+      throw new Error('unused');
+    },
+    saveCorrection: async () => {
+      throw new Error('unused');
+    },
+    resolveCorrectionConflict: async () => {
+      throw new Error('unused');
+    },
+    deleteCorrection: async () => {
+      throw new Error('unused');
+    },
   };
 }
 

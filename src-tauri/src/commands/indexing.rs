@@ -10,10 +10,15 @@ use crate::{
     db::corrections::{
         CorrectionConflictDecision, DeleteIndexCorrection, ResolveIndexCorrectionConflict,
         SaveIndexCorrection, delete_index_correction as delete_index_correction_repository,
+        list_page_corrections,
         resolve_index_correction_conflict as resolve_index_correction_conflict_repository,
         save_index_correction as save_index_correction_repository,
     },
-    domain::{IndexCorrectionReviewDto, IndexCorrectionValueKind},
+    db::indexing::{get_page_review, get_run_aggregate, list_page_reviews},
+    domain::{
+        IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexPageReviewDto,
+        IndexRunAggregateDto,
+    },
     errors::{AppError, AppErrorCode, AppErrorDto},
     indexing::coordinator::{
         ConfirmIndexOperationRequest, IndexCoordinatorService, IndexingEventDto,
@@ -238,6 +243,48 @@ pub async fn retry_index_page(
 ) -> Result<Uuid, AppErrorDto> {
     service(&state)
         .retry_page(page_id, attempt_id)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+/// Returns only persisted, safe review metadata; it never reads a document source.
+#[tauri::command]
+pub async fn get_index_run_aggregate(
+    state: State<'_, AppState>,
+    run_id: Uuid,
+) -> Result<IndexRunAggregateDto, AppErrorDto> {
+    get_run_aggregate(state.db.pool(), run_id)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+/// Lists only pages that require user attention, as determined by SQLite.
+#[tauri::command]
+pub async fn list_index_page_reviews(
+    state: State<'_, AppState>,
+    run_id: Uuid,
+) -> Result<Vec<IndexPageReviewDto>, AppErrorDto> {
+    list_page_reviews(state.db.pool(), run_id)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn get_index_page_review(
+    state: State<'_, AppState>,
+    page_id: Uuid,
+) -> Result<IndexPageReviewDto, AppErrorDto> {
+    get_page_review(state.db.pool(), page_id)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn list_index_page_corrections(
+    state: State<'_, AppState>,
+    page_id: Uuid,
+) -> Result<Vec<IndexCorrectionReviewDto>, AppErrorDto> {
+    list_page_corrections(state.db.pool(), page_id)
         .await
         .map_err(AppErrorDto::from)
 }

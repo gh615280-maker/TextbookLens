@@ -2,10 +2,16 @@ import { invoke } from '@tauri-apps/api/core';
 import { z } from 'zod';
 
 import type {
+  IndexPageReviewDto,
   IndexFailureCode,
   IndexPageStatus,
   IndexQualityReason,
+  IndexRunAggregateDto,
 } from '../../lib/generated/indexing';
+import type {
+  IndexCorrectionReviewDto,
+  IndexCorrectionValueKind,
+} from '../../lib/generated/provenance';
 import { toUserError } from '../../lib/errors';
 import type { RenderedPdfPageDto } from './indexing-contract';
 
@@ -87,6 +93,145 @@ const indexingEventSchema = z
     safeErrorCode: safeErrorCodeSchema,
   })
   .strict();
+const correctionSchema = z
+  .object({
+    id: uuidSchema,
+    targetBlockId: uuidSchema,
+    region: z
+      .object({
+        x: z.number(),
+        y: z.number(),
+        width: z.number(),
+        height: z.number(),
+      })
+      .strict()
+      .nullable(),
+    valueKind: z.enum(['text', 'latex']),
+    originalValue: z.string(),
+    correctedValue: z.string(),
+    conflictState: z.enum(['active', 'conflict']),
+    revision: z.number().int().nonnegative(),
+    updatedAt: z.string(),
+  })
+  .strict();
+const reviewSchema = z
+  .object({
+    id: uuidSchema,
+    runId: uuidSchema,
+    bookId: uuidSchema,
+    pageNumber: z.number().int().positive(),
+    qualityReason: z.enum([
+      'reliable_text',
+      'no_text',
+      'very_low_text_coverage',
+      'high_replacement_or_control_ratio',
+      'extreme_duplicate_glyphs',
+      'layout_contradiction',
+    ]),
+    status: statusSchema,
+    reviewReason: z
+      .enum([
+        'incomplete_content',
+        'invalid_bounds',
+        'severe_overlap',
+        'text_contradiction',
+        'malformed_table',
+        'malformed_latex',
+      ])
+      .nullable(),
+    safeError: z
+      .object({
+        code: safeErrorCodeSchema.unwrap(),
+        message: z.string(),
+        retryable: z.boolean(),
+      })
+      .strict()
+      .nullable(),
+    contentVersion: z.number().int().positive(),
+    blocks: z.array(
+      z
+        .object({
+          id: uuidSchema,
+          ordinal: z.number().int().nonnegative(),
+          kind: z.enum([
+            'title',
+            'paragraph',
+            'list',
+            'table',
+            'caption',
+            'formula',
+            'figure',
+            'transcript',
+          ]),
+          source: z.enum([
+            'local_text',
+            'ai_transcribed',
+            'ai_description',
+            'user_corrected',
+          ]),
+          plainText: z.string().nullable(),
+          latex: z.string().nullable(),
+          tableCells: z
+            .array(
+              z
+                .object({
+                  row: z.number().int().nonnegative(),
+                  column: z.number().int().nonnegative(),
+                  rowSpan: z.number().int().positive(),
+                  columnSpan: z.number().int().positive(),
+                  text: z.string(),
+                })
+                .strict(),
+            )
+            .nullable(),
+          visualDescription: z.string().nullable(),
+          bounds: z
+            .object({
+              x: z.number(),
+              y: z.number(),
+              width: z.number(),
+              height: z.number(),
+            })
+            .strict()
+            .nullable(),
+          contentVersion: z.number().int().positive(),
+        })
+        .strict(),
+    ),
+    corrections: z.array(correctionSchema),
+    updatedAt: z.string(),
+  })
+  .strict();
+const aggregateSchema = z
+  .object({
+    runId: uuidSchema,
+    bookId: uuidSchema,
+    controlStatus: z.enum([
+      'running',
+      'paused',
+      'cancelling',
+      'cancelled',
+      'completed',
+    ]),
+    aggregateStatus: z.enum(['ready', 'partial', 'needs_review', 'failed']),
+    pages: z
+      .object({
+        total: z.number().int().nonnegative(),
+        notRequired: z.number().int().nonnegative(),
+        queued: z.number().int().nonnegative(),
+        rendering: z.number().int().nonnegative(),
+        sending: z.number().int().nonnegative(),
+        parsing: z.number().int().nonnegative(),
+        validating: z.number().int().nonnegative(),
+        indexed: z.number().int().nonnegative(),
+        needsReview: z.number().int().nonnegative(),
+        failed: z.number().int().nonnegative(),
+        cancelled: z.number().int().nonnegative(),
+      })
+      .strict(),
+    updatedAt: z.string(),
+  })
+  .strict();
 
 export interface IndexPageSeed {
   pageNumber: number;
@@ -145,6 +290,37 @@ export interface RenderedPageSubmission {
   bytes: Uint8Array;
 }
 
+export interface SaveIndexCorrectionRequest {
+  bookId: string;
+  pageId: string;
+  targetBlockId: string;
+  targetContentVersion: number;
+  valueKind: IndexCorrectionValueKind;
+  originalValueSha256: string;
+  correctedValue: string;
+  expectedRevision: number;
+}
+
+export interface ResolveIndexCorrectionConflictRequest {
+  bookId: string;
+  pageId: string;
+  correctionId: string;
+  targetContentVersion: number;
+  currentValueSha256: string | null;
+  expectedRevision: number;
+  decision: 'keep' | 'accept' | 'compare';
+  comparedCorrectedValue: string | null;
+}
+
+export interface DeleteIndexCorrectionRequest {
+  bookId: string;
+  pageId: string;
+  correctionId: string;
+  targetContentVersion: number;
+  currentValueSha256: string | null;
+  expectedRevision: number;
+}
+
 export interface IndexingApi {
   confirmOperation(request: ConfirmIndexOperationRequest): Promise<string>;
   createRun(
@@ -169,6 +345,17 @@ export interface IndexingApi {
   resumeRun(runId: string): Promise<void>;
   cancelRun(runId: string): Promise<void>;
   retryPage(pageId: string, attemptId: string): Promise<string>;
+  getRunAggregate(runId: string): Promise<IndexRunAggregateDto>;
+  listPageReviews(runId: string): Promise<IndexPageReviewDto[]>;
+  getPageReview(pageId: string): Promise<IndexPageReviewDto>;
+  listPageCorrections(pageId: string): Promise<IndexCorrectionReviewDto[]>;
+  saveCorrection(
+    request: SaveIndexCorrectionRequest,
+  ): Promise<IndexCorrectionReviewDto>;
+  resolveCorrectionConflict(
+    request: ResolveIndexCorrectionConflictRequest,
+  ): Promise<IndexCorrectionReviewDto | null>;
+  deleteCorrection(request: DeleteIndexCorrectionRequest): Promise<void>;
 }
 
 export class TauriIndexingApi implements IndexingApi {
@@ -312,6 +499,67 @@ export class TauriIndexingApi implements IndexingApi {
       attemptId: uuidSchema.parse(attemptId),
     });
   }
+
+  async getRunAggregate(runId: string): Promise<IndexRunAggregateDto> {
+    return aggregateSchema.parse(
+      await invokeSafe('get_index_run_aggregate', {
+        runId: uuidSchema.parse(runId),
+      }),
+    ) as IndexRunAggregateDto;
+  }
+
+  async listPageReviews(runId: string): Promise<IndexPageReviewDto[]> {
+    return z.array(reviewSchema).parse(
+      await invokeSafe('list_index_page_reviews', {
+        runId: uuidSchema.parse(runId),
+      }),
+    ) as IndexPageReviewDto[];
+  }
+
+  async getPageReview(pageId: string): Promise<IndexPageReviewDto> {
+    return reviewSchema.parse(
+      await invokeSafe('get_index_page_review', {
+        pageId: uuidSchema.parse(pageId),
+      }),
+    ) as IndexPageReviewDto;
+  }
+
+  async listPageCorrections(
+    pageId: string,
+  ): Promise<IndexCorrectionReviewDto[]> {
+    return z.array(correctionSchema).parse(
+      await invokeSafe('list_index_page_corrections', {
+        pageId: uuidSchema.parse(pageId),
+      }),
+    ) as IndexCorrectionReviewDto[];
+  }
+
+  async saveCorrection(
+    request: SaveIndexCorrectionRequest,
+  ): Promise<IndexCorrectionReviewDto> {
+    return correctionSchema.parse(
+      await invokeSafe('save_index_correction', {
+        request: parseCorrectionRequest(request),
+      }),
+    ) as IndexCorrectionReviewDto;
+  }
+
+  async resolveCorrectionConflict(
+    request: ResolveIndexCorrectionConflictRequest,
+  ): Promise<IndexCorrectionReviewDto | null> {
+    const result = await invokeSafe('resolve_index_correction_conflict', {
+      request: parseResolveCorrectionRequest(request),
+    });
+    return result === null
+      ? null
+      : (correctionSchema.parse(result) as IndexCorrectionReviewDto);
+  }
+
+  async deleteCorrection(request: DeleteIndexCorrectionRequest): Promise<void> {
+    await invokeSafe('delete_index_correction', {
+      request: parseDeleteCorrectionRequest(request),
+    });
+  }
 }
 
 const qualityReasonSchema = z.enum([
@@ -357,6 +605,63 @@ function parseConfirmation(
   request: ConfirmIndexOperationRequest,
 ): ConfirmIndexOperationRequest {
   return confirmationSchema.parse(request) as ConfirmIndexOperationRequest;
+}
+
+const correctionRequestSchema = z
+  .object({
+    bookId: uuidSchema,
+    pageId: uuidSchema,
+    targetBlockId: uuidSchema,
+    targetContentVersion: z.number().int().positive(),
+    valueKind: z.enum(['text', 'latex']),
+    originalValueSha256: sha256Schema,
+    correctedValue: z.string(),
+    expectedRevision: z.number().int().nonnegative(),
+  })
+  .strict();
+const resolveCorrectionRequestSchema = z
+  .object({
+    bookId: uuidSchema,
+    pageId: uuidSchema,
+    correctionId: uuidSchema,
+    targetContentVersion: z.number().int().positive(),
+    currentValueSha256: sha256Schema.nullable(),
+    expectedRevision: z.number().int().positive(),
+    decision: z.enum(['keep', 'accept', 'compare']),
+    comparedCorrectedValue: z.string().nullable(),
+  })
+  .strict();
+const deleteCorrectionRequestSchema = z
+  .object({
+    bookId: uuidSchema,
+    pageId: uuidSchema,
+    correctionId: uuidSchema,
+    targetContentVersion: z.number().int().positive(),
+    currentValueSha256: sha256Schema.nullable(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .strict();
+
+function parseCorrectionRequest(
+  request: SaveIndexCorrectionRequest,
+): SaveIndexCorrectionRequest {
+  return correctionRequestSchema.parse(request) as SaveIndexCorrectionRequest;
+}
+
+function parseResolveCorrectionRequest(
+  request: ResolveIndexCorrectionConflictRequest,
+): ResolveIndexCorrectionConflictRequest {
+  return resolveCorrectionRequestSchema.parse(
+    request,
+  ) as ResolveIndexCorrectionConflictRequest;
+}
+
+function parseDeleteCorrectionRequest(
+  request: DeleteIndexCorrectionRequest,
+): DeleteIndexCorrectionRequest {
+  return deleteCorrectionRequestSchema.parse(
+    request,
+  ) as DeleteIndexCorrectionRequest;
 }
 
 function validateSubmission(submission: RenderedPageSubmission): void {
