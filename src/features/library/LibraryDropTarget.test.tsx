@@ -1,7 +1,8 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isSupportedSourcePath, LibraryDropTarget } from './LibraryDropTarget';
+import { LibraryDropTarget } from './LibraryDropTarget';
+import { isSupportedSourcePath } from './library-drop-path';
 
 type DragPayload =
   | { type: 'enter'; paths: string[] }
@@ -92,6 +93,34 @@ describe('LibraryDropTarget', () => {
     expect(screen.getByRole('status')).toBeVisible();
     act(() => dragDropMock.emit({ type: 'leave' }));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    unmount();
+    expect(dragDropMock.unlisten).toHaveBeenCalledOnce();
+  });
+
+  it('uses the newest callback after a rerender without duplicate listeners', async () => {
+    const initial = vi.fn();
+    const latest = vi.fn();
+    const { rerender, unmount } = render(
+      <LibraryDropTarget onDrop={initial}>
+        <p>Library</p>
+      </LibraryDropTarget>,
+    );
+
+    await waitFor(() => expect(dragDropMock.setListener).toHaveBeenCalled());
+    rerender(
+      <LibraryDropTarget onDrop={latest}>
+        <p>Library</p>
+      </LibraryDropTarget>,
+    );
+    expect(dragDropMock.setListener).toHaveBeenCalledOnce();
+    act(() =>
+      dragDropMock.emit({
+        type: 'drop',
+        paths: ['C:\\Books\\newest.pdf'],
+      }),
+    );
+    expect(initial).not.toHaveBeenCalled();
+    expect(latest).toHaveBeenCalledWith(['C:\\Books\\newest.pdf']);
     unmount();
     expect(dragDropMock.unlisten).toHaveBeenCalledOnce();
   });

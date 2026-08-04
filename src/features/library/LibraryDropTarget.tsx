@@ -1,7 +1,7 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-const supportedExtensions = new Set(['pdf', 'epub', 'docx']);
+import { isSupportedSourcePath } from './library-drop-path';
 
 export interface LibraryDropTargetProps {
   children: ReactNode;
@@ -18,7 +18,10 @@ export function LibraryDropTarget({
 }: LibraryDropTargetProps) {
   const [isDragging, setIsDragging] = useState(false);
   const onDropRef = useRef(onDrop);
-  onDropRef.current = onDrop;
+
+  useEffect(() => {
+    onDropRef.current = onDrop;
+  }, [onDrop]);
 
   useEffect(() => {
     let disposed = false;
@@ -83,16 +86,4 @@ export function LibraryDropTarget({
       ) : null}
     </div>
   );
-}
-
-export function isSupportedSourcePath(sourcePath: string): boolean {
-  if (!isNativeFilesystemPath(sourcePath)) return false;
-  const extension = sourcePath.split(/[\\/]/u).at(-1)?.split('.').at(-1);
-  return (
-    extension !== undefined && supportedExtensions.has(extension.toLowerCase())
-  );
-}
-
-function isNativeFilesystemPath(value: string): boolean {
-  return /^[a-z]:[\\/]/iu.test(value) || value.startsWith('\\\\');
 }
