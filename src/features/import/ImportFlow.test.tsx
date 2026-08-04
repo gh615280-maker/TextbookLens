@@ -3,7 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { LanguageProvider } from '../../app/LanguageProvider';
 import type { BookSummary } from '../../lib/generated/book';
+import type { AppSettingsDto } from '../../lib/generated/settings';
 import type { UserFacingError } from '../../lib/errors';
 import type { LibraryApi } from '../library/api';
 import { LibraryPage } from '../library/LibraryPage';
@@ -15,6 +17,17 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 
 const BOOK_ID = '4f9a2c86-0da8-4dd4-a255-39b4cff89c66';
 const EXISTING_ID = '70c92c3b-d44a-5345-a7eb-839e79c5b322';
+const languageSettings: AppSettingsDto = {
+  onboardingCompleted: true,
+  activeProviderProfileId: null,
+  defaultLearningProfileId: null,
+  defaultVisionProfileId: null,
+  theme: 'system',
+  contextMode: 'standard',
+  uiLanguage: 'zh-CN',
+  uiLanguageInitialized: true,
+  firstReaderHintCompleted: true,
+};
 
 function book(overrides: Partial<BookSummary> = {}): BookSummary {
   return {
@@ -65,19 +78,26 @@ function LocationProbe() {
 }
 
 function renderFlow(api: LibraryApi, coordinator: ImportCoordinatorPort) {
+  const languageApi = {
+    getAppSettings: async () => languageSettings,
+    initializeUiLanguage: async () => languageSettings,
+    updateUiLanguage: async () => languageSettings,
+  };
   return render(
-    <MemoryRouter initialEntries={['/library']}>
-      <Routes>
-        <Route
-          path="/library"
-          element={
-            <LibraryPage libraryApi={api} importCoordinator={coordinator} />
-          }
-        />
-        <Route path="/books/:bookId/read" element={<h1>阅读</h1>} />
-      </Routes>
-      <LocationProbe />
-    </MemoryRouter>,
+    <LanguageProvider api={languageApi} detectedLanguages={['zh-CN']}>
+      <MemoryRouter initialEntries={['/library']}>
+        <Routes>
+          <Route
+            path="/library"
+            element={
+              <LibraryPage libraryApi={api} importCoordinator={coordinator} />
+            }
+          />
+          <Route path="/books/:bookId/read" element={<h1>阅读</h1>} />
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>
+    </LanguageProvider>,
   );
 }
 
