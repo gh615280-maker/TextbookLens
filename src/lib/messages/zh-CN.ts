@@ -102,6 +102,19 @@ export const zhCN = {
     '\u5bfc\u5165\u672a\u80fd\u5b89\u5168\u5b8c\u6210\u3002',
   'library.retry': '\u91cd\u65b0\u9009\u62e9\u5e76\u91cd\u8bd5',
   'library.deleteFailed': '\u5220\u9664\u5931\u8d25\u8bb0\u5f55',
+  'library.contextMenu.label': '\u6559\u6750\u64cd\u4f5c',
+  'library.contextMenu.open': '\u6253\u5f00',
+  'library.contextMenu.indexStatus': '\u7d22\u5f15\u72b6\u6001',
+  'library.contextMenu.remove': '\u79fb\u9664',
+  'library.indexStatus.action':
+    '\u67e5\u770b\u300a{title}\u300b\u7684\u7d22\u5f15\u72b6\u6001',
+  'library.indexStatus.counts':
+    '\u5df2\u7d22\u5f15 {indexed}/{total}\uff1b\u5f85\u590d\u6838 {review}\uff1b\u5931\u8d25 {failed}',
+  'library.remove.title': '\u79fb\u9664\u5bfc\u5165\u5931\u8d25\u8bb0\u5f55',
+  'library.remove.originalUnaffected':
+    '\u6b64\u64cd\u4f5c\u4ec5\u79fb\u9664\u5e94\u7528\u4e2d\u7684\u5931\u8d25\u5bfc\u5165\u8bb0\u5f55\uff0c\u4e0d\u4f1a\u5f71\u54cd\u60a8\u7684\u539f\u59cb\u6587\u4ef6\u3002',
+  'library.remove.cancel': '\u53d6\u6d88',
+  'library.remove.confirm': '\u79fb\u9664\u5931\u8d25\u8bb0\u5f55',
   'library.importStatus.queued': '\u7b49\u5f85\u5904\u7406',
   'library.importStatus.copying': '\u6b63\u5728\u590d\u5236',
   'library.importStatus.parsing': '\u6b63\u5728\u89e3\u6790',

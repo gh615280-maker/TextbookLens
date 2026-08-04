@@ -17,6 +17,7 @@ import { ImportProgress } from '../import/ImportProgress';
 import { createDocumentParserRegistry } from '../import/parser-registry';
 import { pickTextbook } from '../import/picker';
 import { TauriLibraryApi, type LibraryApi } from './api';
+import { TauriIndexingApi } from '../indexing/api';
 import { LibraryCommandBar } from './LibraryCommandBar';
 import { LibraryDetails } from './LibraryDetails';
 import { LibraryDropTarget } from './LibraryDropTarget';
@@ -31,11 +32,18 @@ import { LibrarySidebar } from './LibrarySidebar';
 export interface LibraryPageProps {
   libraryApi?: LibraryApi;
   importCoordinator?: ImportCoordinatorPort;
+  indexRunLookup?: {
+    findCurrentRunForBook(bookId: string): Promise<{
+      bookId: string;
+      runId: string;
+    } | null>;
+  };
 }
 
 export function LibraryPage({
   libraryApi,
   importCoordinator,
+  indexRunLookup,
 }: LibraryPageProps = {}) {
   const navigate = useNavigate();
   const message = useMessage();
@@ -49,6 +57,9 @@ export function LibraryPage({
         createDocumentParserRegistry(),
       ),
   );
+  const [currentRunLookup] = useState(
+    () => indexRunLookup ?? new TauriIndexingApi(),
+  );
   const [books, setBooks] = useState<BookSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<UserFacingError | null>(null);
@@ -59,6 +70,9 @@ export function LibraryPage({
   const [libraryState, dispatchLibrary] = useReducer(
     libraryStateReducer,
     initialLibraryState,
+  );
+  const [removeCandidate, setRemoveCandidate] = useState<BookSummary | null>(
+    null,
   );
 
   const refresh = useCallback(async () => {
@@ -172,6 +186,21 @@ export function LibraryPage({
     }
   }
 
+  async function showIndexStatus(book: BookSummary) {
+    if (book.indexAggregate.status === 'not_required') return;
+    try {
+      const aggregate = await currentRunLookup.findCurrentRunForBook(book.id);
+      if (!aggregate || aggregate.bookId !== book.id) {
+        throw new Error('The resolved index run does not belong to this book.');
+      }
+      navigate(
+        `/books/${encodeURIComponent(book.id)}/index-quality/${encodeURIComponent(aggregate.runId)}`,
+      );
+    } catch (error) {
+      dispatchImport({ type: 'failed', error: toUserError(error) });
+    }
+  }
+
   function cancelImport() {
     if (importState.status !== 'running') return;
     if (importState.bookId) {
@@ -191,10 +220,14 @@ export function LibraryPage({
   }
 
   const itemActions = {
-    onDelete: (bookId: string) => void deleteFailed(bookId),
+    onDeleteFailed: (bookId: string) => void deleteFailed(bookId),
     onFocus: (bookId: string) => dispatchLibrary({ type: 'focus', bookId }),
+    onIndexStatus: (book: BookSummary) => void showIndexStatus(book),
     onMoveFocus: moveFocus,
     onOpen: (bookId: string) => navigate(`/books/${bookId}/read`),
+    onRequestRemove: (book: BookSummary) => {
+      if (book.importStatus === 'failed') setRemoveCandidate(book);
+    },
     onRetry: (bookId: string) => void retry(bookId),
     onSelect: (bookId: string) => dispatchLibrary({ type: 'select', bookId }),
   };
@@ -230,6 +263,30 @@ export function LibraryPage({
           <p>{loadError.message}</p>
           <button type="button" onClick={() => void refresh()}>
             {message('library.retryLoading')}
+          </button>
+        </div>
+      ) : null}
+      {removeCandidate ? (
+        <div
+          aria-labelledby="library-remove-title"
+          aria-modal="true"
+          role="dialog"
+        >
+          <h2 id="library-remove-title">{message('library.remove.title')}</h2>
+          <p>{message('library.remove.originalUnaffected')}</p>
+          <p>{removeCandidate.title}</p>
+          <button type="button" onClick={() => setRemoveCandidate(null)}>
+            {message('library.remove.cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const bookId = removeCandidate.id;
+              setRemoveCandidate(null);
+              void deleteFailed(bookId);
+            }}
+          >
+            {message('library.remove.confirm')}
           </button>
         </div>
       ) : null}

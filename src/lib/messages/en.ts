@@ -111,6 +111,18 @@ export const en = {
   'library.importFailed': 'The import did not complete safely.',
   'library.retry': 'Choose again and retry',
   'library.deleteFailed': 'Delete failed record',
+  'library.contextMenu.label': 'Book actions',
+  'library.contextMenu.open': 'Open',
+  'library.contextMenu.indexStatus': 'Index status',
+  'library.contextMenu.remove': 'Remove',
+  'library.indexStatus.action': 'View index status for {title}',
+  'library.indexStatus.counts':
+    '{indexed}/{total} indexed; {review} need review; {failed} failed',
+  'library.remove.title': 'Remove failed import',
+  'library.remove.originalUnaffected':
+    'This removes the app’s failed import record. Your original file is unaffected.',
+  'library.remove.cancel': 'Cancel',
+  'library.remove.confirm': 'Remove failed record',
   'library.importStatus.queued': 'Queued',
   'library.importStatus.copying': 'Copying',
   'library.importStatus.parsing': 'Parsing',

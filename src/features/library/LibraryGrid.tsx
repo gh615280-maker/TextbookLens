@@ -6,11 +6,13 @@ interface LibraryGridProps {
   books: readonly BookSummary[];
   focusedBookId: string | null;
   selectedBookId: string | null;
-  onDelete(bookId: string): void;
+  onIndexStatus(book: BookSummary): void;
+  onDeleteFailed(bookId: string): void;
   onFocus(bookId: string): void;
   onMoveFocus(bookId: string, offset: -1 | 1): void;
   onOpen(bookId: string): void;
   onRetry(bookId: string): void;
+  onRequestRemove(book: BookSummary): void;
   onSelect(bookId: string): void;
   label: string;
 }
@@ -19,11 +21,13 @@ export function LibraryGrid({
   books,
   focusedBookId,
   selectedBookId,
-  onDelete,
+  onIndexStatus,
+  onDeleteFailed,
   onFocus,
   onMoveFocus,
   onOpen,
   onRetry,
+  onRequestRemove,
   onSelect,
   label,
 }: LibraryGridProps) {
@@ -45,11 +49,13 @@ export function LibraryGrid({
           focused={focusedBookId === book.id || (!focusedBookId && index === 0)}
           selected={selectedBookId === book.id}
           view="large"
-          onDelete={onDelete}
+          onIndexStatus={onIndexStatus}
+          onDeleteFailed={onDeleteFailed}
           onFocus={onFocus}
           onMoveFocus={onMoveFocus}
           onOpen={onOpen}
           onRetry={onRetry}
+          onRequestRemove={onRequestRemove}
           onSelect={onSelect}
         />
       ))}

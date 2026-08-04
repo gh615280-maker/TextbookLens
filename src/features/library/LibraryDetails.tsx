@@ -7,11 +7,13 @@ interface LibraryDetailsProps {
   books: readonly BookSummary[];
   focusedBookId: string | null;
   selectedBookId: string | null;
-  onDelete(bookId: string): void;
+  onIndexStatus(book: BookSummary): void;
+  onDeleteFailed(bookId: string): void;
   onFocus(bookId: string): void;
   onMoveFocus(bookId: string, offset: -1 | 1): void;
   onOpen(bookId: string): void;
   onRetry(bookId: string): void;
+  onRequestRemove(book: BookSummary): void;
   onSelect(bookId: string): void;
 }
 
@@ -19,11 +21,13 @@ export function LibraryDetails({
   books,
   focusedBookId,
   selectedBookId,
-  onDelete,
+  onIndexStatus,
+  onDeleteFailed,
   onFocus,
   onMoveFocus,
   onOpen,
   onRetry,
+  onRequestRemove,
   onSelect,
 }: LibraryDetailsProps) {
   const message = useMessage();
@@ -50,11 +54,13 @@ export function LibraryDetails({
           focused={focusedBookId === book.id || (!focusedBookId && index === 0)}
           selected={selectedBookId === book.id}
           view="details"
-          onDelete={onDelete}
+          onIndexStatus={onIndexStatus}
+          onDeleteFailed={onDeleteFailed}
           onFocus={onFocus}
           onMoveFocus={onMoveFocus}
           onOpen={onOpen}
           onRetry={onRetry}
+          onRequestRemove={onRequestRemove}
           onSelect={onSelect}
         />
       ))}

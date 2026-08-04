@@ -1,10 +1,12 @@
-import type { KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 
 import { useMessage } from '../../app/LanguageProvider';
 import type { BookSummary } from '../../lib/generated/book';
 import { formatPersistedUtc } from '../../lib/time';
 
 import { isBookOpenable, type LibraryView } from './library-state';
+import { BookIndexStatus } from './BookIndexStatus';
+import { LibraryContextMenu } from './LibraryContextMenu';
 
 interface LibraryItemProps {
   book: BookSummary;
@@ -12,10 +14,12 @@ interface LibraryItemProps {
   selected: boolean;
   view: LibraryView;
   onFocus(bookId: string): void;
+  onDeleteFailed(bookId: string): void;
   onMoveFocus(bookId: string, offset: -1 | 1): void;
   onOpen(bookId: string): void;
   onRetry(bookId: string): void;
-  onDelete(bookId: string): void;
+  onIndexStatus(book: BookSummary): void;
+  onRequestRemove(book: BookSummary): void;
   onSelect(bookId: string): void;
 }
 
@@ -25,19 +29,20 @@ export function LibraryItem({
   selected,
   view,
   onFocus,
+  onDeleteFailed,
   onMoveFocus,
   onOpen,
   onRetry,
-  onDelete,
+  onIndexStatus,
+  onRequestRemove,
   onSelect,
 }: LibraryItemProps) {
   const message = useMessage();
+  const triggerRef = useRef<HTMLElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const openable = isBookOpenable(book);
   const id = `library-book-${book.id}`;
   const status = message(`library.importStatus.${book.importStatus}`);
-  const indexStatus = message(
-    `library.indexStatus.${book.indexAggregate.status}`,
-  );
   const lastOpened = book.lastOpenedAt
     ? formatPersistedUtc(book.lastOpenedAt)
     : message('library.neverOpened');
@@ -51,6 +56,14 @@ export function LibraryItem({
     if (event.key === 'Enter' && openable) {
       event.preventDefault();
       onOpen(book.id);
+      return;
+    }
+    if (
+      event.key === 'ContextMenu' ||
+      (event.shiftKey && event.key === 'F10')
+    ) {
+      event.preventDefault();
+      setMenuOpen(true);
       return;
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
@@ -71,46 +84,72 @@ export function LibraryItem({
     onDoubleClick: () => openable && onOpen(book.id),
     onFocus: () => onFocus(book.id),
     onKeyDown: handleKeyDown,
+    onContextMenu: (event: { preventDefault(): void }) => {
+      event.preventDefault();
+      setMenuOpen(true);
+    },
     tabIndex: focused ? 0 : -1,
   };
 
   if (view === 'details') {
     return (
-      <div {...commonProps} aria-selected={selected} role="row">
-        <span role="gridcell">
-          {book.title}
-          {selected ? <span> ({message('library.selected')})</span> : null}
-          <LibraryItemStatus book={book} id={id} />
-          {book.importStatus === 'failed' ? (
-            <LibraryItemActions
-              book={book}
-              onDelete={onDelete}
-              onRetry={onRetry}
-            />
-          ) : null}
-        </span>
-        <span role="gridcell">{book.format.toUpperCase()}</span>
-        <span role="gridcell">{status}</span>
-        <span role="gridcell">
-          {indexStatus}
-          {book.indexAggregate.totalPages > 0
-            ? ` (${book.indexAggregate.indexedPages}/${book.indexAggregate.totalPages})`
-            : ''}
-        </span>
-        <span role="gridcell">{lastOpened}</span>
-      </div>
+      <>
+        <div
+          {...commonProps}
+          aria-selected={selected}
+          ref={(element) => {
+            triggerRef.current = element;
+          }}
+          role="row"
+        >
+          <span role="gridcell">
+            {book.title}
+            {selected ? <span> ({message('library.selected')})</span> : null}
+            <LibraryItemStatus book={book} id={id} />
+            {book.importStatus === 'failed' ? (
+              <LibraryItemActions
+                book={book}
+                onDeleteFailed={onDeleteFailed}
+                onRetry={onRetry}
+              />
+            ) : null}
+          </span>
+          <span role="gridcell">{book.format.toUpperCase()}</span>
+          <span role="gridcell">{status}</span>
+          <span role="gridcell">
+            <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
+          </span>
+          <span role="gridcell">{lastOpened}</span>
+        </div>
+        {menuOpen ? (
+          <LibraryContextMenu
+            canOpen={openable}
+            canRemove={book.importStatus === 'failed'}
+            canShowIndexStatus={book.indexAggregate.status !== 'not_required'}
+            onClose={() => {
+              setMenuOpen(false);
+              triggerRef.current?.focus();
+            }}
+            onOpen={() => onOpen(book.id)}
+            onRemove={() => onRequestRemove(book)}
+            onShowIndexStatus={() => onIndexStatus(book)}
+          />
+        ) : null}
+      </>
     );
   }
 
   return (
     <>
-      <button
+      <div
         {...commonProps}
         aria-label={book.title}
         aria-selected={selected}
         className="library-item"
+        ref={(element) => {
+          triggerRef.current = element;
+        }}
         role="option"
-        type="button"
       >
         <span aria-hidden="true" className="library-item__icon">
           {book.format.toUpperCase()}
@@ -119,11 +158,29 @@ export function LibraryItem({
         {selected ? <span>{message('library.selected')}</span> : null}
         <span>{book.format.toUpperCase()}</span>
         <span>{status}</span>
-        <span>{indexStatus}</span>
+        <BookIndexStatus book={book} onOpenStatus={onIndexStatus} />
         <LibraryItemStatus book={book} id={id} />
-      </button>
+      </div>
       {book.importStatus === 'failed' ? (
-        <LibraryItemActions book={book} onDelete={onDelete} onRetry={onRetry} />
+        <LibraryItemActions
+          book={book}
+          onDeleteFailed={onDeleteFailed}
+          onRetry={onRetry}
+        />
+      ) : null}
+      {menuOpen ? (
+        <LibraryContextMenu
+          canOpen={openable}
+          canRemove={book.importStatus === 'failed'}
+          canShowIndexStatus={book.indexAggregate.status !== 'not_required'}
+          onClose={() => {
+            setMenuOpen(false);
+            triggerRef.current?.focus();
+          }}
+          onOpen={() => onOpen(book.id)}
+          onRemove={() => onRequestRemove(book)}
+          onShowIndexStatus={() => onIndexStatus(book)}
+        />
       ) : null}
     </>
   );
@@ -148,16 +205,16 @@ function LibraryItemStatus({
 
 function LibraryItemActions({
   book,
-  onDelete,
+  onDeleteFailed,
   onRetry,
-}: Pick<LibraryItemProps, 'book' | 'onDelete' | 'onRetry'>) {
+}: Pick<LibraryItemProps, 'book' | 'onDeleteFailed' | 'onRetry'>) {
   const message = useMessage();
   return (
     <span className="library-item__actions">
       <button type="button" onClick={() => onRetry(book.id)}>
         {message('library.retry')}
       </button>
-      <button type="button" onClick={() => onDelete(book.id)}>
+      <button type="button" onClick={() => onDeleteFailed(book.id)}>
         {message('library.deleteFailed')}
       </button>
     </span>

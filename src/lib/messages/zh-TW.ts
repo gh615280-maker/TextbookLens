@@ -104,6 +104,19 @@ export const zhTW = {
     '\u532f\u5165\u672a\u80fd\u5b89\u5168\u5b8c\u6210\u3002',
   'library.retry': '\u91cd\u65b0\u9078\u64c7\u4e26\u91cd\u8a66',
   'library.deleteFailed': '\u522a\u9664\u5931\u6557\u8a18\u9304',
+  'library.contextMenu.label': '\u6559\u6750\u64cd\u4f5c',
+  'library.contextMenu.open': '\u958b\u555f',
+  'library.contextMenu.indexStatus': '\u7d22\u5f15\u72c0\u614b',
+  'library.contextMenu.remove': '\u79fb\u9664',
+  'library.indexStatus.action':
+    '\u6aa2\u8996\u300a{title}\u300b\u7684\u7d22\u5f15\u72c0\u614b',
+  'library.indexStatus.counts':
+    '\u5df2\u7d22\u5f15 {indexed}/{total}\uff1b\u5f85\u8907\u6838 {review}\uff1b\u5931\u6557 {failed}',
+  'library.remove.title': '\u79fb\u9664\u532f\u5165\u5931\u6557\u8a18\u9304',
+  'library.remove.originalUnaffected':
+    '\u6b64\u64cd\u4f5c\u50c5\u79fb\u9664\u61c9\u7528\u4e2d\u7684\u5931\u6557\u532f\u5165\u8a18\u9304\uff0c\u4e0d\u6703\u5f71\u97ff\u60a8\u7684\u539f\u59cb\u6a94\u6848\u3002',
+  'library.remove.cancel': '\u53d6\u6d88',
+  'library.remove.confirm': '\u79fb\u9664\u5931\u6557\u8a18\u9304',
   'library.importStatus.queued': '\u7b49\u5f85\u8655\u7406',
   'library.importStatus.copying': '\u6b63\u5728\u8907\u88fd',
   'library.importStatus.parsing': '\u6b63\u5728\u89e3\u6790',
