@@ -98,6 +98,7 @@ pub fn run() {
             commands::indexing::cancel_index_run,
             commands::indexing::retry_index_page,
             commands::indexing::get_index_run_aggregate,
+            commands::indexing::find_current_index_run_for_book,
             commands::indexing::list_index_page_reviews,
             commands::indexing::get_index_page_review,
             commands::indexing::list_index_page_corrections,

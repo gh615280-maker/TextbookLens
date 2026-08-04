@@ -10,7 +10,8 @@ use textbooklens_lib::{
         Database,
         indexing::{
             CreateIndexPage, CreateIndexRun, EncryptedRemoteResourceReference, create_index_page,
-            create_index_run, get_run_aggregate, track_remote_resource,
+            create_index_run, find_current_run_aggregate_for_book, get_run_aggregate,
+            track_remote_resource,
         },
     },
     domain::{
@@ -1206,6 +1207,86 @@ fn ai_local_index_schema_uses_strict_page_attempt_ownership_and_derived_aggregat
 }
 
 #[test]
+fn current_index_run_lookup_is_book_scoped_deterministic_and_fails_closed() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let database = Database::open(temp_dir.path().join("current-index-run.sqlite3")).unwrap();
+
+    tauri::async_runtime::block_on(async {
+        let first = create_ai_index_fixture(database.pool()).await;
+        let second = create_ai_index_fixture_with_sha256(database.pool(), "b".repeat(64)).await;
+        assert!(
+            find_current_run_aggregate_for_book(database.pool(), Uuid::new_v4())
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        let profile_id: String =
+            sqlx::query_scalar("SELECT id FROM provider_profiles ORDER BY id LIMIT 1")
+                .fetch_one(database.pool())
+                .await
+                .unwrap();
+        let profile_id = Uuid::parse_str(&profile_id).unwrap();
+        let later_run = create_index_run(
+            database.pool(),
+            CreateIndexRun {
+                book_id: first.book_id,
+                provider_profile_id: profile_id,
+                analysis_schema_version: "page-analysis-v1".to_owned(),
+                render_version: "pdfjs-render-v1".to_owned(),
+                parser_version: "validator-v1".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+        let tied_timestamp = "2026-08-04T01:00:00.000Z";
+        sqlx::query("UPDATE index_runs SET updated_at = ? WHERE id IN (?, ?)")
+            .bind(tied_timestamp)
+            .bind(first.run_id.to_string())
+            .bind(later_run.to_string())
+            .execute(database.pool())
+            .await
+            .unwrap();
+
+        let first_current = find_current_run_aggregate_for_book(database.pool(), first.book_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first_current.book_id, first.book_id);
+        assert_eq!(
+            first_current.run_id,
+            if first.run_id > later_run {
+                first.run_id
+            } else {
+                later_run
+            }
+        );
+        let second_current = find_current_run_aggregate_for_book(database.pool(), second.book_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(second_current.book_id, second.book_id);
+        assert_eq!(second_current.run_id, second.run_id);
+
+        let corrupt_run = sqlx::query(
+            "INSERT INTO index_runs (id, book_id, source_sha256, provider_profile_id, provider_kind, model_id, analysis_schema_version, render_version, parser_version, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'openai', 'synthetic-model', 'page-analysis-v1', 'pdfjs-render-v1', 'validator-v1', 'running', ?, ?)",
+        )
+        .bind("not-a-canonical-uuid")
+        .bind(first.book_id.to_string())
+        .bind("d".repeat(64))
+        .bind(profile_id.to_string())
+        .bind("2026-08-04T02:00:00.000Z")
+        .bind("2026-08-04T02:00:00.000Z")
+        .execute(database.pool())
+        .await;
+        assert!(
+            corrupt_run.is_err(),
+            "the database must reject a malformed run ID before lookup"
+        );
+    });
+}
+
+#[test]
 fn ai_local_index_book_delete_requires_cleanup_and_cascades_local_content() {
     let temp_dir = tempfile::tempdir().unwrap();
     let database = Database::open(temp_dir.path().join("ai-index-delete.sqlite3")).unwrap();
@@ -1414,6 +1495,13 @@ struct AiIndexFixture {
 }
 
 async fn create_ai_index_fixture(pool: &sqlx::SqlitePool) -> AiIndexFixture {
+    create_ai_index_fixture_with_sha256(pool, "a".repeat(64)).await
+}
+
+async fn create_ai_index_fixture_with_sha256(
+    pool: &sqlx::SqlitePool,
+    sha256: String,
+) -> AiIndexFixture {
     let timestamp = "2026-08-04T00:00:00.000Z";
     let book_id = Uuid::new_v4();
     let profile_id = Uuid::new_v4();
@@ -1421,7 +1509,7 @@ async fn create_ai_index_fixture(pool: &sqlx::SqlitePool) -> AiIndexFixture {
         "INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'Synthetic AI index book', 'pdf', 'synthetic.pdf', 'books/synthetic/original.pdf', 'ready', ?, ?)",
     )
     .bind(book_id.to_string())
-    .bind("a".repeat(64))
+    .bind(sha256)
     .bind(timestamp)
     .bind(timestamp)
     .execute(pool)

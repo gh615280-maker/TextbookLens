@@ -14,7 +14,9 @@ use crate::{
         resolve_index_correction_conflict as resolve_index_correction_conflict_repository,
         save_index_correction as save_index_correction_repository,
     },
-    db::indexing::{get_page_review, get_run_aggregate, list_page_reviews},
+    db::indexing::{
+        find_current_run_aggregate_for_book, get_page_review, get_run_aggregate, list_page_reviews,
+    },
     domain::{
         IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexPageReviewDto,
         IndexRunAggregateDto,
@@ -255,6 +257,17 @@ pub async fn get_index_run_aggregate(
     run_id: Uuid,
 ) -> Result<IndexRunAggregateDto, AppErrorDto> {
     get_run_aggregate(state.db.pool(), run_id)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
+/// Resolves only safe durable aggregate metadata for one canonical book UUID.
+#[tauri::command]
+pub async fn find_current_index_run_for_book(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+) -> Result<Option<IndexRunAggregateDto>, AppErrorDto> {
+    find_current_run_aggregate_for_book(state.db.pool(), book_id)
         .await
         .map_err(AppErrorDto::from)
 }

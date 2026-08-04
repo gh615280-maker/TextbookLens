@@ -198,6 +198,29 @@ pub async fn get_run_aggregate(pool: &SqlitePool, run_id: Uuid) -> AppResult<Ind
     })
 }
 
+/// Resolves the latest persisted run for exactly one canonical book identifier.
+/// The query deliberately returns no run when the book has never had indexing.
+pub async fn find_current_run_aggregate_for_book(
+    pool: &SqlitePool,
+    book_id: Uuid,
+) -> AppResult<Option<IndexRunAggregateDto>> {
+    let run_id = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM index_runs WHERE book_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1",
+    )
+    .bind(book_id.to_string())
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(run_id) = run_id else {
+        return Ok(None);
+    };
+    let aggregate = get_run_aggregate(pool, parse_uuid(run_id)?).await?;
+    if aggregate.book_id != book_id {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+    Ok(Some(aggregate))
+}
+
 pub async fn list_page_reviews(
     pool: &SqlitePool,
     run_id: Uuid,

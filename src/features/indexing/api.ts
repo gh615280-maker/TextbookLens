@@ -350,6 +350,7 @@ export interface IndexingApi {
   cancelRun(runId: string): Promise<void>;
   retryPage(pageId: string, expectedUpdatedAt: string): Promise<unknown>;
   getRunAggregate(runId: string): Promise<IndexRunAggregateDto>;
+  findCurrentRunForBook?(bookId: string): Promise<IndexRunAggregateDto | null>;
   listPageReviews(runId: string): Promise<IndexPageReviewDto[]>;
   getPageReview(pageId: string): Promise<IndexPageReviewDto>;
   listPageCorrections(pageId: string): Promise<IndexCorrectionReviewDto[]>;
@@ -510,6 +511,17 @@ export class TauriIndexingApi implements IndexingApi {
         runId: uuidSchema.parse(runId),
       }),
     ) as IndexRunAggregateDto;
+  }
+
+  async findCurrentRunForBook(
+    bookId: string,
+  ): Promise<IndexRunAggregateDto | null> {
+    const result = await invokeSafe('find_current_index_run_for_book', {
+      bookId: uuidSchema.parse(bookId),
+    });
+    return result === null
+      ? null
+      : (aggregateSchema.parse(result) as IndexRunAggregateDto);
   }
 
   async listPageReviews(runId: string): Promise<IndexPageReviewDto[]> {
