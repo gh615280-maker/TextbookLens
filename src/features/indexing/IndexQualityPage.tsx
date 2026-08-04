@@ -111,7 +111,7 @@ export function IndexQualityPage({
       {aggregate ? (
         <>
           <IndexStatusSummary aggregate={aggregate} />
-          <div aria-label="Index run controls">
+          <div aria-label="Index run controls" role="group">
             {aggregate.controlStatus === 'running' ? (
               <button
                 disabled={busy}
