@@ -1,6 +1,8 @@
 pub mod annotations;
+pub mod conversations;
 pub mod corrections;
 pub mod indexing;
+pub mod messages;
 pub mod notes;
 pub mod providers;
 pub mod settings;

@@ -1,6 +1,6 @@
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -80,6 +80,53 @@ pub async fn list_annotation_markers(
         });
     }
     Ok(markers)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn insert_ai_conversation_annotation(
+    transaction: &mut Transaction<'_, Sqlite>,
+    annotation_id: Uuid,
+    book_id: Uuid,
+    section_id: Uuid,
+    anchor_json: &str,
+    selected_text: Option<&str>,
+    conversation_id: Uuid,
+    timestamp: &str,
+) -> AppResult<()> {
+    let result = sqlx::query(
+        "INSERT INTO annotations (id, book_id, section_id, kind, anchor_json, selected_text, conversation_id, revision, created_at, updated_at) VALUES (?, ?, ?, 'ai_conversation', ?, ?, ?, 1, ?, ?)",
+    )
+    .bind(annotation_id.to_string())
+    .bind(book_id.to_string())
+    .bind(section_id.to_string())
+    .bind(anchor_json)
+    .bind(selected_text)
+    .bind(conversation_id.to_string())
+    .bind(timestamp)
+    .bind(timestamp)
+    .execute(&mut **transaction)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+    Ok(())
+}
+
+pub(crate) async fn delete_ai_conversation_annotation(
+    transaction: &mut Transaction<'_, Sqlite>,
+    annotation_id: Uuid,
+    book_id: Uuid,
+    conversation_id: Uuid,
+) -> AppResult<u64> {
+    Ok(sqlx::query(
+        "DELETE FROM annotations WHERE id = ? AND book_id = ? AND kind = 'ai_conversation' AND conversation_id = ?",
+    )
+    .bind(annotation_id.to_string())
+    .bind(book_id.to_string())
+    .bind(conversation_id.to_string())
+    .execute(&mut **transaction)
+    .await?
+    .rows_affected())
 }
 
 async fn resolve_anchor(
