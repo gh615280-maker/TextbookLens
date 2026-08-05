@@ -1,15 +1,21 @@
+use std::sync::Arc;
+
 use serde::Serialize;
 use tauri::{
     State,
-    ipc::{InvokeBody, Request as IpcRequest},
+    ipc::{Channel, InvokeBody, Request as IpcRequest},
 };
 use uuid::Uuid;
 
 use crate::{
+    ai::runtime::ProviderRuntime,
     app_state::AppState,
+    domain::{LearningRequestEvent, LearningRequestSnapshot},
     errors::{AppError, AppErrorCode},
     learning::{
         captures::{OwnedCaptureBytes, RegionCaptureMetadata},
+        history::prepare_conversation_followup,
+        orchestrator::LearningOrchestrator,
         preparation::{
             InvalidateLearningPreparations, LearningAuthorizationDecision,
             LearningPreparationService, PreparationSummary, PrepareLearningRequestMetadata,
@@ -40,6 +46,17 @@ fn service(state: &AppState) -> LearningPreparationService {
         state.provider_capabilities.clone(),
         state.credential_store.clone(),
     )
+}
+
+fn runtime(state: &AppState) -> ProviderRuntime {
+    ProviderRuntime::new(
+        state.credential_store.clone(),
+        state.provider_capabilities.clone(),
+    )
+}
+
+fn orchestrator(state: &AppState) -> LearningOrchestrator {
+    LearningOrchestrator::new(state.learning_requests.clone(), state.db.pool().clone())
 }
 
 #[tauri::command]
@@ -90,6 +107,78 @@ pub fn invalidate_learning_preparations(
     state
         .learning_preparations
         .invalidate(request)
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn start_learning_request(
+    state: State<'_, AppState>,
+    preparation_id: Uuid,
+) -> Result<LearningRequestSnapshot, LearningErrorDto> {
+    let prepared = service(&state)
+        .consume_for_execution(preparation_id)
+        .await
+        .map_err(LearningErrorDto::from)?;
+    orchestrator(&state)
+        .start_prepared(&runtime(&state), prepared)
+        .await
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub fn subscribe_learning_request(
+    state: State<'_, AppState>,
+    request_id: Uuid,
+    after_seq: u32,
+    events: Channel<LearningRequestEvent>,
+) -> Result<LearningRequestSnapshot, LearningErrorDto> {
+    let subscriber_id = events.id();
+    let sink = Arc::new(move |event| events.send(event).map_err(|_| ()));
+    state
+        .learning_requests
+        .subscribe(request_id, after_seq, subscriber_id, sink)
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub fn get_learning_request_snapshot(
+    state: State<'_, AppState>,
+    request_id: Uuid,
+) -> Result<LearningRequestSnapshot, LearningErrorDto> {
+    state
+        .learning_requests
+        .snapshot(request_id)
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub fn cancel_learning_request(
+    state: State<'_, AppState>,
+    request_id: Uuid,
+) -> Result<(), LearningErrorDto> {
+    state
+        .learning_requests
+        .cancel(request_id)
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn start_conversation_followup(
+    state: State<'_, AppState>,
+    conversation_id: Uuid,
+    question: String,
+) -> Result<LearningRequestSnapshot, LearningErrorDto> {
+    let prepared = prepare_conversation_followup(
+        state.db.pool(),
+        &state.provider_capabilities,
+        conversation_id,
+        question,
+    )
+    .await
+    .map_err(LearningErrorDto::from)?;
+    orchestrator(&state)
+        .start_followup(&runtime(&state), prepared)
+        .await
         .map_err(LearningErrorDto::from)
 }
 

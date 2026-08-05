@@ -290,6 +290,18 @@ impl PreparedLearningRequest {
         self.binding.book.book_id
     }
 
+    pub fn section_id(&self) -> Uuid {
+        self.binding.section_id
+    }
+
+    pub fn default_max_output_tokens(&self) -> u32 {
+        self.binding.default_max_output_tokens
+    }
+
+    pub fn requires_vision(&self) -> bool {
+        self.binding.requires_vision
+    }
+
     pub fn action(&self) -> LearningAction {
         self.action
     }
@@ -312,6 +324,15 @@ impl PreparedLearningRequest {
 
     pub fn capture(&self) -> Option<&StagedRegionCapture> {
         self.capture.as_ref()
+    }
+
+    pub fn current_question(&self) -> AppResult<&str> {
+        match self.prepared_prompt.messages.as_slice() {
+            [message] if message.role == crate::domain::UnifiedRole::User => {
+                Ok(message.content.as_str())
+            }
+            _ => Err(AppError::new(AppErrorCode::RequestConflict)),
+        }
     }
 }
 
@@ -567,6 +588,18 @@ impl LearningPreparationService {
         self.revalidate_registry_binding(&binding).await?;
         self.registry
             .consume(preparation_id, operation_token, Instant::now())
+    }
+
+    /// Consumes the already-authorized preparation from the in-process execution boundary.
+    /// The authorization token never crosses the public start command or appears in logs.
+    pub async fn consume_for_execution(
+        &self,
+        preparation_id: Uuid,
+    ) -> AppResult<PreparedLearningRequest> {
+        let binding = self.registry.binding(preparation_id, Instant::now())?;
+        self.revalidate_registry_binding(&binding).await?;
+        self.registry
+            .consume(preparation_id, binding.operation_token, Instant::now())
     }
 
     async fn require_binding_unchanged(&self, expected: &ProviderBindingSnapshot) -> AppResult<()> {

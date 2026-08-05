@@ -249,6 +249,22 @@ impl LoadedProvider {
             .map_err(|error| error.into_app_error())
     }
 
+    /// Streams a vision-learning request through the same captured credential boundary.
+    pub async fn stream_vision_learning(
+        &self,
+        request: crate::domain::UnifiedVisionRequest,
+        cancel: CancellationToken,
+    ) -> AppResult<ProviderStream> {
+        if self.operation != AiOperation::VisionLearning
+            || request.text.model != self.profile.model_id
+        {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
+        self.adapter
+            .stream_vision(&self.credential, request, cancel)
+            .await
+    }
+
     /// Executes the one structured operation captured by `load`; adapter and
     /// credential remain private to this boundary.
     pub async fn analyze_pages(

@@ -107,6 +107,18 @@ pub trait LearningPersistenceFaultInjector: Send + Sync {
     async fn checkpoint(&self, step: LearningPersistenceStep) -> AppResult<()>;
 }
 
+pub trait LearningCommitAuthorizer: Send + Sync {
+    fn authorize_commit(&self) -> AppResult<()>;
+}
+
+struct AllowLearningCommit;
+
+impl LearningCommitAuthorizer for AllowLearningCommit {
+    fn authorize_commit(&self) -> AppResult<()> {
+        Ok(())
+    }
+}
+
 struct NoLearningPersistenceFaults;
 
 #[async_trait]
@@ -144,6 +156,16 @@ impl LearningRepository {
     pub async fn persist_new_selection(
         &self,
         input: NewSelectionCompletion,
+    ) -> AppResult<PersistedLearningResult> {
+        self.persist_new_selection_authorized(input, &AllowLearningCommit)
+            .await
+    }
+
+    #[doc(hidden)]
+    pub async fn persist_new_selection_authorized(
+        &self,
+        input: NewSelectionCompletion,
+        commit_authorizer: &dyn LearningCommitAuthorizer,
     ) -> AppResult<PersistedLearningResult> {
         validate_new_selection(&input)?;
         validate_anchor_for_write(&self.pool, input.book_id, input.section_id, &input.anchor)
@@ -234,6 +256,7 @@ impl LearningRepository {
         .await?;
 
         self.checkpoint(LearningPersistenceStep::Commit).await?;
+        commit_authorizer.authorize_commit()?;
         transaction.commit().await?;
         Ok(PersistedLearningResult {
             conversation_id,
@@ -242,6 +265,16 @@ impl LearningRepository {
     }
 
     pub async fn persist_followup(&self, input: FollowupCompletion) -> AppResult<()> {
+        self.persist_followup_authorized(input, &AllowLearningCommit)
+            .await
+    }
+
+    #[doc(hidden)]
+    pub async fn persist_followup_authorized(
+        &self,
+        input: FollowupCompletion,
+        commit_authorizer: &dyn LearningCommitAuthorizer,
+    ) -> AppResult<()> {
         validate_question(&input.question)?;
         validate_assistant(&input.assistant)?;
         if input.expected_next_ordinal < 2 || !input.expected_next_ordinal.is_multiple_of(2) {
@@ -319,6 +352,7 @@ impl LearningRepository {
         }
 
         self.checkpoint(LearningPersistenceStep::Commit).await?;
+        commit_authorizer.authorize_commit()?;
         transaction.commit().await?;
         Ok(())
     }

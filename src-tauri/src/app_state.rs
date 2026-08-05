@@ -1,9 +1,7 @@
-use std::{collections::HashSet, fs, path::PathBuf, sync::Arc};
+use std::{fs, path::PathBuf, sync::Arc};
 
-use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
 use tracing_appender::non_blocking::WorkerGuard;
-use uuid::Uuid;
 
 use crate::{
     ai::registry::ProviderCapabilityRegistry,
@@ -12,7 +10,7 @@ use crate::{
     documents::import::ImportCancellationRegistry,
     errors::AppResult,
     indexing::{coordinator::IndexOperationRegistry, state::IndexCancellationRegistry},
-    learning::preparation::PreparationRegistry,
+    learning::{preparation::PreparationRegistry, registry::LearningRequestRegistry},
 };
 
 #[derive(Clone, Debug)]
@@ -57,7 +55,7 @@ pub struct AppState {
     pub indexing_cancellations: IndexCancellationRegistry,
     pub indexing_operations: IndexOperationRegistry,
     pub learning_preparations: PreparationRegistry,
-    pub learning_cancellations: Mutex<HashSet<Uuid>>,
+    pub learning_requests: LearningRequestRegistry,
     pub log_guard: WorkerGuard,
     pub credential_store: Arc<dyn CredentialStore>,
     pub provider_capabilities: ProviderCapabilityRegistry,
@@ -78,10 +76,16 @@ impl AppState {
             indexing_cancellations: IndexCancellationRegistry::default(),
             indexing_operations: IndexOperationRegistry::default(),
             learning_preparations: PreparationRegistry::default(),
-            learning_cancellations: Mutex::new(HashSet::new()),
+            learning_requests: LearningRequestRegistry::default(),
             log_guard,
             credential_store,
             provider_capabilities,
         }
+    }
+}
+
+impl Drop for AppState {
+    fn drop(&mut self) {
+        self.learning_requests.shutdown();
     }
 }
