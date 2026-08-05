@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import type { BookSummary } from '../../lib/generated/book';
 import type { NormalizedSectionInput } from '../../lib/generated/document';
@@ -217,6 +220,34 @@ function coordinator(ipc: FakeImportIpc, documentParser: DocumentParser) {
 }
 
 describe('ImportCoordinator', () => {
+  it('passes an owned byte view through the real PDF parser without early release', async () => {
+    installDomMatrixStub();
+    const ipc = new FakeImportIpc();
+    const fixture = await readFile('fixtures/textbook.pdf');
+    const backing = new Uint8Array(fixture.byteLength + 2);
+    backing.set(fixture, 1);
+    ipc.binary = backing.subarray(1, fixture.byteLength + 1);
+
+    const { PdfParser } = await import('./parsers/pdf-parser');
+    const { GlobalWorkerOptions } =
+      await import('pdfjs-dist/legacy/build/pdf.mjs');
+    GlobalWorkerOptions.workerSrc = pathToFileURL(
+      resolve('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'),
+    ).href;
+
+    await expect(
+      coordinator(ipc, new PdfParser()).importDocument('C:/transient.pdf'),
+    ).resolves.toMatchObject({ importStatus: 'ready' });
+
+    expect(ipc.calls).toEqual([
+      'begin_import',
+      'read_book_source',
+      'begin_parse',
+      'append_parsed_sections',
+      'finalize_import',
+    ]);
+  });
+
   it('sequences IPC, preserves binary view bounds, and enforces both batch limits', async () => {
     const ipc = new FakeImportIpc();
     const backing = new Uint8Array([99, 1, 2, 3, 88]);
@@ -670,3 +701,9 @@ describe('ImportCoordinator', () => {
     expect(activeCoordinator.activeJobCount).toBe(0);
   });
 });
+
+function installDomMatrixStub(): void {
+  if ('DOMMatrix' in globalThis) return;
+  class DomMatrixStub {}
+  Object.assign(globalThis, { DOMMatrix: DomMatrixStub });
+}

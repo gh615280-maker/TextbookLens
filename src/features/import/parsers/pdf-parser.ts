@@ -2,6 +2,7 @@ import {
   getDocument,
   GlobalWorkerOptions,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 
 import type {
@@ -24,10 +25,10 @@ import {
   pdfTextItems,
 } from './pdf-layout';
 
-GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.mjs',
-  import.meta.url,
-).toString();
+// Keep the worker on the same legacy build as the display API and let Vite
+// emit its URL. A package-specifier URL is not a browser-resolvable worker URL
+// in the packaged Tauri webview.
+GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
 class PdfParserError extends Error implements UserFacingError {
   readonly nextStep =

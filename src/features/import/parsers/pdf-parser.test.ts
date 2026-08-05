@@ -15,6 +15,12 @@ describe('PdfParser', () => {
     const { PdfParser } = await import('./pdf-parser');
     const { GlobalWorkerOptions } =
       await import('pdfjs-dist/legacy/build/pdf.mjs');
+    expect(GlobalWorkerOptions.workerSrc).toContain(
+      'pdfjs-dist/legacy/build/pdf.worker.mjs',
+    );
+    // Vitest runs the browser bundle under Node, where Vite's emitted URL is
+    // not a loadable module URL. Keep the production assertion above, then
+    // use the equivalent local worker only for this Node-hosted parser run.
     GlobalWorkerOptions.workerSrc = pathToFileURL(
       resolve('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'),
     ).href;
@@ -71,6 +77,62 @@ describe('PdfParser', () => {
       ),
     ).toBe(true);
     expect(sink.sections[0]?.blocks[0]?.id).toBe(stableBlockId(bookId, 0, 0));
+  });
+
+  it('maps PDF.js corruption and encryption errors to distinct safe codes', async () => {
+    const destroy = vi.fn();
+    vi.resetModules();
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: ({ data }: { data: Uint8Array }) => ({
+        promise: Promise.reject(
+          new Error(data[0] === 1 ? 'Password required' : 'Invalid PDF'),
+        ),
+        destroy,
+      }),
+      GlobalWorkerOptions: {},
+    }));
+    vi.doMock('pdfjs-dist/legacy/build/pdf.worker.mjs?url', () => ({
+      default: '/assets/pdf.worker.mjs',
+    }));
+
+    try {
+      const { PdfParser } = await import('./pdf-parser');
+      const parser = new PdfParser();
+
+      await expect(
+        parser.parse(
+          {
+            bookId,
+            format: 'pdf',
+            source: new Uint8Array([0]).buffer,
+            signal: new AbortController().signal,
+          },
+          createSink(),
+        ),
+      ).rejects.toMatchObject({
+        code: 'FILE_CORRUPTED',
+        diagnosticId: null,
+      });
+      await expect(
+        parser.parse(
+          {
+            bookId,
+            format: 'pdf',
+            source: new Uint8Array([1]).buffer,
+            signal: new AbortController().signal,
+          },
+          createSink(),
+        ),
+      ).rejects.toMatchObject({
+        code: 'FILE_ENCRYPTED_OR_DRM',
+        diagnosticId: null,
+      });
+      expect(destroy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.doUnmock('pdfjs-dist/legacy/build/pdf.mjs');
+      vi.doUnmock('pdfjs-dist/legacy/build/pdf.worker.mjs?url');
+      vi.resetModules();
+    }
   });
 });
 

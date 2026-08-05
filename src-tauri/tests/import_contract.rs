@@ -7,7 +7,7 @@ use textbooklens_lib::{
     db::Database,
     documents::import::{
         BeginImportOutcome, BeginImportRequest, ImportCancellationRegistry, ImportEvent,
-        ImportService, ImportStage,
+        ImportService, ImportStage, ParsedBookMetadata,
     },
     documents::storage::{copy_source, noop_progress, validate_source},
     domain::{BookIndexAggregateStatus, ImportErrorStage, ImportStatus},
@@ -300,6 +300,77 @@ async fn copied_book_survives_source_deletion() {
 
     let internal = service.read_book_source(book.id).await.unwrap();
     assert_eq!(internal, expected);
+}
+
+#[tokio::test]
+async fn owned_copy_bytes_and_hash_allow_parsing_after_source_deletion() {
+    let (temp, database, service) = test_service().await;
+    let expected = b"%PDF-1.7\nsynthetic owned copy contract\n%%EOF";
+    let source = source_file(&temp, "synthetic.pdf", expected);
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    fs::remove_file(&source).unwrap();
+
+    let owned = service.read_book_source(book.id).await.unwrap();
+    assert_eq!(owned, expected);
+    assert_eq!(owned.len(), expected.len());
+    let stored_hash: String = sqlx::query_scalar("SELECT sha256 FROM books WHERE id = ?")
+        .bind(book.id.to_string())
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        stored_hash,
+        Sha256::digest(expected)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+
+    service
+        .begin_parse(
+            book.id,
+            ParsedBookMetadata {
+                title: "Synthetic PDF".to_owned(),
+                author: None,
+                language: None,
+            },
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn source_reads_fail_closed_when_the_owned_copy_hash_changes() {
+    let (temp, _database, service) = test_service().await;
+    let source = source_file(&temp, "synthetic.pdf", b"%PDF-1.7\nsource\n%%EOF");
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+    let owned_path = service
+        .paths()
+        .books
+        .join(book.id.to_string())
+        .join("original.pdf");
+    fs::write(owned_path, b"%PDF-1.7\nchanged\n%%EOF").unwrap();
+
+    assert_eq!(
+        service.read_book_source(book.id).await.unwrap_err().code,
+        AppErrorCode::FileCorrupted
+    );
 }
 
 #[tokio::test]
