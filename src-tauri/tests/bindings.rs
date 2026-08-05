@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
     AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookIndexAggregateStatus, BookSummary,
-    CapabilitySupport, ContentAnchor, ContentSource, ConversationDto, CredentialStatus,
-    DocumentLocator, ImageLimits, ImageMime, IndexAggregate, IndexAggregateStatus,
-    IndexCorrectionConflictState, IndexCorrectionReviewDto, IndexCorrectionValueKind,
-    IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto, IndexPageReviewDto,
-    IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason, IndexReviewReason,
-    IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent, LearningRequest,
-    LocalTextQuality, NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep,
-    PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
+    CapabilitySupport, Citation, CitationReviewStatus, ContentAnchor, ContentSource,
+    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
+    IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
+    IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
+    IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
+    IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent,
+    LearningRequest, LocalTextQuality, NormalizedBookInput, NormalizedRect, OnboardingStateDto,
+    OnboardingStep, PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
     ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
     ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor,
     RegionLocator, RemoteCleanupStatus, SafeIndexErrorDto, TeachingInstructionDto, UiLanguage,
@@ -266,6 +266,8 @@ fn export_bindings() {
     ContentAnchor::export_all(&config).unwrap();
     AnnotationDto::export_all(&config).unwrap();
     ConversationDto::export_all(&config).unwrap();
+    CitationReviewStatus::export_all(&config).unwrap();
+    Citation::export_all(&config).unwrap();
     LearningRequest::export_all(&config).unwrap();
     LearningEvent::export_all(&config).unwrap();
     CapabilitySupport::export_all(&config).unwrap();

@@ -1,26 +1,61 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
 use uuid::Uuid;
 
 use crate::{
-    domain::{ContentSource, DocumentLocator},
+    domain::{CitationReviewStatus, ContentSource, DocumentLocator},
     errors::{AppError, AppErrorCode, AppResult},
 };
 
 use super::provenance::RetrievalProvenance;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
     pub snippet: String,
     pub locator: DocumentLocator,
     pub section_title: Option<String>,
     pub provenance: RetrievalProvenance,
+    #[serde(skip)]
+    pub(crate) context_book_id: Uuid,
+    #[serde(skip)]
+    pub(crate) context_section_id: Option<Uuid>,
+    #[serde(skip)]
+    pub(crate) context_stable_id: String,
+    #[serde(skip)]
+    pub(crate) context_ordinal: u32,
+    #[serde(skip)]
+    pub(crate) context_text: String,
+    #[serde(skip)]
+    pub(crate) relevance_micros: u32,
+}
+
+impl fmt::Debug for SearchHit {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SearchHit")
+            .field(
+                "snippet",
+                &format_args!("<redacted:{} scalars>", self.snippet.chars().count()),
+            )
+            .field("locator", &"<redacted>")
+            .field(
+                "section_title_scalars",
+                &self
+                    .section_title
+                    .as_ref()
+                    .map(|title| title.chars().count()),
+            )
+            .field("provenance", &self.provenance)
+            .finish()
+    }
 }
 
 struct RankedHit {
     hit: SearchHit,
-    score: f64,
+    score: u64,
     source_order: u8,
     stable_order: String,
 }
@@ -55,7 +90,7 @@ pub async fn search_book(
     hits.sort_by(|left, right| {
         right
             .score
-            .total_cmp(&left.score)
+            .cmp(&left.score)
             .then_with(|| left.source_order.cmp(&right.source_order))
             .then_with(|| left.stable_order.cmp(&right.stable_order))
     });
@@ -71,7 +106,7 @@ async fn search_fts(
 ) -> AppResult<Vec<RankedHit>> {
     let phrase = format!("\"{}\"", query.replace('"', "\"\""));
     let local_rows = sqlx::query(
-        "SELECT c.id AS stable_id, c.text, c.locator_json, s.title AS section_title, bm25(search_chunks_fts) AS relevance FROM search_chunks_fts JOIN search_chunks c ON c.rowid = search_chunks_fts.rowid JOIN sections s ON s.id = c.section_id AND s.book_id = c.book_id WHERE search_chunks_fts MATCH ? AND c.book_id = ? ORDER BY relevance, s.ordinal, c.ordinal LIMIT ?",
+        "SELECT c.id AS stable_id, c.section_id, c.ordinal, c.text, c.locator_json, s.title AS section_title FROM search_chunks_fts JOIN search_chunks c ON c.rowid = search_chunks_fts.rowid JOIN sections s ON s.id = c.section_id AND s.book_id = c.book_id WHERE search_chunks_fts MATCH ? AND c.book_id = ? ORDER BY s.ordinal, c.ordinal, c.id LIMIT ?",
     )
     .bind(&phrase)
     .bind(book_id.to_string())
@@ -79,7 +114,7 @@ async fn search_fts(
     .fetch_all(pool)
     .await?;
     let indexed_rows = sqlx::query(
-        "SELECT c.id AS stable_id, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256, bm25(index_search_chunks_fts) AS relevance FROM index_search_chunks_fts JOIN index_search_chunks c ON c.rowid = index_search_chunks_fts.rowid JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE index_search_chunks_fts MATCH ? AND c.book_id = ? ORDER BY relevance, p.page_number, c.ordinal LIMIT ?",
+        "SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256, p.status AS page_status, p.review_reason_code FROM index_search_chunks_fts JOIN index_search_chunks c ON c.rowid = index_search_chunks_fts.rowid JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version AND p.status IN ('indexed', 'needs_review') LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE index_search_chunks_fts MATCH ? AND c.book_id = ? AND (c.source != 'user_corrected' OR (correction.id IS NOT NULL AND correction.conflict_state = 'active' AND correction.target_content_version = c.content_version)) AND NOT (c.source = 'ai_transcribed' AND EXISTS (SELECT 1 FROM index_corrections active_correction WHERE active_correction.book_id = c.book_id AND active_correction.page_id = c.page_id AND active_correction.target_block_id = c.block_id AND active_correction.target_content_version = c.content_version AND active_correction.value_kind = 'text' AND active_correction.conflict_state = 'active')) AND NOT (c.source IN ('ai_transcribed', 'user_corrected') AND EXISTS (SELECT 1 FROM index_corrections conflicted_correction WHERE conflicted_correction.book_id = c.book_id AND conflicted_correction.page_id = c.page_id AND conflicted_correction.target_block_id = c.block_id AND conflicted_correction.conflict_state = 'conflict')) ORDER BY p.page_number, c.ordinal, c.source, c.id LIMIT ?",
     )
     .bind(phrase)
     .bind(book_id.to_string())
@@ -89,22 +124,10 @@ async fn search_fts(
 
     let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len());
     for row in local_rows {
-        let provenance = RetrievalProvenance::local_text();
-        let relevance = fts_score(row.try_get::<f64, _>("relevance")?);
-        hits.push(RankedHit {
-            score: relevance * provenance.ranking_weight(),
-            source_order: source_order(provenance.source),
-            stable_order: row.try_get("stable_id")?,
-            hit: SearchHit {
-                snippet: snippet(&row.try_get::<String, _>("text")?, query),
-                locator: parse_locator(&row)?,
-                section_title: row.try_get("section_title")?,
-                provenance,
-            },
-        });
+        hits.push(local_ranked_hit(&row, book_id, query)?);
     }
     for row in indexed_rows {
-        hits.push(indexed_ranked_hit(&row, query, true)?);
+        hits.push(indexed_ranked_hit(&row, book_id, query)?);
     }
     Ok(hits)
 }
@@ -117,7 +140,7 @@ async fn search_like(
 ) -> AppResult<Vec<RankedHit>> {
     let escaped = escape_like(query);
     let local_rows = sqlx::query(
-        "SELECT c.id AS stable_id, c.text, c.locator_json, s.title AS section_title FROM search_chunks c JOIN sections s ON s.id = c.section_id AND s.book_id = c.book_id WHERE c.book_id = ? AND c.text LIKE '%' || ? || '%' ESCAPE '\\' ORDER BY s.ordinal, c.ordinal LIMIT ?",
+        "SELECT c.id AS stable_id, c.section_id, c.ordinal, c.text, c.locator_json, s.title AS section_title FROM search_chunks c JOIN sections s ON s.id = c.section_id AND s.book_id = c.book_id WHERE c.book_id = ? AND c.text LIKE '%' || ? || '%' ESCAPE '\\' ORDER BY s.ordinal, c.ordinal, c.id LIMIT ?",
     )
     .bind(book_id.to_string())
     .bind(&escaped)
@@ -125,7 +148,7 @@ async fn search_like(
     .fetch_all(pool)
     .await?;
     let indexed_rows = sqlx::query(
-        "SELECT c.id AS stable_id, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256 FROM index_search_chunks c JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE c.book_id = ? AND c.text LIKE '%' || ? || '%' ESCAPE '\\' ORDER BY p.page_number, c.ordinal LIMIT ?",
+        "SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256, p.status AS page_status, p.review_reason_code FROM index_search_chunks c JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version AND p.status IN ('indexed', 'needs_review') LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE c.book_id = ? AND c.text LIKE '%' || ? || '%' ESCAPE '\\' AND (c.source != 'user_corrected' OR (correction.id IS NOT NULL AND correction.conflict_state = 'active' AND correction.target_content_version = c.content_version)) AND NOT (c.source = 'ai_transcribed' AND EXISTS (SELECT 1 FROM index_corrections active_correction WHERE active_correction.book_id = c.book_id AND active_correction.page_id = c.page_id AND active_correction.target_block_id = c.block_id AND active_correction.target_content_version = c.content_version AND active_correction.value_kind = 'text' AND active_correction.conflict_state = 'active')) AND NOT (c.source IN ('ai_transcribed', 'user_corrected') AND EXISTS (SELECT 1 FROM index_corrections conflicted_correction WHERE conflicted_correction.book_id = c.book_id AND conflicted_correction.page_id = c.page_id AND conflicted_correction.target_block_id = c.block_id AND conflicted_correction.conflict_state = 'conflict')) ORDER BY p.page_number, c.ordinal, c.source, c.id LIMIT ?",
     )
     .bind(book_id.to_string())
     .bind(escaped)
@@ -135,27 +158,41 @@ async fn search_like(
 
     let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len());
     for row in local_rows {
-        let text: String = row.try_get("text")?;
-        let provenance = RetrievalProvenance::local_text();
-        hits.push(RankedHit {
-            score: like_score(&text, query) * provenance.ranking_weight(),
-            source_order: source_order(provenance.source),
-            stable_order: row.try_get("stable_id")?,
-            hit: SearchHit {
-                snippet: snippet(&text, query),
-                locator: parse_locator(&row)?,
-                section_title: row.try_get("section_title")?,
-                provenance,
-            },
-        });
+        hits.push(local_ranked_hit(&row, book_id, query)?);
     }
     for row in indexed_rows {
-        hits.push(indexed_ranked_hit(&row, query, false)?);
+        hits.push(indexed_ranked_hit(&row, book_id, query)?);
     }
     Ok(hits)
 }
 
-fn indexed_ranked_hit(row: &SqliteRow, query: &str, fts: bool) -> AppResult<RankedHit> {
+fn local_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<RankedHit> {
+    let provenance = RetrievalProvenance::local_text();
+    let text: String = row.try_get("text")?;
+    let stable_id: String = row.try_get("stable_id")?;
+    let section_id = parse_uuid(row.try_get::<String, _>("section_id")?)?;
+    let ordinal = to_u32(row.try_get::<i64, _>("ordinal")?)?;
+    let relevance_micros = weighted_relevance(&text, query, provenance.ranking_weight());
+    Ok(RankedHit {
+        score: u64::from(relevance_micros),
+        source_order: source_order(provenance.source),
+        stable_order: format!("local_text:{section_id}:{ordinal:010}:{stable_id}"),
+        hit: SearchHit {
+            snippet: snippet(&text, query),
+            locator: parse_locator(row)?,
+            section_title: row.try_get("section_title")?,
+            provenance,
+            context_book_id: book_id,
+            context_section_id: Some(section_id),
+            context_stable_id: stable_id,
+            context_ordinal: ordinal,
+            context_text: text,
+            relevance_micros,
+        },
+    })
+}
+
+fn indexed_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<RankedHit> {
     let source = ContentSource::from_database(&row.try_get::<String, _>("source")?)
         .ok_or_else(database_error)?;
     if source == ContentSource::LocalText {
@@ -173,28 +210,49 @@ fn indexed_ranked_hit(row: &SqliteRow, query: &str, fts: bool) -> AppResult<Rank
     {
         return Err(database_error());
     }
-    let provenance = RetrievalProvenance::indexed(
+    let review_status = if source == ContentSource::UserCorrected {
+        CitationReviewStatus::UserCorrected
+    } else if row.try_get::<String, _>("page_status")? == "needs_review"
+        || row
+            .try_get::<Option<String>, _>("review_reason_code")?
+            .is_some()
+    {
+        CitationReviewStatus::NeedsReview
+    } else {
+        CitationReviewStatus::Indexed
+    };
+    let provenance = RetrievalProvenance::indexed_with_review(
         source,
         page_id,
         block_id,
         correction_id,
         original_value_sha256,
+        review_status,
     );
     let text: String = row.try_get("text")?;
-    let raw_score = if fts {
-        fts_score(row.try_get::<f64, _>("relevance")?)
-    } else {
-        like_score(&text, query)
-    };
+    let stable_id: String = row.try_get("stable_id")?;
+    let ordinal = to_u32(row.try_get::<i64, _>("ordinal")?)?;
+    let relevance_micros = weighted_relevance(&text, query, provenance.ranking_weight());
+    let stable_order = format!(
+        "{}:{page_id}:{block_id}:{}:{ordinal:010}:{stable_id}",
+        source.as_str(),
+        correction_id.map_or_else(String::new, |id| id.to_string())
+    );
     Ok(RankedHit {
-        score: raw_score * provenance.ranking_weight(),
+        score: u64::from(relevance_micros),
         source_order: source_order(source),
-        stable_order: row.try_get("stable_id")?,
+        stable_order,
         hit: SearchHit {
             snippet: snippet(&text, query),
             locator: parse_locator(row)?,
             section_title: None,
             provenance,
+            context_book_id: book_id,
+            context_section_id: None,
+            context_stable_id: stable_id,
+            context_ordinal: ordinal,
+            context_text: text,
+            relevance_micros,
         },
     })
 }
@@ -208,17 +266,29 @@ fn parse_uuid(value: String) -> AppResult<Uuid> {
     Uuid::parse_str(&value).map_err(|_| database_error())
 }
 
-fn fts_score(rank: f64) -> f64 {
-    if rank.is_finite() {
-        (-rank).max(f64::MIN_POSITIVE)
-    } else {
-        f64::MIN_POSITIVE
-    }
+fn to_u32(value: i64) -> AppResult<u32> {
+    u32::try_from(value).map_err(|_| database_error())
 }
 
-fn like_score(text: &str, query: &str) -> f64 {
-    let occurrences = text.matches(query).count().max(1) as f64;
-    occurrences / text.chars().count().max(1) as f64
+fn weighted_relevance(text: &str, query: &str, source_weight_micros: u32) -> u32 {
+    let occurrences = u64::try_from(text.matches(query).count().max(1)).unwrap_or(u64::MAX);
+    let text_scalars = u64::try_from(text.chars().count().max(1)).unwrap_or(u64::MAX);
+    let query_scalars = u64::try_from(query.chars().count().max(1)).unwrap_or(u64::MAX);
+    let occurrence_score = occurrences.saturating_mul(1_000_000);
+    let density_score = occurrences
+        .saturating_mul(query_scalars)
+        .saturating_mul(1_000_000)
+        .checked_div(text_scalars)
+        .unwrap_or(0);
+    let exact_bonus = u64::from(text.trim() == query).saturating_mul(2_000_000);
+    let raw = occurrence_score
+        .saturating_add(density_score)
+        .saturating_add(exact_bonus);
+    let weighted = raw
+        .saturating_mul(u64::from(source_weight_micros))
+        .checked_div(1_000_000)
+        .unwrap_or(u64::MAX);
+    u32::try_from(weighted).unwrap_or(u32::MAX)
 }
 
 const fn source_order(source: ContentSource) -> u8 {
