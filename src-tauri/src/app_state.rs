@@ -12,6 +12,7 @@ use crate::{
     documents::import::ImportCancellationRegistry,
     errors::AppResult,
     indexing::{coordinator::IndexOperationRegistry, state::IndexCancellationRegistry},
+    learning::preparation::PreparationRegistry,
 };
 
 #[derive(Clone, Debug)]
@@ -55,6 +56,7 @@ pub struct AppState {
     pub import_cancellations: ImportCancellationRegistry,
     pub indexing_cancellations: IndexCancellationRegistry,
     pub indexing_operations: IndexOperationRegistry,
+    pub learning_preparations: PreparationRegistry,
     pub learning_cancellations: Mutex<HashSet<Uuid>>,
     pub log_guard: WorkerGuard,
     pub credential_store: Arc<dyn CredentialStore>,
@@ -75,6 +77,7 @@ impl AppState {
             import_cancellations: ImportCancellationRegistry::default(),
             indexing_cancellations: IndexCancellationRegistry::default(),
             indexing_operations: IndexOperationRegistry::default(),
+            learning_preparations: PreparationRegistry::default(),
             learning_cancellations: Mutex::new(HashSet::new()),
             log_guard,
             credential_store,
