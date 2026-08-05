@@ -386,6 +386,10 @@ async fn seed_ai(
     anchor: &ContentAnchor,
 ) {
     let json = serde_json::to_string(anchor).unwrap();
-    sqlx::query("INSERT INTO conversations (id, book_id, section_id, scope, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'selection', ?, 'selection', ?, ?)").bind(conversation.to_string()).bind(book.to_string()).bind(section.to_string()).bind(&json).bind(NOW).bind(NOW).execute(pool).await.unwrap();
+    let anchor_kind = match anchor {
+        ContentAnchor::Text { .. } => "text",
+        ContentAnchor::Region { .. } => "region",
+    };
+    sqlx::query("INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'selection', ?, ?, 'selection', ?, ?)").bind(conversation.to_string()).bind(book.to_string()).bind(section.to_string()).bind(anchor_kind).bind(&json).bind(NOW).bind(NOW).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO annotations (id, book_id, section_id, kind, anchor_json, selected_text, conversation_id, created_at, updated_at) VALUES (?, ?, ?, 'ai_conversation', ?, 'selection', ?, ?, ?)").bind(annotation.to_string()).bind(book.to_string()).bind(section.to_string()).bind(json).bind(conversation.to_string()).bind(NOW).bind(NOW).execute(pool).await.unwrap();
 }

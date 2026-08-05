@@ -3,17 +3,19 @@ use std::collections::BTreeMap;
 use textbooklens_lib::domain::{
     AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookIndexAggregateStatus, BookSummary,
     CapabilitySupport, Citation, CitationReviewStatus, ContentAnchor, ContentSource,
-    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
-    IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
-    IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
-    IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
-    IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent,
-    LearningRequest, LocalTextQuality, NormalizedBookInput, NormalizedRect, OnboardingStateDto,
-    OnboardingStep, PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
-    ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
-    ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor,
-    RegionLocator, RemoteCleanupStatus, SafeIndexErrorDto, TeachingInstructionDto, UiLanguage,
-    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
+    ConversationAnchorKind, ConversationDto, CredentialStatus, DocumentLocator, ImageLimits,
+    ImageMime, IndexAggregate, IndexAggregateStatus, IndexCorrectionConflictState,
+    IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind,
+    IndexPageBlockReviewDto, IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto,
+    IndexQualityReason, IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto,
+    LearningEvent, LearningRequest, LearningRequestEvent, LearningRequestEventPayload,
+    LearningRequestSnapshot, LearningRequestStatus, LearningUsage, LocalTextQuality,
+    NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind,
+    PanelGeometry, ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
+    ProviderOperationConsent, ProviderOperationConsentCategory, ProviderOperationConsentDecision,
+    ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor, RegionLocator, RemoteCleanupStatus,
+    SafeIndexErrorDto, SafeLearningError, TeachingInstructionDto, UiLanguage, UnifiedChatRequest,
+    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
     UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
     ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
     stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
@@ -254,6 +256,150 @@ fn document_constructors_reject_invalid_values() {
 }
 
 #[test]
+fn learning_panel_dtos_are_exact_bounded_and_redacted() {
+    let request_id = uuid::uuid!("f9369a97-d46c-4cf2-8bb0-7c595ea72de4");
+    let conversation_id = uuid::uuid!("7ce80142-c696-4713-906b-2f1277fce3f7");
+    let usage = LearningUsage::new(Some(12), Some(7)).unwrap();
+    let snapshot = LearningRequestSnapshot::new(
+        request_id,
+        Some(conversation_id),
+        LearningRequestStatus::Completed,
+        "visible-snapshot-sentinel".to_owned(),
+        Some(usage.clone()),
+        None,
+        4,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(&snapshot).unwrap(),
+        serde_json::json!({
+            "requestId": request_id,
+            "conversationId": conversation_id,
+            "status": "completed",
+            "text": "visible-snapshot-sentinel",
+            "usage": { "inputTokens": 12, "outputTokens": 7 },
+            "safeError": null,
+            "lastSeq": 4
+        })
+    );
+    assert!(!format!("{snapshot:?}").contains("visible-snapshot-sentinel"));
+
+    let events = [
+        LearningRequestEvent::new(request_id, 1, LearningRequestEventPayload::Preparing).unwrap(),
+        LearningRequestEvent::new(
+            request_id,
+            2,
+            LearningRequestEventPayload::text_delta("visible-event-sentinel".to_owned()).unwrap(),
+        )
+        .unwrap(),
+        LearningRequestEvent::new(
+            request_id,
+            3,
+            LearningRequestEventPayload::usage(Some(12), Some(7)).unwrap(),
+        )
+        .unwrap(),
+        LearningRequestEvent::new(
+            request_id,
+            4,
+            LearningRequestEventPayload::Completed { conversation_id },
+        )
+        .unwrap(),
+    ];
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| serde_json::to_value(event).unwrap())
+            .collect::<Vec<_>>(),
+        vec![
+            serde_json::json!({
+                "requestId": request_id,
+                "seq": 1,
+                "event": { "type": "preparing" }
+            }),
+            serde_json::json!({
+                "requestId": request_id,
+                "seq": 2,
+                "event": { "type": "text_delta", "text": "visible-event-sentinel" }
+            }),
+            serde_json::json!({
+                "requestId": request_id,
+                "seq": 3,
+                "event": { "type": "usage", "inputTokens": 12, "outputTokens": 7 }
+            }),
+            serde_json::json!({
+                "requestId": request_id,
+                "seq": 4,
+                "event": { "type": "completed", "conversationId": conversation_id }
+            }),
+        ]
+    );
+    assert!(!format!("{:?}", events[1]).contains("visible-event-sentinel"));
+
+    assert_eq!(
+        [
+            LearningRequestStatus::Preparing,
+            LearningRequestStatus::Streaming,
+            LearningRequestStatus::Completed,
+            LearningRequestStatus::Failed,
+            LearningRequestStatus::Cancelled,
+        ]
+        .into_iter()
+        .map(|status| serde_json::to_value(status).unwrap())
+        .collect::<Vec<_>>(),
+        [
+            serde_json::json!("preparing"),
+            serde_json::json!("streaming"),
+            serde_json::json!("completed"),
+            serde_json::json!("failed"),
+            serde_json::json!("cancelled"),
+        ]
+    );
+
+    assert!(LearningUsage::new(None, None).is_err());
+    assert!(LearningUsage::new(Some(u64::from(u32::MAX) + 1), None).is_err());
+    assert!(SafeLearningError::new("provider body").is_err());
+    assert!(
+        LearningRequestEvent::new(request_id, 0, LearningRequestEventPayload::Cancelled).is_err()
+    );
+    assert!(LearningRequestEventPayload::text_delta("x".repeat(4 * 1024 * 1024 + 1)).is_err());
+    assert!(
+        LearningRequestSnapshot::new(
+            request_id,
+            None,
+            LearningRequestStatus::Completed,
+            "answer".to_owned(),
+            None,
+            None,
+            1,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn panel_geometry_rejects_non_finite_and_out_of_range_values() {
+    assert_eq!(
+        serde_json::to_value(PanelGeometry::default()).unwrap(),
+        serde_json::json!({
+            "xRatio": 0.5,
+            "yRatio": 0.5,
+            "widthPx": 400.0,
+            "heightPx": 520.0
+        })
+    );
+    for geometry in [
+        PanelGeometry::new(f64::NAN, 0.5, 400.0, 520.0),
+        PanelGeometry::new(0.5, f64::INFINITY, 400.0, 520.0),
+        PanelGeometry::new(-0.1, 0.5, 400.0, 520.0),
+        PanelGeometry::new(0.5, 1.1, 400.0, 520.0),
+        PanelGeometry::new(0.5, 0.5, 319.9, 520.0),
+        PanelGeometry::new(0.5, 0.5, 400.0, 8192.1),
+    ] {
+        assert!(geometry.is_err());
+    }
+}
+
+#[test]
 fn export_bindings() {
     let output_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/generated");
     std::fs::create_dir_all(&output_dir).unwrap();
@@ -266,10 +412,18 @@ fn export_bindings() {
     ContentAnchor::export_all(&config).unwrap();
     AnnotationDto::export_all(&config).unwrap();
     ConversationDto::export_all(&config).unwrap();
+    ConversationAnchorKind::export_all(&config).unwrap();
     CitationReviewStatus::export_all(&config).unwrap();
     Citation::export_all(&config).unwrap();
     LearningRequest::export_all(&config).unwrap();
     LearningEvent::export_all(&config).unwrap();
+    LearningRequestStatus::export_all(&config).unwrap();
+    LearningUsage::export_all(&config).unwrap();
+    SafeLearningError::export_all(&config).unwrap();
+    LearningRequestSnapshot::export_all(&config).unwrap();
+    LearningRequestEventPayload::export_all(&config).unwrap();
+    LearningRequestEvent::export_all(&config).unwrap();
+    PanelGeometry::export_all(&config).unwrap();
     CapabilitySupport::export_all(&config).unwrap();
     AiOperation::export_all(&config).unwrap();
     ImageLimits::export_all(&config).unwrap();

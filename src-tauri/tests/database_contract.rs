@@ -48,6 +48,7 @@ fn migration_creates_the_local_database_contract() {
             "index_search_chunks",
             "index_search_chunks_fts",
             "messages",
+            "panel_preferences",
             "provider_profiles",
             "provider_operation_consents",
             "provider_remote_resources",
@@ -86,6 +87,23 @@ fn migration_creates_the_local_database_contract() {
             .await
             .unwrap();
         assert_eq!(teaching_count, 1);
+
+        let panel_preferences = sqlx::query(
+            "SELECT last_x_ratio, last_y_ratio, width_px, height_px, updated_at FROM panel_preferences WHERE id = 1",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(panel_preferences.get::<f64, _>("last_x_ratio"), 0.5);
+        assert_eq!(panel_preferences.get::<f64, _>("last_y_ratio"), 0.5);
+        assert_eq!(panel_preferences.get::<f64, _>("width_px"), 400.0);
+        assert_eq!(panel_preferences.get::<f64, _>("height_px"), 520.0);
+        let panel_updated_at = panel_preferences.get::<String, _>("updated_at");
+        assert_eq!(panel_updated_at.len(), 24);
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&panel_updated_at).is_ok()
+                && panel_updated_at.ends_with('Z')
+        );
 
         for invalid_statement in [
             "INSERT INTO teaching_preferences (id, updated_at) VALUES (2, '2026-08-04T00:00:00.000Z')",
@@ -221,7 +239,7 @@ fn migration_creates_the_local_database_contract() {
         let conversation_id = Uuid::new_v4().to_string();
         let annotation_id = Uuid::new_v4().to_string();
         sqlx::query(
-            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'selection', '{}', 'selected', ?, ?)",
+            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'selection', 'text', '{}', 'selected', ?, ?)",
         )
         .bind(&conversation_id)
         .bind(&book_id)
@@ -283,6 +301,333 @@ fn migration_creates_the_local_database_contract() {
             .await
             .unwrap();
         assert_eq!(sections_remaining, 0);
+    });
+}
+
+#[test]
+fn learning_panels_forward_migration_preserves_history_and_reopens() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let database_path = temp_dir.path().join("learning-panels-forward.sqlite3");
+    let timestamp = "2026-08-05T01:02:03.004Z";
+    let book_id = Uuid::new_v4();
+    let section_id = Uuid::new_v4();
+    let selection_conversation_id = Uuid::new_v4();
+    let book_conversation_id = Uuid::new_v4();
+    let annotation_id = Uuid::new_v4();
+    let user_message_id = Uuid::new_v4();
+    let assistant_message_id = Uuid::new_v4();
+    let region_conversation_id = Uuid::new_v4();
+
+    tauri::async_runtime::block_on(async {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&database_path)
+                    .create_if_missing(true)
+                    .foreign_keys(true),
+            )
+            .await
+            .unwrap();
+        apply_real_migrations_through_v10(&pool).await;
+
+        sqlx::query(
+            "INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'Legacy history book', 'pdf', 'legacy.pdf', 'books/legacy/original.pdf', 'ready', ?, ?)",
+        )
+        .bind(book_id.to_string())
+        .bind("b".repeat(64))
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO sections (id, book_id, ordinal, title, locator_json) VALUES (?, ?, 0, 'Legacy section', '{}')",
+        )
+        .bind(section_id.to_string())
+        .bind(book_id.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'selection', '{\"legacy\":true}', 'legacy selected text', ?, ?)",
+        )
+        .bind(selection_conversation_id.to_string())
+        .bind(book_id.to_string())
+        .bind(section_id.to_string())
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO conversations (id, book_id, scope, created_at, updated_at) VALUES (?, ?, 'book', ?, ?)",
+        )
+        .bind(book_conversation_id.to_string())
+        .bind(book_id.to_string())
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO messages (id, conversation_id, ordinal, role, action, content, created_at) VALUES (?, ?, 0, 'user', 'explain', 'legacy question', ?)",
+        )
+        .bind(user_message_id.to_string())
+        .bind(selection_conversation_id.to_string())
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO messages (id, conversation_id, ordinal, role, action, content, provider_id, model_id, citations_json, created_at) VALUES (?, ?, 1, 'assistant', 'explain', 'legacy answer', 'openai', 'legacy-model', '[]', ?)",
+        )
+        .bind(assistant_message_id.to_string())
+        .bind(selection_conversation_id.to_string())
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO annotations (id, book_id, section_id, kind, anchor_json, selected_text, conversation_id, created_at, updated_at) VALUES (?, ?, ?, 'ai_conversation', '{\"legacy\":true}', 'legacy selected text', ?, ?, ?)",
+        )
+        .bind(annotation_id.to_string())
+        .bind(book_id.to_string())
+        .bind(section_id.to_string())
+        .bind(selection_conversation_id.to_string())
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::raw_sql(include_str!("../migrations/0011_learning_panels.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let migrated = sqlx::query(
+            "SELECT anchor_kind, anchor_json, selected_text, created_at, updated_at FROM conversations WHERE id = ?",
+        )
+        .bind(selection_conversation_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(migrated.get::<String, _>("anchor_kind"), "text");
+        assert_eq!(
+            migrated.get::<String, _>("anchor_json"),
+            "{\"legacy\":true}"
+        );
+        assert_eq!(
+            migrated.get::<String, _>("selected_text"),
+            "legacy selected text"
+        );
+        assert_eq!(migrated.get::<String, _>("created_at"), timestamp);
+        assert_eq!(migrated.get::<String, _>("updated_at"), timestamp);
+        assert_eq!(
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT anchor_kind FROM conversations WHERE id = ?",
+            )
+            .bind(book_conversation_id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM messages WHERE conversation_id = ?")
+                .bind(selection_conversation_id.to_string())
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT revision FROM annotations WHERE id = ?")
+                .bind(annotation_id.to_string())
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            1
+        );
+
+        sqlx::query(
+            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'selection', 'region', '{\"kind\":\"region\"}', NULL, ?, ?)",
+        )
+        .bind(region_conversation_id.to_string())
+        .bind(book_id.to_string())
+        .bind(section_id.to_string())
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        for statement in [
+            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES ('bad-text', ?, ?, 'selection', 'text', '{}', NULL, ?, ?)",
+            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES ('bad-region-anchor', ?, ?, 'selection', 'region', NULL, NULL, ?, ?)",
+            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES ('bad-region-text', ?, ?, 'selection', 'region', '{}', '   ', ?, ?)",
+            "INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES ('bad-kind', ?, ?, 'selection', 'screen', '{}', 'text', ?, ?)",
+        ] {
+            assert!(
+                sqlx::query(statement)
+                    .bind(book_id.to_string())
+                    .bind(section_id.to_string())
+                    .bind(timestamp)
+                    .bind(timestamp)
+                    .execute(&pool)
+                    .await
+                    .is_err(),
+                "inconsistent selection conversation must be rejected: {statement}"
+            );
+        }
+        assert!(
+            sqlx::query(
+                "INSERT INTO conversations (id, book_id, scope, anchor_kind, created_at, updated_at) VALUES ('bad-book', ?, 'book', 'text', ?, ?)",
+            )
+            .bind(book_id.to_string())
+            .bind(timestamp)
+            .bind(timestamp)
+            .execute(&pool)
+            .await
+            .is_err()
+        );
+
+        let panel = sqlx::query(
+            "SELECT last_x_ratio, last_y_ratio, width_px, height_px, updated_at FROM panel_preferences WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(panel.get::<f64, _>("last_x_ratio"), 0.5);
+        assert_eq!(panel.get::<f64, _>("last_y_ratio"), 0.5);
+        assert_eq!(panel.get::<f64, _>("width_px"), 400.0);
+        assert_eq!(panel.get::<f64, _>("height_px"), 520.0);
+        assert_eq!(panel.get::<String, _>("updated_at").len(), 24);
+        let panel_columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('panel_preferences') ORDER BY cid",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            panel_columns,
+            [
+                "id",
+                "last_x_ratio",
+                "last_y_ratio",
+                "width_px",
+                "height_px",
+                "updated_at"
+            ]
+        );
+        for (statement, value) in [
+            (
+                "UPDATE panel_preferences SET last_x_ratio = ? WHERE id = 1",
+                -0.1_f64,
+            ),
+            (
+                "UPDATE panel_preferences SET last_x_ratio = ? WHERE id = 1",
+                f64::NAN,
+            ),
+            (
+                "UPDATE panel_preferences SET last_y_ratio = ? WHERE id = 1",
+                f64::INFINITY,
+            ),
+            (
+                "UPDATE panel_preferences SET width_px = ? WHERE id = 1",
+                319.0,
+            ),
+            (
+                "UPDATE panel_preferences SET height_px = ? WHERE id = 1",
+                8193.0,
+            ),
+        ] {
+            assert!(
+                sqlx::query(statement)
+                    .bind(value)
+                    .execute(&pool)
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(
+            sqlx::query(
+                "UPDATE panel_preferences SET updated_at = '2026-08-05 01:02:03' WHERE id = 1",
+            )
+            .execute(&pool)
+            .await
+            .is_err()
+        );
+        assert!(
+            sqlx::query("DELETE FROM panel_preferences WHERE id = 1")
+                .execute(&pool)
+                .await
+                .is_err()
+        );
+
+        let foreign_key_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(foreign_key_violations.is_empty());
+
+        sqlx::query("DELETE FROM annotations WHERE id = ?")
+            .bind(annotation_id.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM conversations WHERE id = ?")
+                .bind(selection_conversation_id.to_string())
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM messages WHERE conversation_id = ?")
+                .bind(selection_conversation_id.to_string())
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
+        pool.close().await;
+    });
+
+    tauri::async_runtime::block_on(async {
+        let reopened = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&database_path)
+                    .foreign_keys(true),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM panel_preferences")
+                .fetch_one(&reopened)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT anchor_kind FROM conversations WHERE id = ?",)
+                .bind(region_conversation_id.to_string())
+                .fetch_one(&reopened)
+                .await
+                .unwrap(),
+            "region"
+        );
+        let foreign_key_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&reopened)
+                .await
+                .unwrap();
+        assert!(foreign_key_violations.is_empty());
     });
 }
 
@@ -1481,6 +1826,16 @@ async fn apply_real_migrations_through_v8(pool: &sqlx::SqlitePool) {
         include_str!("../migrations/0006_replanned_ui_preferences.sql"),
         include_str!("../migrations/0007_provider_operation_preferences.sql"),
         include_str!("../migrations/0008_teaching_instruction.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(pool).await.unwrap();
+    }
+}
+
+async fn apply_real_migrations_through_v10(pool: &sqlx::SqlitePool) {
+    apply_real_migrations_through_v8(pool).await;
+    for migration in [
+        include_str!("../migrations/0009_ai_local_index.sql"),
+        include_str!("../migrations/0010_note_revision.sql"),
     ] {
         sqlx::raw_sql(migration).execute(pool).await.unwrap();
     }

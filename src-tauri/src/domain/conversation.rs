@@ -15,6 +15,14 @@ pub enum ConversationScope {
     Book,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "conversation.ts")]
+pub enum ConversationAnchorKind {
+    Text,
+    Region,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export_to = "conversation.ts")]
@@ -172,6 +180,7 @@ pub struct ConversationDto {
     pub book_id: Uuid,
     pub section_id: Option<Uuid>,
     pub scope: ConversationScope,
+    pub anchor_kind: Option<ConversationAnchorKind>,
     pub anchor: Option<ContentAnchor>,
     pub selected_text: Option<String>,
     pub created_at: DateTime<Utc>,

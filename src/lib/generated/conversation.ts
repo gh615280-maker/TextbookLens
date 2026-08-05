@@ -6,7 +6,9 @@ export type Citation = { id: string, label: string, bookId: string, sectionId: s
 
 export type CitationReviewStatus = "not_required" | "indexed" | "needs_review" | "user_corrected";
 
-export type ConversationDto = { id: string, bookId: string, sectionId: string | null, scope: ConversationScope, anchor: ContentAnchor | null, selectedText: string | null, createdAt: string, updatedAt: string, };
+export type ConversationAnchorKind = "text" | "region";
+
+export type ConversationDto = { id: string, bookId: string, sectionId: string | null, scope: ConversationScope, anchorKind: ConversationAnchorKind | null, anchor: ContentAnchor | null, selectedText: string | null, createdAt: string, updatedAt: string, };
 
 export type ConversationScope = "selection" | "book";
 
