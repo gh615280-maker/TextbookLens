@@ -13,6 +13,13 @@ const readyBook = {
   importErrorMessage: null,
   importErrorStage: null,
   readingProgress: 0.375,
+  indexAggregate: {
+    status: 'partial',
+    totalPages: 4,
+    indexedPages: 2,
+    reviewPages: 1,
+    failedPages: 1,
+  },
   createdAt: '2026-08-01T00:00:00Z',
   updatedAt: '2026-08-01T18:30:45Z',
   lastOpenedAt: '2026-08-01T18:30:45Z',
@@ -29,6 +36,13 @@ const failedBook = {
   importErrorMessage: '文件已损坏或无法读取。',
   importErrorStage: 'parsing',
   readingProgress: 0,
+  indexAggregate: {
+    status: 'not_required',
+    totalPages: 0,
+    indexedPages: 0,
+    reviewPages: 0,
+    failedPages: 0,
+  },
   lastOpenedAt: null,
 };
 
@@ -58,6 +72,28 @@ test.beforeEach(async ({ page }) => {
             };
           }
           if (command === 'list_books') return books;
+          if (command === 'find_current_index_run_for_book') {
+            return {
+              runId: '11111111-1111-4111-8111-111111111111',
+              bookId: books[0].id,
+              controlStatus: 'running',
+              aggregateStatus: 'partial',
+              pages: {
+                total: 4,
+                notRequired: 0,
+                queued: 0,
+                rendering: 0,
+                sending: 0,
+                parsing: 0,
+                validating: 0,
+                indexed: 2,
+                needsReview: 1,
+                failed: 1,
+                cancelled: 0,
+              },
+              updatedAt: '2026-08-01T18:30:45.000Z',
+            };
+          }
           if (command === 'plugin:dialog|open') return null;
           if (command === 'delete_failed_import') return null;
           throw new Error(`Unexpected IPC command: ${command}`);
@@ -73,12 +109,11 @@ test('library exposes ready/failed states and an exact import picker contract', 
 }) => {
   await page.goto('/library');
 
-  await expect(page.getByRole('heading', { name: '线性代数' })).toBeVisible();
   await expect(
-    page.getByRole('button', { name: '打开《线性代数》' }),
-  ).toBeEnabled();
+    page.getByRole('button', { name: '线性代数', exact: true }),
+  ).toBeVisible();
   await expect(page.getByText('damaged.epub')).toBeVisible();
-  await expect(page.getByText('解析失败')).toBeVisible();
+  await expect(page.getByText('文件已损坏或无法读取。')).toBeVisible();
   await expect(
     page.getByRole('button', { name: '重新选择并重试' }),
   ).toBeEnabled();
@@ -112,7 +147,9 @@ test('library import surface has no automatically detectable accessibility viola
   page,
 }) => {
   await page.goto('/library');
-  await expect(page.getByRole('heading', { name: '线性代数' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '线性代数', exact: true }),
+  ).toBeVisible();
 
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
