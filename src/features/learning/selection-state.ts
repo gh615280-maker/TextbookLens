@@ -61,25 +61,25 @@ export interface PreparedLearningHandoff {
   readonly action: PreparedLearningAction;
 }
 
-export interface LocalNoteIntent {
-  readonly bookId: string;
-  readonly sectionId: string;
-  readonly anchor: ContentAnchor;
-  readonly body: string;
-}
-
 /** Phase 12 owns consuming the opaque preparation and any persisted UI. */
 export interface LearningSurfacePort {
   handoff(prepared: Readonly<PreparedLearningHandoff>): void | Promise<void>;
-  note(intent: Readonly<LocalNoteIntent>): void | Promise<void>;
 }
+
+export const DEFERRED_LEARNING_HANDOFF_EVENT = 'textbooklens:learning-prepared';
+
+/** Phase 11 emits only an ephemeral safe boundary signal. Phase 12 owns consumption. */
+export const deferredLearningSurfacePort: LearningSurfacePort = Object.freeze({
+  handoff(prepared: Readonly<PreparedLearningHandoff>) {
+    window.dispatchEvent(
+      new CustomEvent(DEFERRED_LEARNING_HANDOFF_EVENT, { detail: prepared }),
+    );
+  },
+});
 
 export const unavailableLearningSurfacePort: LearningSurfacePort =
   Object.freeze({
     handoff() {
-      throw new Error('LEARNING_SURFACE_UNAVAILABLE');
-    },
-    note() {
       throw new Error('LEARNING_SURFACE_UNAVAILABLE');
     },
   });
@@ -112,9 +112,13 @@ export function menuSnapshotFromRegion(
     position: MenuPosition;
   },
 ): Readonly<LearningSelectionSnapshot> {
+  const anchor = clone(region.anchor);
+  if (anchor.kind === 'region' && anchor.region.locator.format === 'epub') {
+    anchor.region.locator.sectionId = input.sectionId;
+  }
   return freezeSnapshot({
     ...input,
-    anchor: clone(region.anchor),
+    anchor,
     selectedText: region.text,
     contentKind: region.capture ? 'visual_region' : 'reliable_text_region',
     origin: 'region',

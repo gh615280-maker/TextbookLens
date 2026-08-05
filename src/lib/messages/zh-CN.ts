@@ -135,6 +135,21 @@ export const zhCN = {
   'learning.translate': '\u7ffb\u8bd1',
   'learning.ask': '\u63d0\u95ee',
   'learning.note': '\u6dfb\u52a0\u6279\u6ce8',
+  'notes.input': '\u4e2a\u4eba\u6279\u6ce8',
+  'notes.save': '\u4fdd\u5b58\u6279\u6ce8',
+  'notes.cancel': '\u53d6\u6d88\u6279\u6ce8',
+  'notes.empty': '\u8bf7\u5148\u8f93\u5165\u6279\u6ce8\u5185\u5bb9\u3002',
+  'notes.tooLong': '\u6279\u6ce8\u5185\u5bb9\u8fc7\u957f\u3002',
+  'notes.error': '\u65e0\u6cd5\u4fdd\u5b58\u672c\u5730\u6279\u6ce8\u3002',
+  'notes.conflict':
+    '\u6b64\u6279\u6ce8\u5728\u6253\u5f00\u540e\u5df2\u88ab\u4fee\u6539\u3002',
+  'notes.reload': '\u91cd\u65b0\u52a0\u8f7d\u5df2\u4fdd\u5b58\u6279\u6ce8',
+  'notes.preserve': '\u4fdd\u7559\u6211\u7684\u8349\u7a3f',
+  'notes.delete': '\u5220\u9664\u6279\u6ce8',
+  'notes.deleteConfirm':
+    '\u5220\u9664\u8fd9\u6761\u672c\u5730\u6279\u6ce8\uff1f',
+  'notes.confirmDelete': '\u5220\u9664',
+  'notes.cancelDelete': '\u4fdd\u7559\u6279\u6ce8',
   'learning.input':
     '\u8f93\u5165\u95ee\u9898\u3001\u76ee\u6807\u8bed\u8a00\u6216\u6279\u6ce8',
   'learning.submit': '\u7ee7\u7eed',

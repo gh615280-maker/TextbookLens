@@ -17,7 +17,8 @@ export const PDF_REGION_CAPTURE_LIMITS = Object.freeze({
 export interface PdfViewportLike {
   width: number;
   height: number;
-  convertToViewportRectangle(rect: [number, number, number, number]): number[];
+  convertToViewportPoint?(x: number, y: number): number[];
+  convertToViewportRectangle?(rect: [number, number, number, number]): number[];
 }
 
 export interface PdfRegionPageData {
@@ -107,7 +108,7 @@ function intersectingItems(data: PdfRegionPageData): PdfTextItem[] {
   };
   return data.textItems.filter((item) => {
     const height = Math.hypot(item.transform[2] ?? 0, item.transform[3] ?? 0);
-    const viewportRect = data.viewport.convertToViewportRectangle([
+    const viewportRect = viewportRectangle(data.viewport, [
       item.transform[4],
       item.transform[5],
       item.transform[4] + item.width,
@@ -126,6 +127,21 @@ function intersectingItems(data: PdfRegionPageData): PdfTextItem[] {
       bounds.top < region.bottom
     );
   });
+}
+
+function viewportRectangle(
+  viewport: PdfViewportLike,
+  rect: [number, number, number, number],
+) {
+  if (viewport.convertToViewportRectangle) {
+    return viewport.convertToViewportRectangle(rect);
+  }
+  if (viewport.convertToViewportPoint) {
+    const start = viewport.convertToViewportPoint(rect[0], rect[1]);
+    const end = viewport.convertToViewportPoint(rect[2], rect[3]);
+    return [start[0], start[1], end[0], end[1]];
+  }
+  throw new Error('PDF_REGION_VIEWPORT_UNSUPPORTED');
 }
 
 function normalizeReadingOrder(items: readonly PdfTextItem[]): string {

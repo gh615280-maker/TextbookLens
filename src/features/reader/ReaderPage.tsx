@@ -7,13 +7,15 @@ import type { DocumentLocator } from '../../lib/generated/document';
 import type { ProviderProfileSummary } from '../../lib/generated/provider';
 import type { AppSettingsDto } from '../../lib/generated/settings';
 import { TauriLearningApi } from '../learning/api';
+import { NoteEditor } from '../notes/NoteEditor';
+import { TauriNotesApi, type Note } from '../notes/api';
 import { RegionSelectionOverlay } from '../learning/RegionSelectionOverlay';
 import { SelectionMenu } from '../learning/SelectionMenu';
 import {
+  deferredLearningSurfacePort,
   menuSnapshotFromRegion,
   menuSnapshotFromText,
   releaseSnapshotCapture,
-  unavailableLearningSurfacePort,
   type LearningProfile,
   type LearningSelectionSnapshot,
 } from '../learning/selection-state';
@@ -32,6 +34,7 @@ export function ReaderPage() {
   const { message, uiLanguage } = useLanguage();
   const api = useMemo(() => new TauriReaderApi(), []);
   const learningApi = useMemo(() => new TauriLearningApi(), []);
+  const noteApi = useMemo(() => new TauriNotesApi(), []);
   const [settings, setSettings] = useState<ReaderSettings | null>(null);
   const [bootstrap, setBootstrap] = useState<ReaderBootstrap | null>(null);
   const [sections, setSections] = useState<ReaderSection[]>([]);
@@ -45,12 +48,28 @@ export function ReaderPage() {
   const [learningSelection, setLearningSelection] =
     useState<Readonly<LearningSelectionSnapshot> | null>(null);
   const [regionSelecting, setRegionSelecting] = useState(false);
+  const [editingNote, setEditingNote] = useState<Readonly<Note> | null>(null);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const markerHistoryRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ReaderController>(null);
   const hintCompletionInFlight = useRef(false);
   const learningProfileRef = useRef<LearningProfile | null>(null);
   const sectionsRef = useRef<ReaderSection[]>([]);
+  const noteLabels = {
+    input: message('notes.input'),
+    save: message('notes.save'),
+    cancel: message('notes.cancel'),
+    empty: message('notes.empty'),
+    tooLong: message('notes.tooLong'),
+    error: message('notes.error'),
+    conflict: message('notes.conflict'),
+    reload: message('notes.reload'),
+    preserve: message('notes.preserve'),
+    delete: message('notes.delete'),
+    deleteConfirm: message('notes.deleteConfirm'),
+    confirmDelete: message('notes.confirmDelete'),
+    cancelDelete: message('notes.cancelDelete'),
+  };
 
   useEffect(() => {
     learningProfileRef.current = learningProfile;
@@ -58,6 +77,27 @@ export function ReaderPage() {
   useEffect(() => {
     sectionsRef.current = sections;
   }, [sections]);
+  useEffect(() => {
+    const activateLocalNote = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !bookId) return;
+      const button = target.closest<HTMLElement>('[data-marker-shape="note"]');
+      const noteId =
+        button?.dataset.annotationId ??
+        button?.closest<HTMLElement>('[data-annotation-id]')?.dataset
+          .annotationId;
+      if (!noteId) return;
+      void noteApi
+        .get(bookId, noteId)
+        .then(setEditingNote)
+        .catch(() => setPanelContent(message('notes.error')));
+    };
+    document.addEventListener('click', activateLocalNote, true);
+    return () => {
+      document.removeEventListener('click', activateLocalNote, true);
+      setEditingNote(null);
+    };
+  }, [bookId, message, noteApi]);
 
   const completeFirstHint = useCallback(() => {
     if (hintCompletionInFlight.current) return;
@@ -175,13 +215,9 @@ export function ReaderPage() {
         setLearningSelection(
           menuSnapshotFromRegion(region, {
             bookId,
-            sectionId:
-              region.anchor.kind === 'region' &&
-              region.anchor.region.locator.format === 'epub'
-                ? region.anchor.region.locator.sectionId
-                : sectionId,
+            sectionId,
             profile,
-            position: selectionPosition(),
+            position: regionSelectionPosition(),
           }),
         );
       })
@@ -212,7 +248,9 @@ export function ReaderPage() {
         }
         readerContainerRef={readerContainerRef}
         markerHistoryRef={markerHistoryRef}
-        onStartRegionSelection={beginRegionSelection}
+        onStartRegionSelection={
+          learningProfile && sections[0] ? beginRegionSelection : undefined
+        }
         regionSelecting={regionSelecting}
       />
       <RegionSelectionOverlay
@@ -227,6 +265,7 @@ export function ReaderPage() {
       {learningSelection && (
         <SelectionMenu
           api={learningApi}
+          noteApi={noteApi}
           labels={{
             menu: message('learning.menu'),
             explain: message('learning.explain'),
@@ -239,9 +278,17 @@ export function ReaderPage() {
             submit: message('learning.submit'),
             unavailable: message('learning.unavailable'),
             error: message('learning.error'),
+            noteEditor: noteLabels,
             confirmation: {
               title: message('learning.confirm.title'),
-              details: message('learning.confirm.details'),
+              details: message('learning.confirm.details', {
+                provider: '{provider}',
+                profile: '{profile}',
+                model: '{model}',
+                tokens: '{tokens}',
+                sources: '{sources}',
+                citations: '{citations}',
+              }),
               noPrompt: message('learning.confirm.noPrompt'),
               cancel: message('learning.confirm.cancel'),
               continue: message('learning.confirm.continue'),
@@ -250,11 +297,36 @@ export function ReaderPage() {
             },
           }}
           snapshot={learningSelection}
-          surface={unavailableLearningSurfacePort}
+          surface={deferredLearningSurfacePort}
           onClose={() => setLearningSelection(null)}
           onError={setPanelContent}
+          onNoteSaved={() => {
+            void controllerRef.current?.refreshAnnotations();
+          }}
         />
       )}
+      {editingNote ? (
+        <div className="local-note-editor-surface">
+          <NoteEditor
+            api={noteApi}
+            anchor={editingNote.anchor}
+            bookId={editingNote.bookId}
+            labels={noteLabels}
+            note={editingNote}
+            sectionId={editingNote.sectionId}
+            selectedText={editingNote.selectedText}
+            onCancel={() => setEditingNote(null)}
+            onDeleted={() => {
+              setEditingNote(null);
+              void controllerRef.current?.refreshAnnotations();
+            }}
+            onSaved={() => {
+              setEditingNote(null);
+              void controllerRef.current?.refreshAnnotations();
+            }}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -265,6 +337,13 @@ function selectionPosition() {
     : null;
   const rect = range?.getBoundingClientRect();
   return { x: rect?.left ?? 8, y: rect?.bottom ?? 8 };
+}
+
+function regionSelectionPosition() {
+  return {
+    x: Math.max(8, window.innerWidth / 2 - 160),
+    y: Math.max(96, window.innerHeight / 3),
+  };
 }
 
 function formatLocation(

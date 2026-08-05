@@ -154,6 +154,40 @@ export class ReaderController {
     return this.#markerRelocations;
   }
 
+  async refreshAnnotations(): Promise<void> {
+    const adapter = this.#adapter;
+    const bookId = this.#bookId;
+    const generation = this.#openGeneration;
+    if (!adapter || !bookId) return;
+    try {
+      const markerDtos = await this.api.listAnnotationMarkers(bookId);
+      if (generation !== this.#openGeneration || adapter !== this.#adapter)
+        return;
+      const markers = markerDtos.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        label:
+          item.kind === 'ai_conversation'
+            ? '\u67e5\u770b AI \u5bf9\u8bdd\u6807\u8bb0'
+            : '\u67e5\u770b\u4e2a\u4eba\u6279\u6ce8',
+        anchor: item.anchor ?? undefined,
+        relocationStatus: item.relocationStatus,
+      }));
+      const relocations = await this.#markerLayer.show(adapter, markers);
+      if (generation === this.#openGeneration && adapter === this.#adapter)
+        this.#markerRelocations = relocations;
+    } catch (error) {
+      if (generation === this.#openGeneration && adapter === this.#adapter)
+        this.#events.onFailure(
+          isUserFacingError(error)
+            ? error
+            : invalidInput(
+                '\u65e0\u6cd5\u52a0\u8f7d\u9605\u8bfb\u6807\u8bb0\u3002',
+              ),
+        );
+    }
+  }
+
   getSelectionSnapshot() {
     return this.#adapter?.getSelectionSnapshot() ?? null;
   }
@@ -175,7 +209,15 @@ export class ReaderController {
         return null;
       }
       return result;
-    } catch {
+    } catch (error) {
+      const instructionCode =
+        error &&
+        typeof error === 'object' &&
+        'instructionCode' in error &&
+        typeof error.instructionCode === 'string'
+          ? error.instructionCode
+          : 'region_selection_failed';
+      this.#events.onFailure(invalidInput(instructionCode));
       return null;
     }
   }

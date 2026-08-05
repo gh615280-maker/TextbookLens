@@ -43,7 +43,12 @@ export function LearningConfirmationDialog({
             .replace('{sources}', String(summary.sourceCount))
             .replace('{citations}', String(summary.citationCount))}
         </p>
-        <p>{summary.willSendImage ? labels.imageRisk : labels.costRisk}</p>
+        {summary.riskFlags.includes('image_send') ? (
+          <p>{labels.imageRisk}</p>
+        ) : null}
+        {summary.riskFlags.includes('cost_risk') ? (
+          <p>{labels.costRisk}</p>
+        ) : null}
         <label>
           <input
             data-testid="learning-no-prompt"

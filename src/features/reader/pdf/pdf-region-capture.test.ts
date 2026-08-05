@@ -45,6 +45,35 @@ describe('capturePdfRegion', () => {
     });
   });
 
+  it('supports the PDF.js 6 point-only viewport contract', async () => {
+    const result = await capturePdfRegion(
+      {
+        page: 1,
+        rect: { x: 0, y: 0, width: 1, height: 1 },
+        viewport: {
+          width: 600,
+          height: 800,
+          convertToViewportPoint: (x, y) => [x, 800 - y],
+        },
+        textItems: [
+          item(
+            'point viewport has enough reliable textbook characters',
+            40,
+            750,
+          ),
+        ],
+        canvas: null,
+      },
+      vi.fn(() => {
+        throw new Error('confirmation must not run');
+      }),
+    );
+    expect(result).toMatchObject({
+      text: 'point viewport has enough reliable textbook characters',
+      capture: null,
+    });
+  });
+
   it('does not crop mixed/visual content when confirmation is refused', async () => {
     const canvas = document.createElement('canvas');
     const drawImage = vi.fn();

@@ -103,6 +103,29 @@ async fn resolve_anchor(
     }
 }
 
+pub(crate) async fn validate_anchor_for_write(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    section_id: Uuid,
+    anchor: &ContentAnchor,
+) -> AppResult<()> {
+    let book = sqlx::query("SELECT format, import_status FROM books WHERE id = ?")
+        .bind(book_id.to_string())
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    if book.try_get::<String, _>("import_status")? != "ready" {
+        return Err(AppError::new(AppErrorCode::BookNotReady));
+    }
+    let format: String = book.try_get("format")?;
+    match resolve_anchor(pool, book_id, &format, Some(section_id), anchor).await? {
+        Some(MarkerRelocationStatus::Primary) => Ok(()),
+        Some(MarkerRelocationStatus::Fallback)
+        | Some(MarkerRelocationStatus::Unresolved)
+        | None => Err(AppError::new(AppErrorCode::AnchorNotFound)),
+    }
+}
+
 async fn valid_selection_anchor(
     pool: &SqlitePool,
     book_id: Uuid,

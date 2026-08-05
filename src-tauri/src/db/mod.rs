@@ -1,6 +1,7 @@
 pub mod annotations;
 pub mod corrections;
 pub mod indexing;
+pub mod notes;
 pub mod providers;
 pub mod settings;
 pub mod teaching;

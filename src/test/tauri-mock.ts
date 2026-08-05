@@ -50,6 +50,17 @@ function safeRecordedPayload(
     const request = asRecord(asRecord(payload)?.request);
     return { request: { reason: request?.reason } };
   }
+  if (command === 'create_note' || command === 'update_note') {
+    const args = asRecord(payload);
+    return {
+      bookId: args?.bookId,
+      noteId: args?.noteId,
+      expectedRevision: args?.expectedRevision,
+      hasNoteText: typeof args?.noteText === 'string',
+      hasSelectedText: typeof args?.selectedText === 'string',
+      anchorKind: asRecord(args?.anchor)?.kind,
+    };
+  }
   return payload;
 }
 

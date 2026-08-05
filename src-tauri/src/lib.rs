@@ -61,6 +61,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::annotations::list_annotation_markers,
+            commands::annotations::create_note,
+            commands::annotations::update_note,
+            commands::annotations::delete_note,
+            commands::annotations::get_note,
+            commands::annotations::list_notes,
             commands::credentials::validate_and_save_provider_profile,
             commands::credentials::replace_provider_profile_credential,
             commands::providers::list_provider_capabilities,

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
+import { NoteEditor, type NoteEditorLabels } from '../notes/NoteEditor';
+import type { Note, NotesApi } from '../notes/api';
 import type { LearningApi } from './api';
 import {
   LearningConfirmationDialog,
@@ -33,25 +35,30 @@ export interface SelectionMenuLabels {
   submit: string;
   unavailable: string;
   error: string;
+  noteEditor: NoteEditorLabels;
   confirmation: LearningConfirmationLabels;
 }
 
 interface SelectionMenuProps {
   snapshot: Readonly<LearningSelectionSnapshot>;
   api: LearningApi;
+  noteApi: NotesApi;
   surface: LearningSurfacePort;
   labels: SelectionMenuLabels;
   onClose(): void;
   onError(message: string): void;
+  onNoteSaved?(note: Readonly<Note>): void;
 }
 
 export function SelectionMenu({
   snapshot,
   api,
+  noteApi,
   surface,
   labels,
   onClose,
   onError,
+  onNoteSaved,
 }: SelectionMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonsRef = useRef<Array<HTMLButtonElement | null>>([]);
@@ -79,10 +86,12 @@ export function SelectionMenu({
       );
     };
     reposition();
+    buttonsRef.current[0]?.focus();
     window.visualViewport?.addEventListener('resize', reposition);
     window.addEventListener('resize', reposition);
     return () => {
       live.current = false;
+      releaseSnapshotCapture(snapshot);
       window.visualViewport?.removeEventListener('resize', reposition);
       window.removeEventListener('resize', reposition);
     };
@@ -167,27 +176,9 @@ export function SelectionMenu({
   const submitInline = () => {
     const trimmed = value.trim();
     if (!trimmed || [...trimmed].length > MAX_INLINE_CODE_POINTS) return;
-    if (activeAction === 'note') {
-      if (inFlight.current) return;
-      inFlight.current = true;
-      Promise.resolve(
-        surface.note(
-          Object.freeze({
-            bookId: snapshot.bookId,
-            sectionId: snapshot.sectionId,
-            anchor: snapshot.anchor,
-            body: trimmed,
-          }),
-        ),
-      )
-        .then(() => close())
-        .catch(() => fail())
-        .finally(() => {
-          inFlight.current = false;
-        });
-      return;
+    if (activeAction && activeAction !== 'note') {
+      void run(activeAction, trimmed);
     }
-    if (activeAction) void run(activeAction, trimmed);
   };
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
@@ -267,7 +258,21 @@ export function SelectionMenu({
             {labels[action]}
           </button>
         ))}
-        {activeAction && (
+        {activeAction === 'note' ? (
+          <NoteEditor
+            api={noteApi}
+            anchor={snapshot.anchor}
+            bookId={snapshot.bookId}
+            labels={labels.noteEditor}
+            sectionId={snapshot.sectionId}
+            selectedText={snapshot.selectedText}
+            onCancel={() => setActiveAction(null)}
+            onSaved={(note) => {
+              onNoteSaved?.(note);
+              close();
+            }}
+          />
+        ) : activeAction ? (
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -296,7 +301,7 @@ export function SelectionMenu({
               {labels.submit}
             </button>
           </form>
-        )}
+        ) : null}
       </div>
       {pending && (
         <LearningConfirmationDialog

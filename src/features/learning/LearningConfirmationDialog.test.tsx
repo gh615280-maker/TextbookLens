@@ -27,7 +27,7 @@ describe('LearningConfirmationDialog', () => {
           citationCount: 2,
           omittedSourceCount: 0,
           willSendImage: true,
-          riskFlags: ['image_send'],
+          riskFlags: ['image_send', 'cost_risk'],
           requiresBlockingConfirmation: true,
           expiresAt: '2026-08-05T00:00:00Z',
           actionCategory: 'explain',
@@ -39,6 +39,8 @@ describe('LearningConfirmationDialog', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'Provider/Profile/Model/12/3/2',
     );
+    expect(screen.getByRole('dialog')).toHaveTextContent('Image');
+    expect(screen.getByRole('dialog')).toHaveTextContent('Cost');
     expect(screen.getByRole('dialog')).not.toHaveTextContent(
       'PRIVATE_TEXTBOOK_BODY_SENTINEL',
     );
