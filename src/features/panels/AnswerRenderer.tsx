@@ -1,116 +1,110 @@
 /* eslint-disable react-refresh/only-export-components */
 
-import { Fragment } from 'react';
+import ReactMarkdown from 'react-markdown';
+import rehypeKatex from 'rehype-katex';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+
+import 'katex/dist/katex.min.css';
 
 const MAX_CODE_BLOCK_CODE_POINTS = 8_192;
+const BLOCKED_LINK_SUFFIX = ' (link blocked)';
 
 /**
- * Deliberately conservative Markdown presentation.  It creates React text
- * nodes only: raw HTML, image syntax, and links never become executable DOM.
- * Math is retained as text so a malformed streaming delimiter is safe and
- * readable instead of being passed to an HTML-producing KaTeX renderer.
+ * Renders a Markdown AST only. `rehype-raw` is intentionally absent: raw
+ * provider HTML is discarded before React sees it. KaTeX emits AST nodes,
+ * never injected strings; malformed math becomes its selectable error text.
  */
 export function AnswerRenderer({ answer }: { answer: string }) {
   return (
     <div className="floating-answer" data-testid="safe-answer-renderer">
-      {toBlocks(answer).map((block, index) => (
-        <Fragment key={`${block.kind}-${index}`}>{renderBlock(block)}</Fragment>
-      ))}
+      <ReactMarkdown
+        components={{
+          a({ children, href }) {
+            const safeHref = href ? safeMarkdownUrl(href) : null;
+            return safeHref ? (
+              <a href={safeHref} rel="noreferrer noopener" target="_blank">
+                {children}
+              </a>
+            ) : (
+              <span>
+                {children}
+                {BLOCKED_LINK_SUFFIX}
+              </span>
+            );
+          },
+          // Images are omitted rather than fetched, including Markdown images.
+          img() {
+            return null;
+          },
+        }}
+        rehypePlugins={[
+          [
+            rehypeKatex,
+            { strict: 'ignore', throwOnError: false, trust: false },
+          ],
+        ]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+      >
+        {boundFencedCode(answer)}
+      </ReactMarkdown>
     </div>
   );
 }
 
-export function safeMarkdownUrl(value: string): null {
-  // Links are intentionally rendered as text in Task 5; keeping this guard
-  // explicit prevents a later visual-link enhancement from accepting a risky URL.
-  void value;
-  return null;
+/** HTTPS and mailto are the only external protocols accepted by the panel. */
+export function safeMarkdownUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    if (
+      (parsed.protocol !== 'https:' && parsed.protocol !== 'mailto:') ||
+      parsed.username ||
+      parsed.password
+    ) {
+      return null;
+    }
+    return parsed.href;
+  } catch {
+    return null;
+  }
 }
 
-type Block =
-  | {
-      readonly kind: 'code';
-      readonly value: string;
-      readonly truncated: boolean;
-    }
-  | { readonly kind: 'heading'; readonly value: string }
-  | { readonly kind: 'list'; readonly value: string[] }
-  | { readonly kind: 'paragraph'; readonly value: string };
-
-function toBlocks(answer: string): readonly Block[] {
+/** Limits fenced code before parsing, so a provider cannot create a huge code DOM. */
+export function boundFencedCode(answer: string): string {
   const lines = answer.replace(/\r\n?/gu, '\n').split('\n');
-  const blocks: Block[] = [];
-  let code: string[] | null = null;
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line.startsWith('```')) {
-      if (code) {
-        blocks.push(boundedCode(code.join('\n')));
-        code = null;
-      } else {
-        code = [];
-      }
+  let activeFence: string | null = null;
+  let count = 0;
+  let truncated = false;
+  const bounded: string[] = [];
+  for (const line of lines) {
+    const fence = line.match(/^\s*(`{3,}|~{3,})/u)?.[1] ?? null;
+    if (!activeFence && fence) {
+      activeFence = fence;
+      count = 0;
+      truncated = false;
+      bounded.push(line);
       continue;
     }
-    if (code) {
-      code.push(line);
+    if (activeFence && fence && fence[0] === activeFence[0]) {
+      if (truncated) bounded.push('[code block truncated]');
+      bounded.push(line);
+      activeFence = null;
       continue;
     }
-    if (/^#{1,6}\s+/u.test(line)) {
-      blocks.push({ kind: 'heading', value: line.replace(/^#{1,6}\s+/u, '') });
-    } else if (/^[-*+]\s+/u.test(line)) {
-      const preceding = blocks.at(-1);
-      const item = line.replace(/^[-*+]\s+/u, '');
-      if (preceding?.kind === 'list') {
-        preceding.value.push(item);
-      } else {
-        blocks.push({ kind: 'list', value: [item] });
-      }
-    } else if (line.trim()) {
-      blocks.push({ kind: 'paragraph', value: line });
+    if (!activeFence || truncated) {
+      bounded.push(line);
+      continue;
+    }
+    const codePoints = [...line];
+    const available = MAX_CODE_BLOCK_CODE_POINTS - count;
+    if (codePoints.length <= available) {
+      bounded.push(line);
+      count += codePoints.length;
+    } else {
+      bounded.push(codePoints.slice(0, Math.max(0, available)).join(''));
+      truncated = true;
     }
   }
-  if (code) blocks.push(boundedCode(code.join('\n')));
-  return blocks;
-}
-
-function boundedCode(value: string): Block {
-  const codePoints = [...value];
-  const truncated = codePoints.length > MAX_CODE_BLOCK_CODE_POINTS;
-  return {
-    kind: 'code',
-    value: codePoints.slice(0, MAX_CODE_BLOCK_CODE_POINTS).join(''),
-    truncated,
-  };
-}
-
-function renderBlock(block: Block) {
-  switch (block.kind) {
-    case 'heading':
-      return <h3>{inlineText(block.value)}</h3>;
-    case 'list':
-      return (
-        <ul>
-          {block.value.map((item, index) => (
-            <li key={index}>{inlineText(item)}</li>
-          ))}
-        </ul>
-      );
-    case 'code':
-      return (
-        <pre>
-          <code>
-            {block.value}
-            {block.truncated ? '\n[code block truncated]' : ''}
-          </code>
-        </pre>
-      );
-    case 'paragraph':
-      return <p>{inlineText(block.value)}</p>;
-  }
-}
-
-function inlineText(value: string): string {
-  // Keep incomplete `$` delimiters and any HTML exactly as literal, selectable text.
-  return value.replace(/!\[[^\]]*\]\([^)]*\)/gu, '[image omitted]');
+  if (activeFence && truncated) bounded.push('[code block truncated]');
+  return bounded.join('\n');
 }
