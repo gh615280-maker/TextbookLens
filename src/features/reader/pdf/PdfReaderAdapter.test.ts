@@ -224,7 +224,150 @@ describe('PdfReaderAdapter', () => {
     expect(document.body.querySelector('.pdf-reader-markers')).toBeNull();
     Range.prototype.getClientRects = getClientRects;
   });
+
+  it('cancels region mode on Escape and pointer cancellation with a stable code', async () => {
+    const adapter = await openRegionAdapter();
+    const escape = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await expect(escape).rejects.toMatchObject({
+      instructionCode: 'pdf_region_cancelled',
+    });
+
+    const pointerCancel = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    window.dispatchEvent(new Event('pointercancel'));
+    await expect(pointerCancel).rejects.toMatchObject({
+      instructionCode: 'pdf_region_cancelled',
+    });
+    adapter.dispose();
+  });
+
+  it('rejects a cross-page drag without creating an ambiguous anchor', async () => {
+    const adapter = await openRegionAdapter();
+    appendPage(1, 0);
+    appendPage(2, 120);
+    const selecting = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    document.body.dispatchEvent(pointer('pointerdown', 20, 20));
+    window.dispatchEvent(pointer('pointerup', 20, 140));
+    await expect(selecting).rejects.toMatchObject({
+      instructionCode: 'pdf_region_cross_page',
+    });
+    adapter.dispose();
+  });
+
+  it('rejects a rotate/zoom rerender race and ignores late text after dispose', async () => {
+    const text = deferred<{ items: [] }>();
+    const viewport = {
+      width: 100,
+      height: 100,
+      rotation: 0,
+      scale: 1,
+      convertToViewportRectangle: (rect: number[]) => rect,
+    };
+    const pageView = {
+      viewport,
+      pdfPage: { getTextContent: () => text.promise },
+      canvas: null,
+    };
+    const adapter = await openRegionAdapter(() => pageView);
+    appendPage(1, 0);
+    const selecting = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    document.body.dispatchEvent(pointer('pointerdown', 10, 10));
+    window.dispatchEvent(pointer('pointerup', 50, 50));
+    viewport.rotation = 90;
+    text.resolve({ items: [] });
+    await expect(selecting).rejects.toMatchObject({
+      instructionCode: 'pdf_region_unavailable',
+    });
+
+    const rerender = deferred<{ items: [] }>();
+    pageView.pdfPage.getTextContent = () => rerender.promise;
+    viewport.rotation = 0;
+    const stalePage = document.querySelector<HTMLElement>(
+      '[data-page-number="1"]',
+    )!;
+    const afterRerender = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    document.body.dispatchEvent(pointer('pointerdown', 10, 10));
+    window.dispatchEvent(pointer('pointerup', 50, 50));
+    stalePage.remove();
+    rerender.resolve({ items: [] });
+    await expect(afterRerender).rejects.toMatchObject({
+      instructionCode: 'pdf_region_unavailable',
+    });
+
+    const late = deferred<{ items: [] }>();
+    pageView.pdfPage.getTextContent = () => late.promise;
+    appendPage(1, 0);
+    const afterDispose = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    document.body.dispatchEvent(pointer('pointerdown', 10, 10));
+    window.dispatchEvent(pointer('pointerup', 50, 50));
+    adapter.dispose();
+    late.resolve({ items: [] });
+    await expect(afterDispose).rejects.toMatchObject({
+      instructionCode: 'pdf_region_cancelled',
+    });
+    expect(document.body).toBeEmptyDOMElement();
+  });
 });
+
+async function openRegionAdapter(getPageView?: (index: number) => unknown) {
+  const viewer = {
+    setDocument: vi.fn(),
+    cleanup: vi.fn(),
+    firstPagePromise: Promise.resolve(),
+    currentPageNumber: 1,
+    currentScale: 1,
+    pagesRotation: 0,
+    getPageView,
+  };
+  const adapter = new PdfReaderAdapter(
+    document.body,
+    events,
+    () => ({
+      promise: Promise.resolve({ numPages: 2, cleanup: vi.fn() }),
+      destroy: vi.fn(),
+    }),
+    () => viewer as never,
+  );
+  await adapter.open({ kind: 'document_bytes', bytes: new ArrayBuffer(1) });
+  return adapter;
+}
+
+function appendPage(pageNumber: number, top: number) {
+  const page = document.createElement('div');
+  page.dataset.pageNumber = String(pageNumber);
+  page.getBoundingClientRect = () =>
+    ({
+      left: 0,
+      top,
+      right: 100,
+      bottom: top + 100,
+      width: 100,
+      height: 100,
+    }) as DOMRect;
+  document.querySelector('.pdf-viewer')!.append(page);
+  return page;
+}
+
+function pointer(type: string, clientX: number, clientY: number) {
+  return new MouseEvent(type, {
+    bubbles: true,
+    button: 0,
+    clientX,
+    clientY,
+  }) as unknown as PointerEvent;
+}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

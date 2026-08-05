@@ -21,3 +21,24 @@
   background: color-mix(in srgb, #ffd54f 45%, transparent);
   outline: 1px solid #b7791f;
 }
+.pdf-region-selecting [data-page-number] {
+  cursor: crosshair;
+}
+.pdf-region-preview {
+  position: absolute;
+  pointer-events: none;
+  border: 2px solid CanvasText;
+  background: color-mix(in srgb, Highlight 24%, transparent);
+}
+.pdf-region-instruction {
+  position: absolute;
+  z-index: 10;
+  inset-block-start: 0.5rem;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  max-width: min(90%, 36rem);
+  padding: 0.5rem 0.75rem;
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid CanvasText;
+}

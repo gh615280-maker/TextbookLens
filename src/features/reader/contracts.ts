@@ -1,6 +1,11 @@
 import type { UserFacingError } from '../../lib/errors';
 import type { BookFormat } from '../../lib/generated/book';
-import type { DocumentLocator, TextQuote } from '../../lib/generated/document';
+import type {
+  ContentAnchor,
+  DocumentLocator,
+  NormalizedRect,
+  TextQuote,
+} from '../../lib/generated/document';
 
 export type ReaderSource =
   | { kind: 'document_bytes'; bytes: ArrayBuffer }
@@ -44,6 +49,31 @@ export interface ReaderSearchHit {
   text: string;
 }
 
+export type PdfRegionInstructionCode =
+  | 'pdf_region_cross_page'
+  | 'pdf_region_too_small'
+  | 'pdf_region_cancelled'
+  | 'pdf_region_unavailable';
+
+export interface RegionSelectionOptions {
+  /** Required before any mixed/visual pixels are materialized. */
+  confirmVisualCapture(): boolean | Promise<boolean>;
+}
+
+export interface RegionSelectionResult {
+  page: number;
+  rect: NormalizedRect;
+  text: string | null;
+  anchor: ContentAnchor;
+  capture: {
+    mimeType: 'image/png';
+    width: number;
+    height: number;
+    bytes: Uint8Array;
+    release(): void;
+  } | null;
+}
+
 export interface ReaderAdapterEvents {
   onSelection(snapshot: SelectionSnapshot | null): void;
   onProgress(progress: ReadingProgress): void;
@@ -59,6 +89,11 @@ export interface ReaderAdapter {
   showAnnotations(items: AnnotationMarker[]): Promise<MarkerRelocation[]>;
   search(query: string): Promise<ReaderSearchHit[]>;
   getProgress(): ReadingProgress;
+  beginRegionSelection?(
+    options: RegionSelectionOptions,
+  ): Promise<RegionSelectionResult | null>;
+  cancel?(): void;
+  cancelRegionSelection?(): void;
   dispose(): void;
 }
 

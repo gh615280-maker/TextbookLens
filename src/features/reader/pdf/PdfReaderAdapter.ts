@@ -12,11 +12,20 @@ import type {
   ReaderSource,
   NavigationResult,
   ReadingProgress,
+  RegionSelectionOptions,
+  RegionSelectionResult,
   SelectionSnapshot,
   MarkerRelocation,
 } from '../contracts';
 import { recoverPdfSelection, selectionFromRange } from './pdf-selection';
 import { addPdfRectOverlay } from './pdf-markers';
+import { capturePdfRegion, type PdfViewportLike } from './pdf-region-capture';
+import {
+  pageAtPoint,
+  pageRelativeRect,
+  PdfRegionSelectionError,
+  normalizeForPdfRotation,
+} from './pdf-region-selection';
 import './pdf-reader.css';
 
 interface PdfDocumentHandle {
@@ -35,6 +44,14 @@ interface ViewerLike {
   currentPageNumber: number;
   currentScale: number;
   pagesRotation: number;
+  getPageView?(index: number): PdfPageViewLike | undefined;
+}
+interface PdfPageViewLike {
+  pdfPage?: {
+    getTextContent(): Promise<{ items: unknown[] }>;
+  };
+  viewport?: PdfViewportLike & { rotation?: number; scale?: number };
+  canvas?: HTMLCanvasElement | null;
 }
 type ViewerFactory = (
   container: HTMLDivElement,
@@ -53,6 +70,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
   #viewer: ViewerLike | null = null;
   #generation = 0;
   #onMouseUp = () => this.captureSelection();
+  #regionAbort: AbortController | null = null;
+  #regionReject: ((reason: unknown) => void) | null = null;
+  #regionCleanup: (() => void) | null = null;
+  #regionCapture: RegionSelectionResult['capture'] = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -224,7 +245,184 @@ export class PdfReaderAdapter implements ReaderAdapter {
     };
   }
 
+  beginRegionSelection(
+    options: RegionSelectionOptions,
+  ): Promise<RegionSelectionResult | null> {
+    this.cancelRegionSelection();
+    if (!this.#viewer)
+      return Promise.reject(
+        new PdfRegionSelectionError('pdf_region_unavailable'),
+      );
+    const abort = new AbortController();
+    this.#regionAbort = abort;
+    this.container.classList.add('pdf-region-selecting');
+    const instruction = Object.assign(document.createElement('div'), {
+      className: 'pdf-region-instruction',
+      textContent:
+        'Drag within one PDF page to select a region. Press Escape to cancel.',
+    });
+    instruction.setAttribute('role', 'status');
+    this.container.append(instruction);
+    return new Promise((resolve, reject) => {
+      this.#regionReject = reject;
+      let start:
+        | { page: HTMLElement; pageNumber: number; x: number; y: number }
+        | undefined;
+      let preview: HTMLElement | undefined;
+      const finish = () => {
+        this.container.removeEventListener('pointerdown', onDown);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('keydown', onKeyDown);
+        preview?.remove();
+        instruction.remove();
+        this.container.classList.remove('pdf-region-selecting');
+        if (this.#regionAbort === abort) {
+          this.#regionAbort = null;
+          this.#regionReject = null;
+          this.#regionCleanup = null;
+        }
+      };
+      const fail = (
+        code: ConstructorParameters<typeof PdfRegionSelectionError>[0],
+      ) => {
+        finish();
+        reject(new PdfRegionSelectionError(code));
+      };
+      const onDown = (event: PointerEvent) => {
+        if (event.button !== 0) return;
+        const page = pageAtPoint(this.container, event.clientX, event.clientY);
+        const pageNumber = Number(page?.dataset.pageNumber);
+        if (!page || !Number.isInteger(pageNumber) || pageNumber < 1) return;
+        event.preventDefault();
+        start = { page, pageNumber, x: event.clientX, y: event.clientY };
+        preview = Object.assign(document.createElement('div'), {
+          className: 'pdf-region-preview',
+        });
+        page.append(preview);
+      };
+      const onUp = async (event: PointerEvent) => {
+        if (!start) return;
+        const endPage = pageAtPoint(
+          this.container,
+          event.clientX,
+          event.clientY,
+        );
+        if (endPage !== start.page) {
+          fail('pdf_region_cross_page');
+          return;
+        }
+        try {
+          const selected = pageRelativeRect(
+            start.pageNumber,
+            start.page.getBoundingClientRect(),
+            { x: start.x, y: start.y },
+            { x: event.clientX, y: event.clientY },
+          );
+          const generation = this.#generation;
+          const pageView = this.#viewer?.getPageView?.(selected.page - 1);
+          const viewport = pageView?.viewport;
+          const pdfPage = pageView?.pdfPage;
+          if (!viewport || !pdfPage)
+            throw new PdfRegionSelectionError('pdf_region_unavailable');
+          const identity = `${viewport.width}:${viewport.height}:${viewport.rotation ?? 0}:${viewport.scale ?? 0}`;
+          const anchorRect = normalizeForPdfRotation(
+            selected.rect,
+            viewport.rotation ?? 0,
+          );
+          const textContent = await pdfPage.getTextContent();
+          if (generation !== this.#generation || abort.signal.aborted) return;
+          if (!start.page.isConnected)
+            throw new PdfRegionSelectionError('pdf_region_unavailable');
+          const current = this.#viewer?.getPageView?.(
+            selected.page - 1,
+          )?.viewport;
+          if (
+            !current ||
+            `${current.width}:${current.height}:${current.rotation ?? 0}:${current.scale ?? 0}` !==
+              identity
+          )
+            throw new PdfRegionSelectionError('pdf_region_unavailable');
+          const result = await capturePdfRegion(
+            {
+              page: selected.page,
+              rect: selected.rect,
+              anchorRect,
+              viewport,
+              textItems: textContent.items as never[],
+              canvas: pageView.canvas ?? start.page.querySelector('canvas'),
+            },
+            options.confirmVisualCapture,
+            abort.signal,
+          );
+          if (generation !== this.#generation || abort.signal.aborted) {
+            result?.capture?.release();
+            return;
+          }
+          const finalViewport = this.#viewer?.getPageView?.(
+            selected.page - 1,
+          )?.viewport;
+          if (
+            !start.page.isConnected ||
+            !finalViewport ||
+            `${finalViewport.width}:${finalViewport.height}:${finalViewport.rotation ?? 0}:${finalViewport.scale ?? 0}` !==
+              identity
+          ) {
+            result?.capture?.release();
+            throw new PdfRegionSelectionError('pdf_region_unavailable');
+          }
+          this.#regionCapture?.release();
+          this.#regionCapture = result?.capture ?? null;
+          finish();
+          resolve(
+            result
+              ? { page: selected.page, rect: anchorRect, ...result }
+              : null,
+          );
+        } catch (error) {
+          if (abort.signal.aborted) return;
+          finish();
+          reject(error);
+        }
+      };
+      const onCancel = () => fail('pdf_region_cancelled');
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          fail('pdf_region_cancelled');
+        }
+      };
+      this.container.addEventListener('pointerdown', onDown);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('keydown', onKeyDown);
+      this.#regionCleanup = finish;
+    });
+  }
+
+  cancelRegionSelection(): void {
+    this.#regionCapture?.release();
+    this.#regionCapture = null;
+    if (!this.#regionAbort) return;
+    this.#regionAbort.abort();
+    const reject = this.#regionReject;
+    const cleanup = this.#regionCleanup;
+    this.#regionAbort = null;
+    this.#regionReject = null;
+    this.#regionCleanup = null;
+    cleanup?.();
+    this.container.classList.remove('pdf-region-selecting');
+    reject?.(new PdfRegionSelectionError('pdf_region_cancelled'));
+  }
+
+  cancel(): void {
+    this.cancelRegionSelection();
+  }
+
   dispose(): void {
+    this.cancelRegionSelection();
+    this.#regionCapture?.release();
+    this.#regionCapture = null;
     this.#generation += 1;
     this.container.removeEventListener('mouseup', this.#onMouseUp);
     this.#selection = null;
