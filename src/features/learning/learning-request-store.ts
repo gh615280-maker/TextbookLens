@@ -15,6 +15,7 @@ export interface LearningRequestView {
   readonly safeError: SafeLearningError | null;
   readonly lastSeq: number;
   readonly presentation: LearningRequestPresentation | null;
+  readonly targetConversationId: string | null;
 }
 
 export interface LearningRequestPresentation {
@@ -74,9 +75,24 @@ export class LearningRequestStore {
     return true;
   }
 
+  setTargetConversation(requestId: string, conversationId: string): boolean {
+    const current = this.requests.get(requestId);
+    if (!current) return false;
+    this.requests.set(
+      requestId,
+      freezeView({ ...current, targetConversationId: conversationId }),
+    );
+    this.emit();
+    return true;
+  }
+
   applySnapshot(snapshot: LearningRequestSnapshot): boolean {
-    const next = freezeView(snapshot);
-    const current = this.requests.get(next.requestId);
+    const current = this.requests.get(snapshot.requestId);
+    const next = freezeView({
+      ...snapshot,
+      presentation: current?.presentation ?? null,
+      targetConversationId: current?.targetConversationId ?? null,
+    });
     if (current && current.lastSeq > next.lastSeq) return false;
     if (current && terminal.has(current.status)) return false;
     this.requests.set(next.requestId, next);
@@ -191,5 +207,7 @@ function freezeView(
       'presentation' in value && value.presentation
         ? Object.freeze({ ...value.presentation })
         : null,
+    targetConversationId:
+      'targetConversationId' in value ? value.targetConversationId : null,
   });
 }

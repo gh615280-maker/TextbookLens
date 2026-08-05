@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 describe('TauriReaderApi annotation markers', () => {
-  it('unwraps tagged text anchors and keeps region anchors history-only until region adapters exist', async () => {
+  it('preserves tagged text and region anchors plus safe marker metadata', async () => {
     const selection = {
       locator: {
         format: 'pdf' as const,
@@ -24,12 +24,17 @@ describe('TauriReaderApi annotation markers', () => {
       {
         id: 'text',
         kind: 'note',
+        conversationId: null,
+        accessibilityLabel: 'View personal note marker',
+        answer: 'must-not-cross-marker-dto',
         anchor: { kind: 'text', selection },
         relocationStatus: 'primary',
       },
       {
         id: 'region',
         kind: 'ai_conversation',
+        conversationId: 'conversation',
+        accessibilityLabel: 'View AI conversation marker',
         anchor: {
           kind: 'region',
           region: {
@@ -43,21 +48,14 @@ describe('TauriReaderApi annotation markers', () => {
       },
     ];
 
-    await expect(
-      new TauriReaderApi().listAnnotationMarkers('book'),
-    ).resolves.toEqual([
-      {
-        id: 'text',
-        kind: 'note',
-        anchor: selection,
-        relocationStatus: 'primary',
-      },
-      {
-        id: 'region',
-        kind: 'ai_conversation',
-        anchor: null,
-        relocationStatus: 'unresolved',
-      },
-    ]);
+    const result = await new TauriReaderApi().listAnnotationMarkers('book');
+    expect(result).toHaveLength(2);
+    expect(result[0]).not.toHaveProperty('answer');
+    expect(result[0].anchor).toEqual({ kind: 'text', selection });
+    expect(result[1]).toMatchObject({
+      conversationId: 'conversation',
+      anchor: { kind: 'region' },
+      relocationStatus: 'primary',
+    });
   });
 });

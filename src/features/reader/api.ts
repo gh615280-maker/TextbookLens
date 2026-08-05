@@ -31,15 +31,19 @@ export interface ReaderSearchHit {
 export interface AnnotationMarkerDto {
   id: string;
   kind: 'ai_conversation' | 'note';
+  conversationId: string | null;
   anchor: import('../../lib/generated/document').ContentAnchor | null;
   relocationStatus: 'primary' | 'fallback' | 'unresolved';
+  accessibilityLabel: string;
 }
 
 export interface ReaderAnnotationMarkerDto {
   id: string;
   kind: 'ai_conversation' | 'note';
-  anchor: import('../../lib/generated/document').SelectionAnchor | null;
+  conversationId: string | null;
+  anchor: import('../../lib/generated/document').ContentAnchor | null;
   relocationStatus: 'primary' | 'fallback' | 'unresolved';
+  accessibilityLabel: string;
 }
 
 export interface ReaderBootstrap {
@@ -166,16 +170,14 @@ export class TauriReaderApi implements ReaderApi {
           bookId,
         },
       );
-      return markers.map((marker) => {
-        if (marker.anchor?.kind === 'text') {
-          return { ...marker, anchor: marker.anchor.selection };
-        }
-        return {
-          ...marker,
-          anchor: null,
-          relocationStatus: 'unresolved',
-        };
-      });
+      return markers.map((marker) => ({
+        id: marker.id,
+        kind: marker.kind,
+        conversationId: marker.conversationId,
+        anchor: marker.anchor,
+        relocationStatus: marker.relocationStatus,
+        accessibilityLabel: marker.accessibilityLabel,
+      }));
     } catch (error) {
       throw toUserError(error);
     }

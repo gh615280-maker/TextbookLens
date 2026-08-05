@@ -7,6 +7,10 @@ import type { DocumentLocator } from '../../lib/generated/document';
 import type { ProviderProfileSummary } from '../../lib/generated/provider';
 import type { AppSettingsDto } from '../../lib/generated/settings';
 import { TauriLearningApi } from '../learning/api';
+import {
+  ConversationPanelOwner,
+  conversationPanels,
+} from '../history/conversation-api';
 import { NoteEditor } from '../notes/NoteEditor';
 import { TauriNotesApi, type Note } from '../notes/api';
 import { RegionSelectionOverlay } from '../learning/RegionSelectionOverlay';
@@ -24,6 +28,8 @@ import { TauriReaderApi } from './api';
 import { DocxReaderAdapter } from './docx/DocxReaderAdapter';
 import { EpubReaderAdapter } from './epub/EpubReaderAdapter';
 import { MarkerLayer } from './markers/MarkerLayer';
+import { OverlappingMarkerMenu } from './markers/OverlappingMarkerMenu';
+import type { AnnotationMarker } from './contracts';
 import { PdfReaderAdapter } from './pdf/PdfReaderAdapter';
 import { ReaderController } from './ReaderController';
 import { ReaderLayout } from './ReaderLayout';
@@ -49,9 +55,14 @@ export function ReaderPage() {
     useState<Readonly<LearningSelectionSnapshot> | null>(null);
   const [regionSelecting, setRegionSelecting] = useState(false);
   const [editingNote, setEditingNote] = useState<Readonly<Note> | null>(null);
+  const [overlappingMarkers, setOverlappingMarkers] = useState<{
+    readonly markers: readonly AnnotationMarker[];
+    readonly returnFocus: HTMLElement | null;
+  } | null>(null);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const markerHistoryRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ReaderController>(null);
+  const conversationOwnerRef = useRef<ConversationPanelOwner>(null);
   const hintCompletionInFlight = useRef(false);
   const learningProfileRef = useRef<LearningProfile | null>(null);
   const sectionsRef = useRef<ReaderSection[]>([]);
@@ -77,27 +88,34 @@ export function ReaderPage() {
   useEffect(() => {
     sectionsRef.current = sections;
   }, [sections]);
+  const activateMarker = useCallback(
+    (marker: AnnotationMarker) => {
+      if (!bookId) return;
+      if (marker.kind === 'note') {
+        void noteApi
+          .get(bookId, marker.id)
+          .then(setEditingNote)
+          .catch(() => setPanelContent(message('notes.error')));
+        return;
+      }
+      const owner = conversationOwnerRef.current;
+      if (!marker.conversationId || !owner) {
+        setPanelContent('Unable to open this conversation.');
+        return;
+      }
+      void conversationPanels
+        .open(bookId, marker.conversationId, marker.id, owner)
+        .catch(() => setPanelContent('Unable to load this conversation.'));
+    },
+    [bookId, message, noteApi],
+  );
   useEffect(() => {
-    const activateLocalNote = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element) || !bookId) return;
-      const button = target.closest<HTMLElement>('[data-marker-shape="note"]');
-      const noteId =
-        button?.dataset.annotationId ??
-        button?.closest<HTMLElement>('[data-annotation-id]')?.dataset
-          .annotationId;
-      if (!noteId) return;
-      void noteApi
-        .get(bookId, noteId)
-        .then(setEditingNote)
-        .catch(() => setPanelContent(message('notes.error')));
-    };
-    document.addEventListener('click', activateLocalNote, true);
-    return () => {
-      document.removeEventListener('click', activateLocalNote, true);
-      setEditingNote(null);
-    };
-  }, [bookId, message, noteApi]);
+    if (!bookId) return;
+    return conversationPanels.onDeleted((deletedBookId) => {
+      if (deletedBookId === bookId)
+        void controllerRef.current?.refreshAnnotations();
+    });
+  }, [bookId]);
 
   const completeFirstHint = useCallback(() => {
     if (hintCompletionInFlight.current) return;
@@ -151,9 +169,21 @@ export function ReaderPage() {
   useEffect(() => {
     const container = readerContainerRef.current;
     if (!bookId || !container) return;
-    const markerLayer = new MarkerLayer(markerHistoryRef.current, () =>
-      setPanelContent('已选择标记'),
-    );
+    const owner = new ConversationPanelOwner(bookId);
+    conversationOwnerRef.current = owner;
+    const markerLayer = new MarkerLayer(markerHistoryRef.current, (markers) => {
+      if (markers.length === 1) {
+        activateMarker(markers[0]);
+        return;
+      }
+      setOverlappingMarkers({
+        markers,
+        returnFocus:
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null,
+      });
+    });
     const controller = new ReaderController(
       api,
       {
@@ -179,6 +209,19 @@ export function ReaderPage() {
           );
         },
         onProgress: (progress) => setCurrentLocator(progress.locator),
+        onMarkerActivate: (markers) => {
+          if (markers.length === 1) {
+            activateMarker(markers[0]);
+            return;
+          }
+          setOverlappingMarkers({
+            markers,
+            returnFocus:
+              document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null,
+          });
+        },
         onFailure: (error) => setPanelContent(error.message),
       },
       markerLayer,
@@ -186,14 +229,18 @@ export function ReaderPage() {
     controllerRef.current = controller;
     void controller.open(bookId);
     return () => {
+      owner.dispose();
+      if (conversationOwnerRef.current === owner)
+        conversationOwnerRef.current = null;
       controller.dispose();
+      setOverlappingMarkers(null);
       setLearningSelection((current) => {
         releaseSnapshotCapture(current);
         return null;
       });
       if (controllerRef.current === controller) controllerRef.current = null;
     };
-  }, [api, bookId, completeFirstHint]);
+  }, [activateMarker, api, bookId, completeFirstHint]);
   const updateSettings = (next: ReaderSettings) => {
     void api
       .updateReaderSettings(next)
@@ -326,6 +373,17 @@ export function ReaderPage() {
             }}
           />
         </div>
+      ) : null}
+      {overlappingMarkers ? (
+        <OverlappingMarkerMenu
+          markers={overlappingMarkers.markers}
+          returnFocus={overlappingMarkers.returnFocus}
+          onActivate={(marker) => {
+            setOverlappingMarkers(null);
+            activateMarker(marker);
+          }}
+          onClose={() => setOverlappingMarkers(null)}
+        />
       ) : null}
     </>
   );

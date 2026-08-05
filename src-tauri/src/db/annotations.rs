@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, fmt};
+
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -19,13 +21,32 @@ pub enum MarkerRelocationStatus {
     Unresolved,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AnnotationMarkerDto {
     pub id: Uuid,
     pub kind: AnnotationKind,
+    pub conversation_id: Option<Uuid>,
     pub anchor: Option<ContentAnchor>,
     pub relocation_status: MarkerRelocationStatus,
+    pub accessibility_label: &'static str,
+}
+
+impl fmt::Debug for AnnotationMarkerDto {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AnnotationMarkerDto")
+            .field("id", &"<redacted>")
+            .field("kind", &self.kind)
+            .field(
+                "conversation_id",
+                &self.conversation_id.map(|_| "<redacted>"),
+            )
+            .field("anchor", &"<redacted>")
+            .field("relocation_status", &self.relocation_status)
+            .field("accessibility_label", &self.accessibility_label)
+            .finish()
+    }
 }
 
 pub async fn list_annotation_markers(
@@ -41,8 +62,9 @@ pub async fn list_annotation_markers(
         return Err(AppError::new(AppErrorCode::BookNotReady));
     }
     let format: String = book.try_get("format")?;
+    let relocation = MarkerRelocationContext::load(pool, book_id).await?;
     let rows = sqlx::query(
-        "SELECT id, kind, section_id, anchor_json FROM annotations WHERE book_id = ? ORDER BY created_at, id",
+        "SELECT id, kind, section_id, anchor_json, conversation_id FROM annotations WHERE book_id = ? ORDER BY created_at, id",
     )
     .bind(book_id.to_string())
     .fetch_all(pool)
@@ -51,35 +73,288 @@ pub async fn list_annotation_markers(
     let mut markers = Vec::with_capacity(rows.len());
     for row in rows {
         let id = parse_uuid(&row.try_get::<String, _>("id")?)?;
-        let kind = match row.try_get::<String, _>("kind")?.as_str() {
-            "ai_conversation" => AnnotationKind::AiConversation,
-            "note" => AnnotationKind::Note,
+        let (kind, accessibility_label) = match row.try_get::<String, _>("kind")?.as_str() {
+            "ai_conversation" => (
+                AnnotationKind::AiConversation,
+                "View AI conversation marker",
+            ),
+            "note" => (AnnotationKind::Note, "View personal note marker"),
             _ => return Err(AppError::new(AppErrorCode::DatabaseError)),
         };
+        let conversation_id = row
+            .try_get::<Option<String>, _>("conversation_id")?
+            .map(|value| parse_uuid(&value))
+            .transpose()?;
+        if matches!(kind, AnnotationKind::AiConversation) != conversation_id.is_some() {
+            return Err(AppError::new(AppErrorCode::DatabaseError));
+        }
         let section_id = row
             .try_get::<Option<String>, _>("section_id")?
             .map(|value| parse_uuid(&value))
             .transpose()?;
-        let candidate = row
+        let anchor = row
             .try_get::<Option<String>, _>("anchor_json")?
             .and_then(|json| serde_json::from_str::<ContentAnchor>(&json).ok());
-        let (anchor, relocation_status) = match candidate {
-            Some(anchor) => {
-                match resolve_anchor(pool, book_id, &format, section_id, &anchor).await? {
-                    Some(status) => (Some(anchor), status),
-                    None => (None, MarkerRelocationStatus::Unresolved),
-                }
-            }
-            None => (None, MarkerRelocationStatus::Unresolved),
-        };
+        let relocation_status = anchor
+            .as_ref()
+            .and_then(|anchor| relocation.resolve(&format, section_id, anchor))
+            .unwrap_or(MarkerRelocationStatus::Unresolved);
         markers.push(AnnotationMarkerDto {
             id,
             kind,
+            conversation_id,
             relocation_status,
             anchor,
+            accessibility_label,
         });
     }
     Ok(markers)
+}
+
+struct MarkerRelocationContext {
+    sections: BTreeMap<Uuid, DocumentLocator>,
+    blocks: Vec<MarkerBlock>,
+}
+
+struct MarkerBlock {
+    id: Uuid,
+    section_id: Uuid,
+    ordinal: i64,
+    plain_text: String,
+    locator: Option<DocumentLocator>,
+}
+
+impl MarkerRelocationContext {
+    async fn load(pool: &SqlitePool, book_id: Uuid) -> AppResult<Self> {
+        let section_rows = sqlx::query(
+            "SELECT id, locator_json FROM sections WHERE book_id = ? ORDER BY ordinal, id",
+        )
+        .bind(book_id.to_string())
+        .fetch_all(pool)
+        .await?;
+        let mut sections = BTreeMap::new();
+        for row in section_rows {
+            let id = parse_uuid(&row.try_get::<String, _>("id")?)?;
+            let locator = serde_json::from_str(&row.try_get::<String, _>("locator_json")?)
+                .map_err(|_| AppError::new(AppErrorCode::DatabaseError))?;
+            if sections.insert(id, locator).is_some() {
+                return Err(AppError::new(AppErrorCode::DatabaseError));
+            }
+        }
+        let block_rows = sqlx::query(
+            "SELECT id, section_id, ordinal, plain_text, locator_json FROM blocks WHERE book_id = ? ORDER BY section_id, ordinal, id",
+        )
+        .bind(book_id.to_string())
+        .fetch_all(pool)
+        .await?;
+        let mut blocks = Vec::with_capacity(block_rows.len());
+        for row in block_rows {
+            blocks.push(MarkerBlock {
+                id: parse_uuid(&row.try_get::<String, _>("id")?)?,
+                section_id: parse_uuid(&row.try_get::<String, _>("section_id")?)?,
+                ordinal: row.try_get("ordinal")?,
+                plain_text: row.try_get("plain_text")?,
+                locator: serde_json::from_str(&row.try_get::<String, _>("locator_json")?).ok(),
+            });
+        }
+        Ok(Self { sections, blocks })
+    }
+
+    fn resolve(
+        &self,
+        format: &str,
+        annotation_section_id: Option<Uuid>,
+        anchor: &ContentAnchor,
+    ) -> Option<MarkerRelocationStatus> {
+        match anchor {
+            ContentAnchor::Text { selection } => self
+                .valid_selection(format, annotation_section_id, selection)
+                .then_some(MarkerRelocationStatus::Primary),
+            ContentAnchor::Region { region } => {
+                self.resolve_region(format, annotation_section_id, region)
+            }
+        }
+    }
+
+    fn valid_selection(
+        &self,
+        format: &str,
+        annotation_section_id: Option<Uuid>,
+        anchor: &SelectionAnchor,
+    ) -> bool {
+        if anchor.quote.exact.is_empty()
+            || anchor.quote.prefix.chars().count() > 64
+            || anchor.quote.suffix.chars().count() > 64
+            || anchor.section_id != annotation_section_id
+        {
+            return false;
+        }
+        let Some(section_id) = anchor.section_id else {
+            return false;
+        };
+        if !self.sections.contains_key(&section_id) {
+            return false;
+        }
+        match (&anchor.locator, format) {
+            (
+                DocumentLocator::Pdf {
+                    start_page,
+                    end_page,
+                    rects_by_page,
+                },
+                "pdf",
+            ) => {
+                *start_page > 0
+                    && start_page <= end_page
+                    && rects_by_page.as_ref().is_none_or(|pages| {
+                        pages.iter().all(|(page, rects)| {
+                            *page >= *start_page
+                                && *page <= *end_page
+                                && rects.iter().all(valid_normalized_rect)
+                        })
+                    })
+            }
+            (
+                DocumentLocator::Epub {
+                    cfi,
+                    section_id: locator_section,
+                },
+                "epub",
+            ) => !cfi.trim().is_empty() && *locator_section == section_id,
+            (
+                DocumentLocator::Docx {
+                    start_block_id,
+                    start_offset,
+                    end_block_id,
+                    end_offset,
+                },
+                "docx",
+            ) => {
+                let start = self.block_info(section_id, *start_block_id);
+                let end = self.block_info(section_id, *end_block_id);
+                matches!((start, end), (Some((start_ordinal, start_len)), Some((end_ordinal, end_len))) if start_ordinal <= end_ordinal && *start_offset <= start_len && *end_offset <= end_len && (start_ordinal != end_ordinal || start_offset <= end_offset))
+            }
+            _ => false,
+        }
+    }
+
+    fn resolve_region(
+        &self,
+        format: &str,
+        annotation_section_id: Option<Uuid>,
+        anchor: &RegionAnchor,
+    ) -> Option<MarkerRelocationStatus> {
+        let section_id = annotation_section_id?;
+        let section_locator = self.sections.get(&section_id)?;
+        let primary = match (&anchor.locator, format, section_locator) {
+            (
+                RegionLocator::Pdf { page },
+                "pdf",
+                DocumentLocator::Pdf {
+                    start_page,
+                    end_page,
+                    ..
+                },
+            ) => page >= start_page && page <= end_page,
+            (
+                RegionLocator::Epub {
+                    section_id: locator_section,
+                    cfi,
+                },
+                "epub",
+                DocumentLocator::Epub {
+                    section_id: stored_section,
+                    cfi: stored_cfi,
+                },
+            ) => {
+                locator_section == &section_id
+                    && stored_section == &section_id
+                    && (cfi == stored_cfi
+                        || self.blocks.iter().any(|block| {
+                            block.section_id == section_id
+                                && matches!(&block.locator, Some(DocumentLocator::Epub { section_id: block_section, cfi: block_cfi }) if block_section == &section_id && block_cfi == cfi)
+                        }))
+            }
+            (RegionLocator::Docx { block_id }, "docx", _) => {
+                self.block_info(section_id, *block_id).is_some()
+            }
+            _ => false,
+        };
+        if primary && self.primary_hash_semantics_hold(section_id, anchor) {
+            return Some(MarkerRelocationStatus::Primary);
+        }
+        let fallback = anchor.text_fallback.as_ref()?;
+        if sha256_text(&fallback.exact) != anchor.content_sha256 {
+            return None;
+        }
+        (self.fallback_match_count(section_id, &anchor.locator, fallback) == 1)
+            .then_some(MarkerRelocationStatus::Fallback)
+    }
+
+    fn primary_hash_semantics_hold(&self, section_id: Uuid, anchor: &RegionAnchor) -> bool {
+        let Some(fallback) = anchor.text_fallback.as_ref() else {
+            return true;
+        };
+        if sha256_text(&fallback.exact) != anchor.content_sha256 {
+            return true;
+        }
+        self.fallback_match_count(section_id, &anchor.locator, fallback) > 0
+    }
+
+    fn fallback_match_count(
+        &self,
+        section_id: Uuid,
+        locator: &RegionLocator,
+        fallback: &TextQuote,
+    ) -> usize {
+        let mut count = 0usize;
+        for block in self.blocks.iter().filter(|block| {
+            if block.section_id != section_id {
+                return false;
+            }
+            match (locator, block.locator.as_ref()) {
+                (
+                    RegionLocator::Pdf { page },
+                    Some(DocumentLocator::Pdf {
+                        start_page,
+                        end_page,
+                        ..
+                    }),
+                ) => page >= start_page && page <= end_page,
+                (
+                    RegionLocator::Epub {
+                        section_id: owner, ..
+                    },
+                    _,
+                ) => owner == &section_id,
+                (RegionLocator::Docx { block_id }, _) => block_id == &block.id,
+                _ => false,
+            }
+        }) {
+            count = count.saturating_add(block.plain_text.match_indices(&fallback.exact).count());
+            if count > 1 {
+                break;
+            }
+        }
+        count
+    }
+
+    fn block_info(&self, section_id: Uuid, block_id: Uuid) -> Option<(i64, u32)> {
+        let block = self
+            .blocks
+            .iter()
+            .find(|block| block.section_id == section_id && block.id == block_id)?;
+        let length = u32::try_from(block.plain_text.chars().count()).ok()?;
+        Some((block.ordinal, length))
+    }
+}
+
+fn valid_normalized_rect(rect: &crate::domain::NormalizedRect) -> bool {
+    [rect.x, rect.y, rect.width, rect.height]
+        .iter()
+        .all(|value| value.is_finite() && (0.0..=1.0).contains(value))
+        && rect.x + rect.width <= 1.0
+        && rect.y + rect.height <= 1.0
 }
 
 #[allow(clippy::too_many_arguments)]

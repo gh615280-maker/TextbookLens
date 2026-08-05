@@ -69,6 +69,17 @@ function safeRecordedPayload(
       hasQuestion: typeof args?.question === 'string',
     };
   }
+  if (
+    command === 'get_learning_conversation' ||
+    command === 'delete_learning_conversation'
+  ) {
+    const args = asRecord(payload);
+    return {
+      bookId: args?.bookId,
+      conversationId: args?.conversationId,
+      annotationId: args?.annotationId,
+    };
+  }
   if (command === 'create_note' || command === 'update_note') {
     const args = asRecord(payload);
     return {

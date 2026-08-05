@@ -57,3 +57,30 @@ fn conversations_validate_immutable_selection_snapshot_and_redact_debug() {
         AppErrorCode::InvalidInput
     );
 }
+
+#[test]
+fn conversations_history_anchor_validation_rejects_cross_format_and_cross_section_data() {
+    let section_id = Uuid::new_v4();
+    let anchor = text_anchor(section_id, "synthetic quote");
+    assert!(history_anchor_is_structurally_valid(
+        &anchor, section_id, "pdf"
+    ));
+    assert!(!history_anchor_is_structurally_valid(
+        &anchor, section_id, "epub"
+    ));
+    assert!(!history_anchor_is_structurally_valid(
+        &anchor,
+        Uuid::new_v4(),
+        "pdf"
+    ));
+
+    let ContentAnchor::Text { mut selection } = anchor else {
+        unreachable!();
+    };
+    selection.quote.prefix = "x".repeat(65);
+    assert!(!history_anchor_is_structurally_valid(
+        &ContentAnchor::Text { selection },
+        section_id,
+        "pdf"
+    ));
+}

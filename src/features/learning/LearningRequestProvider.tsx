@@ -137,6 +137,7 @@ class LearningRequestController {
     const started = await api.startFollowup(conversationId, question);
     if (!this.active) return;
     store.applySnapshot(started);
+    store.setTargetConversation(started.requestId, conversationId);
     store.setPresentation(started.requestId, presentation);
     this.subscribe(api, store, started);
   }

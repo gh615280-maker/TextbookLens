@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, fmt};
 
-use sqlx::{Row, Sqlite, Transaction};
+use chrono::{DateTime, SecondsFormat, Utc};
+use serde::Serialize;
+use sqlx::{Row, Sqlite, SqlitePool, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -18,6 +20,149 @@ pub const MAX_LEARNING_ANSWER_CODE_POINTS: usize = 1_048_576;
 pub const MAX_LEARNING_CITATIONS: usize = 256;
 pub const MAX_LEARNING_CITATIONS_JSON_BYTES: usize = 1024 * 1024;
 pub const MAX_LEARNING_MODEL_ID_CODE_POINTS: usize = 256;
+
+#[derive(Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMessageDto {
+    pub id: Uuid,
+    pub ordinal: u32,
+    pub role: &'static str,
+    pub action: LearningAction,
+    pub content: String,
+    pub provider_id: Option<Uuid>,
+    pub model_id: Option<String>,
+    pub citations: Vec<Citation>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for ConversationMessageDto {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ConversationMessageDto")
+            .field("id", &"<redacted>")
+            .field("ordinal", &self.ordinal)
+            .field("role", &self.role)
+            .field("action", &self.action)
+            .field("content_bytes", &self.content.len())
+            .field("provider_id", &self.provider_id.map(|_| "<redacted>"))
+            .field("model_id", &self.model_id.as_ref().map(|_| "<redacted>"))
+            .field("citation_count", &self.citations.len())
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
+
+pub(crate) async fn load_conversation_messages(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    conversation_id: Uuid,
+) -> AppResult<Vec<ConversationMessageDto>> {
+    let rows = sqlx::query(
+        "SELECT id, ordinal, role, action, content, provider_id, model_id, citations_json, created_at FROM messages WHERE conversation_id = ? ORDER BY ordinal",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_all(pool)
+    .await?;
+    if rows.len() < 2 || !rows.len().is_multiple_of(2) {
+        return Err(database_error());
+    }
+    let mut messages: Vec<ConversationMessageDto> = Vec::with_capacity(rows.len());
+    for (index, row) in rows.into_iter().enumerate() {
+        let ordinal_i64: i64 = row.try_get("ordinal")?;
+        let ordinal = u32::try_from(ordinal_i64).map_err(|_| database_error())?;
+        if usize::try_from(ordinal).map_err(|_| database_error())? != index {
+            return Err(database_error());
+        }
+        let role: String = row.try_get("role")?;
+        let action = parse_action(&row.try_get::<String, _>("action")?)?;
+        let content: String = row.try_get("content")?;
+        let provider = row.try_get::<Option<String>, _>("provider_id")?;
+        let model_id = row.try_get::<Option<String>, _>("model_id")?;
+        let citations_json = row.try_get::<Option<String>, _>("citations_json")?;
+        let (role, provider_id, model_id, citations) = match (index % 2, role.as_str()) {
+            (0, "user") => {
+                if provider.is_some() || model_id.is_some() || citations_json.is_some() {
+                    return Err(database_error());
+                }
+                validate_question(&content).map_err(|_| database_error())?;
+                ("user", None, None, Vec::new())
+            }
+            (1, "assistant") => {
+                let provider_id = provider
+                    .as_deref()
+                    .ok_or_else(database_error)
+                    .and_then(parse_uuid)?;
+                let model_id = model_id.ok_or_else(database_error)?;
+                let citations_json = citations_json.ok_or_else(database_error)?;
+                if citations_json.len() > MAX_LEARNING_CITATIONS_JSON_BYTES {
+                    return Err(database_error());
+                }
+                let citations: Vec<Citation> =
+                    serde_json::from_str(&citations_json).map_err(|_| database_error())?;
+                if citations.len() > MAX_LEARNING_CITATIONS
+                    || citations.iter().any(|citation| citation.book_id != book_id)
+                {
+                    return Err(database_error());
+                }
+                validate_assistant(&CompletedAssistantMessage {
+                    provider_profile_id: provider_id,
+                    model_id: model_id.clone(),
+                    answer: content.clone(),
+                    available_citations: citations.clone(),
+                })
+                .map_err(|_| database_error())?;
+                ("assistant", Some(provider_id), Some(model_id), citations)
+            }
+            _ => return Err(database_error()),
+        };
+        if index % 2 == 1
+            && messages
+                .last()
+                .is_none_or(|previous| previous.action != action)
+        {
+            return Err(database_error());
+        }
+        messages.push(ConversationMessageDto {
+            id: parse_uuid(&row.try_get::<String, _>("id")?)?,
+            ordinal,
+            role,
+            action,
+            content,
+            provider_id,
+            model_id,
+            citations,
+            created_at: parse_database_timestamp(&row.try_get::<String, _>("created_at")?)?,
+        });
+    }
+    Ok(messages)
+}
+
+pub(crate) fn parse_database_timestamp(value: &str) -> AppResult<DateTime<Utc>> {
+    let parsed = DateTime::parse_from_rfc3339(value)
+        .map_err(|_| database_error())?
+        .with_timezone(&Utc);
+    if parsed.to_rfc3339_opts(SecondsFormat::Millis, true) != value {
+        return Err(database_error());
+    }
+    Ok(parsed)
+}
+
+fn parse_action(value: &str) -> AppResult<LearningAction> {
+    match value {
+        "explain" => Ok(LearningAction::Explain),
+        "example" => Ok(LearningAction::Example),
+        "derive" => Ok(LearningAction::Derive),
+        "translate" => Ok(LearningAction::Translate),
+        "ask" => Ok(LearningAction::Ask),
+        "continue" => Ok(LearningAction::Continue),
+        "overview" => Ok(LearningAction::Overview),
+        _ => Err(database_error()),
+    }
+}
+
+fn parse_uuid(value: &str) -> AppResult<Uuid> {
+    Uuid::parse_str(value).map_err(|_| database_error())
+}
 
 #[derive(Clone)]
 pub struct CompletedAssistantMessage {

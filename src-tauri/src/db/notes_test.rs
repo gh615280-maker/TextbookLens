@@ -306,7 +306,10 @@ fn all_format_region_notes_restart_as_markers_without_capture_or_path_storage() 
                 markers[0].relocation_status,
                 MarkerRelocationStatus::Primary
             );
-            assert!(markers[0].anchor.is_some());
+            assert!(matches!(
+                markers[0].anchor,
+                Some(ContentAnchor::Region { .. })
+            ));
         }
     });
 }

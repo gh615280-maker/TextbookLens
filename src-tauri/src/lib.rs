@@ -66,6 +66,8 @@ pub fn run() {
             commands::annotations::delete_note,
             commands::annotations::get_note,
             commands::annotations::list_notes,
+            commands::conversations::get_learning_conversation,
+            commands::conversations::delete_learning_conversation,
             commands::credentials::validate_and_save_provider_profile,
             commands::credentials::replace_provider_profile_credential,
             commands::providers::list_provider_capabilities,

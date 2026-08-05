@@ -32,9 +32,10 @@ export interface NavigationResult {
 export interface AnnotationMarker {
   id: string;
   kind: 'ai_conversation' | 'note';
+  conversationId?: string | null;
   label: string;
   /** Display-only anchor supplied by a later persistence phase; adapters never rewrite it. */
-  anchor?: SelectionSnapshot['anchor'];
+  anchor?: ContentAnchor;
   relocationStatus: MarkerRelocationStatus;
 }
 
@@ -104,7 +105,7 @@ export interface RegionSelectionResult {
 export interface ReaderAdapterEvents {
   onSelection(snapshot: SelectionSnapshot | null): void;
   onProgress(progress: ReadingProgress): void;
-  onMarkerActivate(annotationId: string): void;
+  onMarkerActivate(markers: readonly AnnotationMarker[]): void;
   onFailure(error: UserFacingError): void;
 }
 

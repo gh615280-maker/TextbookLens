@@ -10,12 +10,15 @@ import type {
   RegionSelectionOptions,
   RegionSelectionResult,
   SelectionSnapshot,
+  AnnotationMarker,
 } from '../contracts';
+import { groupOverlappingMarkers } from '../markers/MarkerLayer';
 import { recoverEpubCfi } from './epub-markers';
 import { sanitizeEpubDocument, snapshotEpubRange } from './epub-selection';
 import {
   captureEpubRegion,
   hashEpubRegionElement,
+  resolveEpubRegionAnchor,
 } from './epub-region-capture';
 import {
   epubElementRelativeRect,
@@ -175,19 +178,24 @@ export class EpubReaderAdapter implements ReaderAdapter {
     const bar = document.createElement('div');
     bar.className = 'epub-reader-markers';
     const statuses: MarkerRelocation[] = [];
+    const attached: AnnotationMarker[] = [];
     for (const item of items) {
       const anchor = item.anchor;
-      const locator = anchor?.locator;
       let status: MarkerRelocation['relocationStatus'] = 'unresolved';
       if (
-        locator?.format === 'epub' &&
-        anchor &&
+        anchor?.kind === 'text' &&
+        anchor.selection.locator.format === 'epub' &&
         this.#rendition &&
         this.#book
       ) {
+        const selection = anchor.selection;
+        const locator = selection.locator as Extract<
+          DocumentLocator,
+          { format: 'epub' }
+        >;
         try {
           const range = await this.#book.getRange(locator.cfi);
-          if (range) {
+          if (range && rangeMatchesQuote(range, selection.quote.exact)) {
             this.#rendition.annotations.add(
               'highlight',
               locator.cfi,
@@ -211,7 +219,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
                   document: section.document,
                   cfiFromElement: section.cfiFromElement.bind(section),
                 },
-                anchor.quote,
+                selection.quote,
               );
               if (recovered) {
                 this.#rendition.annotations.add(
@@ -229,15 +237,76 @@ export class EpubReaderAdapter implements ReaderAdapter {
             section?.unload?.();
           }
         }
+      } else if (
+        anchor?.kind === 'region' &&
+        anchor.region.locator.format === 'epub' &&
+        this.#rendition &&
+        this.#book
+      ) {
+        const region = anchor.region;
+        const locator = region.locator as Extract<
+          typeof region.locator,
+          { format: 'epub' }
+        >;
+        const resolver = {
+          getRange: (cfi: string) => this.#book!.getRange(cfi),
+          sectionIdForCfi: (cfi: string) =>
+            exactSectionId(this.#book, cfi) ?? '',
+        };
+        const primary = await resolveEpubRegionAnchor(resolver, region);
+        if (primary) {
+          this.#rendition.annotations.add(
+            'highlight',
+            locator.cfi,
+            { annotationId: item.id },
+            undefined,
+            'epub-reader-highlight',
+          );
+          this.#markerCfis.push(locator.cfi);
+          status = 'primary';
+        } else if (region.textFallback) {
+          const section = this.#book.spine.get(locator.cfi);
+          try {
+            await section?.load?.(this.#book.load?.bind(this.#book));
+            if (section?.document && section.cfiFromElement) {
+              const recovered = recoverEpubCfi(
+                {
+                  document: section.document,
+                  cfiFromElement: section.cfiFromElement.bind(section),
+                },
+                region.textFallback,
+              );
+              if (
+                recovered &&
+                (await resolveEpubRegionAnchor(resolver, {
+                  ...region,
+                  locator: { ...locator, cfi: recovered },
+                }))
+              ) {
+                this.#rendition.annotations.add(
+                  'highlight',
+                  recovered,
+                  { annotationId: item.id },
+                  undefined,
+                  'epub-reader-highlight',
+                );
+                this.#markerCfis.push(recovered);
+                status = 'fallback';
+              }
+            }
+          } finally {
+            section?.unload?.();
+          }
+        }
       }
       if (status === 'unresolved') this.events.onFailure(anchorNotFound());
-      else
-        bar.append(
-          markerButton(item.label, item.kind, () =>
-            this.events.onMarkerActivate(item.id),
-          ),
-        );
+      else attached.push(item);
       statuses.push({ annotationId: item.id, relocationStatus: status });
+    }
+    for (const group of groupOverlappingMarkers(attached)) {
+      bar.append(
+        markerButton(group, () => this.events.onMarkerActivate(group)),
+      );
     }
     if (bar.childElementCount > 0) this.container.append(bar);
     return statuses;
@@ -586,18 +655,42 @@ function anchorNotFound() {
   };
 }
 function markerButton(
-  label: string,
-  kind: 'ai_conversation' | 'note',
+  group: readonly AnnotationMarker[],
   activate: () => void,
 ): HTMLButtonElement {
+  const first = group[0];
+  const overlap = group.length > 1;
   const button = Object.assign(document.createElement('button'), {
     type: 'button',
-    textContent: kind === 'ai_conversation' ? 'AI' : '◆',
+    textContent: overlap
+      ? String(group.length)
+      : first.kind === 'ai_conversation'
+        ? 'AI'
+        : 'N',
+    className: 'reader-marker-button',
   });
-  button.setAttribute('aria-label', label);
-  button.dataset.markerShape = kind === 'ai_conversation' ? 'speech' : 'note';
-  button.dataset.markerPattern =
-    kind === 'ai_conversation' ? 'stripes' : 'dots';
+  button.setAttribute(
+    'aria-label',
+    overlap ? `Open ${group.length} overlapping markers` : first.label,
+  );
+  button.dataset.annotationId = first.id;
+  button.dataset.markerShape = overlap
+    ? 'overlap'
+    : first.kind === 'ai_conversation'
+      ? 'speech'
+      : 'note';
+  button.dataset.markerPattern = overlap
+    ? 'mixed'
+    : first.kind === 'ai_conversation'
+      ? 'stripes'
+      : 'dots';
   button.addEventListener('click', activate);
   return button;
+}
+
+function rangeMatchesQuote(range: Range, exact: string): boolean {
+  return (
+    range.toString().normalize('NFC').replace(/\s+/gu, ' ').trim() ===
+    exact.normalize('NFC').replace(/\s+/gu, ' ').trim()
+  );
 }

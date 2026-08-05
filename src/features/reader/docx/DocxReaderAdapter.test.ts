@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ReaderAdapterEvents } from '../contracts';
 import { DocxReaderAdapter } from './DocxReaderAdapter';
+import { hashDocxRegionBlock } from './docx-region-capture';
 describe('DocxReaderAdapter', () => {
   it('renders only local sanitized content and restores block anchors', async () => {
     const events: ReaderAdapterEvents = {
@@ -48,51 +49,85 @@ describe('DocxReaderAdapter', () => {
       label: '查看个人批注',
       relocationStatus: 'primary' as const,
       anchor: {
-        locator: {
-          format: 'docx' as const,
-          startBlockId: 'actual',
-          startOffset: 7,
-          endBlockId: 'actual',
-          endOffset: 13,
+        kind: 'text' as const,
+        selection: {
+          locator: {
+            format: 'docx' as const,
+            startBlockId: 'actual',
+            startOffset: 7,
+            endBlockId: 'actual',
+            endOffset: 13,
+          },
+          quote: { exact: 'target', prefix: 'prefix ', suffix: ' suffix' },
+          sectionId: 's',
         },
-        quote: { exact: 'target', prefix: 'prefix ', suffix: ' suffix' },
-        sectionId: 's',
       },
     };
     expect(await adapter.showAnnotations([marker])).toEqual([
       { annotationId: 'docx', relocationStatus: 'primary' },
     ]);
+    const regionBlock = document.querySelector<HTMLElement>(
+      '[data-block-id="actual"]',
+    )!;
+    expect(
+      await adapter.showAnnotations([
+        {
+          id: 'docx-region',
+          kind: 'ai_conversation',
+          conversationId: 'conversation',
+          label: 'View AI conversation marker',
+          relocationStatus: 'primary',
+          anchor: {
+            kind: 'region',
+            region: {
+              locator: { format: 'docx', blockId: 'actual' },
+              rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
+              contentSha256: await hashDocxRegionBlock(regionBlock),
+              textFallback: {
+                exact: 'target',
+                prefix: 'prefix ',
+                suffix: ' suffix',
+              },
+            },
+          },
+        },
+      ]),
+    ).toEqual([{ annotationId: 'docx-region', relocationStatus: 'primary' }]);
     expect(
       await adapter.showAnnotations([
         {
           ...marker,
           anchor: {
             ...marker.anchor,
-            locator: {
-              ...marker.anchor.locator,
-              startBlockId: 'missing',
-              endBlockId: 'missing',
+            selection: {
+              ...marker.anchor.selection,
+              quote: { exact: 'target', prefix: '', suffix: '' },
+              locator: {
+                ...marker.anchor.selection.locator,
+                startOffset: 99,
+                endOffset: 105,
+              },
             },
           },
         },
       ]),
     ).toEqual([{ annotationId: 'docx', relocationStatus: 'fallback' }]);
-    document
-      .querySelector('[data-section-id="s"]')!
-      .insertAdjacentHTML(
-        'afterend',
-        '<p data-section-id="s" data-block-id="duplicate">prefix target suffix</p>',
-      );
+    document.querySelector('[data-section-id="s"]')!.textContent =
+      'prefix target target suffix';
     expect(
       await adapter.showAnnotations([
         {
           ...marker,
           anchor: {
             ...marker.anchor,
-            locator: {
-              ...marker.anchor.locator,
-              startBlockId: 'missing',
-              endBlockId: 'missing',
+            selection: {
+              ...marker.anchor.selection,
+              quote: { exact: 'target', prefix: '', suffix: '' },
+              locator: {
+                ...marker.anchor.selection.locator,
+                startOffset: 99,
+                endOffset: 105,
+              },
             },
           },
         },

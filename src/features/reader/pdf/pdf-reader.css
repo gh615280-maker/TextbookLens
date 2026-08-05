@@ -18,8 +18,19 @@
 }
 .pdf-marker-rect {
   position: absolute;
-  background: color-mix(in srgb, #ffd54f 45%, transparent);
-  outline: 1px solid #b7791f;
+  background: color-mix(in srgb, Highlight 18%, transparent);
+  outline: 1px solid color-mix(in srgb, Highlight 52%, transparent);
+}
+.pdf-reader-markers {
+  position: absolute;
+  z-index: 6;
+  inset-block-start: 0.5rem;
+  inset-inline-end: 0.5rem;
+  display: flex;
+  gap: 0.35rem;
+}
+.pdf-reader-markers .reader-marker-button {
+  position: relative;
 }
 .pdf-region-selecting [data-page-number] {
   cursor: crosshair;

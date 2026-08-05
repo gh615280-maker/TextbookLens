@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ReaderAdapterEvents } from '../contracts';
 import { EpubReaderAdapter } from './EpubReaderAdapter';
+import { hashEpubRegionElement } from './epub-region-capture';
 
 describe('EpubReaderAdapter', () => {
   it('opens byte data in continuous vertical flow, restores CFI, and destroys rendition/book', async () => {
@@ -151,7 +152,9 @@ describe('EpubReaderAdapter', () => {
       hooks: { content: { register: vi.fn() } },
     };
     const primaryRange = sectionDocument.createRange();
-    primaryRange.selectNodeContents(sectionDocument.querySelector('p')!);
+    const primaryText = sectionDocument.querySelector('p')!.firstChild!;
+    primaryRange.setStart(primaryText, 7);
+    primaryRange.setEnd(primaryText, 13);
     const getRange = vi.fn(async () => primaryRange);
     const book = {
       open: vi.fn(async () => {}),
@@ -179,18 +182,51 @@ describe('EpubReaderAdapter', () => {
       label: '查看 AI 对话标记',
       relocationStatus: 'primary' as const,
       anchor: {
-        locator: {
-          format: 'epub' as const,
-          cfi: 'epubcfi(/6/4)',
+        kind: 'text' as const,
+        selection: {
+          locator: {
+            format: 'epub' as const,
+            cfi: 'epubcfi(/6/4)',
+            sectionId: 'section',
+          },
+          quote: { exact: 'target', prefix: 'prefix ', suffix: ' suffix' },
           sectionId: 'section',
         },
-        quote: { exact: 'target', prefix: 'prefix ', suffix: ' suffix' },
-        sectionId: 'section',
       },
     };
     expect(await adapter.showAnnotations([marker])).toEqual([
       { annotationId: 'epub', relocationStatus: 'primary' },
     ]);
+    expect(
+      await adapter.showAnnotations([
+        {
+          id: 'epub-region',
+          kind: 'note',
+          conversationId: null,
+          label: 'View personal note marker',
+          relocationStatus: 'primary',
+          anchor: {
+            kind: 'region',
+            region: {
+              locator: {
+                format: 'epub',
+                sectionId: 'spine-0',
+                cfi: 'epubcfi(/6/4)',
+              },
+              rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
+              contentSha256: await hashEpubRegionElement(
+                sectionDocument.querySelector('p')!,
+              ),
+              textFallback: {
+                exact: 'target',
+                prefix: 'prefix ',
+                suffix: ' suffix',
+              },
+            },
+          },
+        },
+      ]),
+    ).toEqual([{ annotationId: 'epub-region', relocationStatus: 'primary' }]);
     getRange.mockRejectedValue(new Error('stale CFI'));
     expect(await adapter.showAnnotations([marker])).toEqual([
       { annotationId: 'epub', relocationStatus: 'fallback' },
@@ -206,7 +242,10 @@ describe('EpubReaderAdapter', () => {
           ...marker,
           anchor: {
             ...marker.anchor,
-            quote: { exact: 'target', prefix: '', suffix: '' },
+            selection: {
+              ...marker.anchor.selection,
+              quote: { exact: 'target', prefix: '', suffix: '' },
+            },
           },
         },
       ]),

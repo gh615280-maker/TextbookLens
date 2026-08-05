@@ -175,6 +175,39 @@ fn registry_serializes_followups_per_conversation_but_not_across_conversations()
 }
 
 #[test]
+fn conversations_deletion_guard_refuses_active_requests_and_blocks_late_followups() {
+    let registry = LearningRequestRegistry::default();
+    let conversation_id = Uuid::new_v4();
+    let active = registry
+        .create(followup_context(conversation_id))
+        .expect("active followup");
+    assert_eq!(
+        registry
+            .begin_conversation_deletion(conversation_id)
+            .unwrap_err()
+            .code,
+        AppErrorCode::RequestConflict
+    );
+    registry.cancel(active.request_id).expect("explicit stop");
+
+    let deletion = registry
+        .begin_conversation_deletion(conversation_id)
+        .expect("terminal conversation can be reserved for deletion");
+    assert_eq!(
+        registry
+            .create(followup_context(conversation_id))
+            .unwrap_err()
+            .code,
+        AppErrorCode::RequestConflict
+    );
+    assert!(format!("{deletion:?}").contains("<redacted>"));
+    drop(deletion);
+    registry
+        .create(followup_context(conversation_id))
+        .expect("failed or completed deletion releases reservation");
+}
+
+#[test]
 fn registry_terminal_snapshot_survives_resubscribe_then_is_garbage_collected() {
     let registry = LearningRequestRegistry::default();
     let start = Instant::now();

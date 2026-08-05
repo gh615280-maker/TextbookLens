@@ -19,12 +19,17 @@ describe('MarginMarkerButton', () => {
       </>,
     );
 
-    const ai = screen.getByRole('button', { name: '查看 AI 对话标记' });
-    const note = screen.getByRole('button', { name: '查看个人批注' });
+    const ai = screen.getByRole('button', {
+      name: 'View AI conversation marker',
+    });
+    const note = screen.getByRole('button', {
+      name: 'View personal note marker',
+    });
     expect(ai).toHaveAttribute('data-marker-shape', 'speech');
     expect(note).toHaveAttribute('data-marker-shape', 'note');
     expect(ai).toHaveAttribute('data-marker-pattern', 'stripes');
     expect(note).toHaveAttribute('data-marker-pattern', 'dots');
+    expect(ai.querySelector('.margin-marker-dot')).toBeInTheDocument();
     await user.click(note);
     expect(onActivate).toHaveBeenCalledWith('note-id');
     expect(onActivate).toHaveBeenCalledWith(expect.any(String));

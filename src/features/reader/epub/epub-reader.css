@@ -8,6 +8,22 @@
   width: 100%;
   min-height: inherit;
 }
+.epub-reader-highlight {
+  fill: color-mix(in srgb, Highlight 18%, transparent);
+  fill-opacity: 0.7;
+  mix-blend-mode: multiply;
+}
+.epub-reader-markers {
+  position: absolute;
+  z-index: 6;
+  inset-block-start: 0.5rem;
+  inset-inline-end: 0.5rem;
+  display: flex;
+  gap: 0.35rem;
+}
+.epub-reader-markers .reader-marker-button {
+  position: relative;
+}
 .epub-region-selecting,
 .epub-region-selecting iframe {
   cursor: crosshair;

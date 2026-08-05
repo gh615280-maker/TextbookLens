@@ -8,14 +8,17 @@ import type {
 import { MarkerLayer } from './MarkerLayer';
 
 const pdfAnchor = {
-  locator: {
-    format: 'pdf' as const,
-    startPage: 1,
-    endPage: 1,
-    rectsByPage: null,
+  kind: 'text' as const,
+  selection: {
+    locator: {
+      format: 'pdf' as const,
+      startPage: 1,
+      endPage: 1,
+      rectsByPage: null,
+    },
+    quote: { exact: 'target', prefix: '', suffix: '' },
+    sectionId: null,
   },
-  quote: { exact: 'target', prefix: '', suffix: '' },
-  sectionId: null,
 };
 const markers: AnnotationMarker[] = [
   {
@@ -79,7 +82,7 @@ describe('MarkerLayer', () => {
     )!;
     expect(unresolved).toHaveAttribute('data-relocation-status', 'unresolved');
     unresolved.querySelector('button')!.click();
-    expect(activate).toHaveBeenCalledWith('lost');
+    expect(activate).toHaveBeenCalledWith([markers[2]]);
     layer.dispose();
     expect(root).toBeEmptyDOMElement();
     expect(show).toHaveBeenLastCalledWith([]);
@@ -106,5 +109,37 @@ describe('MarkerLayer', () => {
     expect(firstShow).toHaveBeenLastCalledWith([]);
     expect(root.querySelector('[data-annotation-id="ai"]')).toBeNull();
     expect(root.querySelector('[data-annotation-id="note"]')).not.toBeNull();
+  });
+
+  it('serializes refreshes on one adapter so an older render cannot overwrite the latest markers', async () => {
+    let finish!: (value: MarkerRelocation[]) => void;
+    const show = vi.fn((items: readonly AnnotationMarker[]) => {
+      if (items[0]?.id === 'ai') {
+        return new Promise<MarkerRelocation[]>((resolve) => {
+          finish = resolve;
+        });
+      }
+      return Promise.resolve(
+        items.map((item) => ({
+          annotationId: item.id,
+          relocationStatus: 'primary' as const,
+        })),
+      );
+    });
+    const currentAdapter = adapter(show);
+    const layer = new MarkerLayer(document.createElement('aside'), vi.fn());
+
+    const older = layer.show(currentAdapter, markers.slice(0, 1));
+    const latest = layer.show(currentAdapter, markers.slice(1, 2));
+    expect(show).toHaveBeenCalledTimes(1);
+    finish([{ annotationId: 'ai', relocationStatus: 'primary' }]);
+
+    expect(await older).toEqual([]);
+    expect(await latest).toEqual([
+      { annotationId: 'note', relocationStatus: 'primary' },
+    ]);
+    expect(
+      show.mock.calls.map(([items]) => items.map((item) => item.id)),
+    ).toEqual([['ai'], [], ['note']]);
   });
 });

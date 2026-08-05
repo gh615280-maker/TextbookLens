@@ -34,8 +34,19 @@
 }
 .docx-marker-overlay span {
   position: absolute;
-  background: color-mix(in srgb, #ffd54f 45%, transparent);
-  outline: 1px solid #b7791f;
+  background: color-mix(in srgb, Highlight 18%, transparent);
+  outline: 1px solid color-mix(in srgb, Highlight 52%, transparent);
+}
+.docx-reader-markers {
+  position: sticky;
+  z-index: 6;
+  inset-block-start: 0.5rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+.docx-reader-markers .reader-marker-button {
+  position: relative;
 }
 @media (forced-colors: active) {
   .docx-region-preview {

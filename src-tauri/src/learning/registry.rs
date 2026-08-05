@@ -126,6 +126,32 @@ struct RegistryInner {
 struct RegistryState {
     entries: BTreeMap<Uuid, RegistryEntry>,
     active_conversations: BTreeMap<Uuid, Uuid>,
+    deleting_conversations: BTreeMap<Uuid, ()>,
+}
+
+pub struct ConversationDeletionGuard {
+    registry: LearningRequestRegistry,
+    conversation_id: Uuid,
+}
+
+impl fmt::Debug for ConversationDeletionGuard {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ConversationDeletionGuard")
+            .field("conversation_id", &"<redacted>")
+            .finish()
+    }
+}
+
+impl Drop for ConversationDeletionGuard {
+    fn drop(&mut self) {
+        self.registry
+            .inner
+            .state
+            .lock()
+            .deleting_conversations
+            .remove(&self.conversation_id);
+    }
 }
 
 struct RegistryEntry {
@@ -174,6 +200,7 @@ impl Drop for RegistryInner {
         }
         state.entries.clear();
         state.active_conversations.clear();
+        state.deleting_conversations.clear();
     }
 }
 
@@ -186,6 +213,10 @@ impl fmt::Debug for LearningRequestRegistry {
             .field(
                 "active_conversation_count",
                 &state.active_conversations.len(),
+            )
+            .field(
+                "deleting_conversation_count",
+                &state.deleting_conversations.len(),
             )
             .finish()
     }
@@ -215,7 +246,8 @@ impl LearningRequestRegistry {
             return Err(AppError::new(AppErrorCode::RequestConflict));
         }
         if let Some(conversation_id) = context.conversation_id()
-            && state.active_conversations.contains_key(&conversation_id)
+            && (state.active_conversations.contains_key(&conversation_id)
+                || state.deleting_conversations.contains_key(&conversation_id))
         {
             return Err(AppError::new(AppErrorCode::RequestConflict));
         }
@@ -285,6 +317,24 @@ impl LearningRequestRegistry {
             .get(&request_id)
             .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
         snapshot(request_id, entry)
+    }
+
+    pub fn begin_conversation_deletion(
+        &self,
+        conversation_id: Uuid,
+    ) -> AppResult<ConversationDeletionGuard> {
+        let mut state = self.inner.state.lock();
+        gc_locked(&mut state, Instant::now());
+        if state.active_conversations.contains_key(&conversation_id)
+            || state.deleting_conversations.contains_key(&conversation_id)
+        {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        }
+        state.deleting_conversations.insert(conversation_id, ());
+        Ok(ConversationDeletionGuard {
+            registry: self.clone(),
+            conversation_id,
+        })
     }
 
     pub fn cancellation_token(&self, request_id: Uuid) -> AppResult<CancellationToken> {
@@ -474,6 +524,7 @@ impl LearningRequestRegistry {
         }
         state.entries.clear();
         state.active_conversations.clear();
+        state.deleting_conversations.clear();
     }
 
     #[cfg(test)]

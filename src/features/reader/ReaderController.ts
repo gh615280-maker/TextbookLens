@@ -49,8 +49,8 @@ export class ReaderController {
     };
     this.#markerLayer =
       markerLayer ??
-      new MarkerLayer(null, (annotationId) =>
-        this.#events.onMarkerActivate(annotationId),
+      new MarkerLayer(null, (markers) =>
+        this.#events.onMarkerActivate(markers),
       );
   }
 
@@ -101,10 +101,8 @@ export class ReaderController {
         const markers = markerDtos.map((item) => ({
           id: item.id,
           kind: item.kind,
-          label:
-            item.kind === 'ai_conversation'
-              ? '查看 AI 对话标记'
-              : '查看个人批注',
+          conversationId: item.conversationId,
+          label: item.accessibilityLabel,
           anchor: item.anchor ?? undefined,
           relocationStatus: item.relocationStatus,
         }));
@@ -166,10 +164,8 @@ export class ReaderController {
       const markers = markerDtos.map((item) => ({
         id: item.id,
         kind: item.kind,
-        label:
-          item.kind === 'ai_conversation'
-            ? '\u67e5\u770b AI \u5bf9\u8bdd\u6807\u8bb0'
-            : '\u67e5\u770b\u4e2a\u4eba\u6279\u6ce8',
+        conversationId: item.conversationId,
+        label: item.accessibilityLabel,
         anchor: item.anchor ?? undefined,
         relocationStatus: item.relocationStatus,
       }));

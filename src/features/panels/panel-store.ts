@@ -73,6 +73,54 @@ export class PanelStore {
     return this.replace(pending.id, { conversationId });
   }
 
+  openConversation(
+    conversationId: string,
+    geometry = DEFAULT_PANEL_GEOMETRY,
+  ): FloatingPanel {
+    const existing = this.byConversation(conversationId);
+    if (existing) return this.reopen(existing.id);
+    const panel = freezePanel({
+      id: `learning-panel-${this.nextId++}`,
+      requestId: `history:${conversationId}`,
+      conversationId,
+      hidden: false,
+      collapsed: false,
+      zIndex: this.nextZ++,
+      geometry: normalizePanelGeometry(geometry),
+    });
+    this.panels.set(panel.id, panel);
+    this.emit();
+    return panel;
+  }
+
+  attachRequestToConversation(
+    requestId: string,
+    conversationId: string,
+  ): FloatingPanel {
+    const conversationPanel = this.byConversation(conversationId);
+    const requestPanel = this.byRequest(requestId);
+    if (conversationPanel) {
+      if (requestPanel && requestPanel.id !== conversationPanel.id) {
+        this.panels.delete(requestPanel.id);
+      }
+      return this.replace(conversationPanel.id, {
+        requestId,
+        hidden: false,
+        zIndex: this.nextZ++,
+      });
+    }
+    const created = this.openConversation(conversationId);
+    return this.replace(created.id, { requestId });
+  }
+
+  removeConversation(conversationId: string): boolean {
+    const panel = this.byConversation(conversationId);
+    if (!panel) return false;
+    this.panels.delete(panel.id);
+    this.emit();
+    return true;
+  }
+
   reopen(id: string): FloatingPanel {
     return this.replace(id, { hidden: false, zIndex: this.nextZ++ });
   }

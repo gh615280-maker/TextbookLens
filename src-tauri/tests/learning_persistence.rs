@@ -5,10 +5,11 @@ use sqlx::{Row, SqlitePool};
 use textbooklens_lib::{
     db::{
         Database,
+        annotations::list_annotation_markers,
         conversations::{
             DeleteSelectionConversation, FollowupCompletion, LearningPersistenceFaultInjector,
             LearningPersistenceStep, LearningRepository, NewSelectionCompletion,
-            PersistedLearningResult,
+            PersistedLearningResult, load_selection_conversation,
         },
         messages::CompletedAssistantMessage,
     },
@@ -182,6 +183,41 @@ fn completed_new_selection_is_one_exact_transaction_with_immutable_metadata() {
 }
 
 #[test]
+fn annotations_marker_dto_exposes_only_anchor_type_ids_and_safe_label() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let result = fixture
+            .repository()
+            .persist_new_selection(fixture.new_completion())
+            .await
+            .unwrap();
+        let markers = list_annotation_markers(fixture.pool(), fixture.book_id)
+            .await
+            .unwrap();
+        assert_eq!(markers.len(), 1);
+        assert_eq!(markers[0].conversation_id, Some(result.conversation_id));
+        assert_eq!(
+            markers[0].accessibility_label,
+            "View AI conversation marker"
+        );
+        let serialized = serde_json::to_string(&markers).unwrap();
+        for forbidden in [
+            "private-answer-sentinel",
+            "Explain the selected textbook content.",
+            "captured-model-v1",
+            "credential",
+            "provider_payload",
+            "hidden_reasoning",
+        ] {
+            assert!(!serialized.contains(forbidden));
+        }
+        let debug = format!("{:?}", markers[0]);
+        assert!(debug.contains("<redacted>"));
+        assert!(!debug.contains("线性代数 immutable selection"));
+    });
+}
+
+#[test]
 fn visual_region_completion_preserves_null_selected_text_without_image_bytes() {
     let fixture = Fixture::new();
     tauri::async_runtime::block_on(async {
@@ -214,6 +250,55 @@ fn visual_region_completion_preserves_null_selected_text_without_image_bytes() {
         assert!(!anchor_json.contains("image"));
         assert!(!anchor_json.contains("path"));
         assert_atomic_shape(fixture.pool(), result).await;
+    });
+}
+
+#[test]
+fn conversations_history_load_preserves_each_assistant_provider_model_and_citations() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let result = fixture
+            .repository()
+            .persist_new_selection(fixture.new_completion())
+            .await
+            .unwrap();
+        let followup = fixture.followup(result.conversation_id, 2, "immutable-v2");
+        let followup_provider = followup.assistant.provider_profile_id;
+        let followup_model = followup.assistant.model_id.clone();
+        fixture
+            .repository()
+            .persist_followup(followup)
+            .await
+            .unwrap();
+
+        let history =
+            load_selection_conversation(fixture.pool(), fixture.book_id, result.conversation_id)
+                .await
+                .unwrap();
+        assert_eq!(history.annotation_id, result.annotation_id);
+        assert_eq!(history.status, "completed");
+        assert_eq!(history.messages.len(), 4);
+        assert_eq!(history.messages[1].provider_id, Some(fixture.profile_id));
+        assert_eq!(
+            history.messages[1].model_id.as_deref(),
+            Some("captured-model-v1")
+        );
+        assert_eq!(history.messages[1].citations, vec![fixture.citation()]);
+        assert_eq!(history.messages[3].provider_id, Some(followup_provider));
+        assert_eq!(
+            history.messages[3].model_id.as_deref(),
+            Some(followup_model.as_str())
+        );
+        assert_eq!(history.messages[3].citations, vec![fixture.citation()]);
+        let debug = format!("{history:?}");
+        for secret in [
+            "线性代数 immutable selection",
+            "完成回答",
+            "captured-model-v1",
+            followup_model.as_str(),
+        ] {
+            assert!(!debug.contains(secret));
+        }
     });
 }
 
@@ -423,7 +508,7 @@ fn followup_lock_allows_one_same_ordinal_winner_and_isolates_decoys() {
 }
 
 #[test]
-fn followup_faults_roll_back_pair_and_delete_uses_trigger_once_atomically() {
+fn conversations_followup_faults_roll_back_pair_and_delete_uses_trigger_once_atomically() {
     let fixture = Fixture::new();
     tauri::async_runtime::block_on(async {
         let result = fixture

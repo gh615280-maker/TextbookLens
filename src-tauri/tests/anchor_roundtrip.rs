@@ -18,7 +18,7 @@ use uuid::Uuid;
 const NOW: &str = "2026-08-02T00:00:00Z";
 
 #[test]
-fn legacy_text_and_tagged_region_anchors_survive_restart_for_all_formats() {
+fn annotations_legacy_text_and_tagged_region_anchors_survive_restart_for_all_formats() {
     let temporary = TempDir::new().expect("temporary database");
     let path = temporary.path().join("library.sqlite3");
     let pdf_book = Uuid::new_v4();
@@ -157,7 +157,7 @@ fn legacy_text_and_tagged_region_anchors_survive_restart_for_all_formats() {
 }
 
 #[test]
-fn unique_bounded_fallback_returns_the_original_anchor_without_rewriting_storage() {
+fn annotations_unique_bounded_fallback_returns_the_original_anchor_without_rewriting_storage() {
     let temporary = TempDir::new().expect("temporary database");
     let database = Database::open(temporary.path().join("library.sqlite3")).expect("database");
     let book = Uuid::new_v4();
@@ -203,7 +203,7 @@ fn unique_bounded_fallback_returns_the_original_anchor_without_rewriting_storage
 }
 
 #[test]
-fn corrupt_unknown_ambiguous_and_format_mismatched_anchors_are_history_only() {
+fn annotations_corrupt_unknown_ambiguous_and_format_mismatched_anchors_are_history_only() {
     let temporary = TempDir::new().expect("temporary database");
     let database = Database::open(temporary.path().join("library.sqlite3")).expect("database");
     let book = Uuid::new_v4();
@@ -274,14 +274,20 @@ fn corrupt_unknown_ambiguous_and_format_mismatched_anchors_are_history_only() {
             .await
             .expect("safe marker list");
         assert_eq!(markers.len(), 3);
-        assert!(markers.iter().all(|item| {
-            item.anchor.is_none() && item.relocation_status == MarkerRelocationStatus::Unresolved
-        }));
+        assert!(
+            markers
+                .iter()
+                .all(|item| { item.relocation_status == MarkerRelocationStatus::Unresolved })
+        );
+        assert_eq!(
+            markers.iter().filter(|item| item.anchor.is_some()).count(),
+            1
+        );
         let ambiguous = list_annotation_markers(database.pool(), epub_book)
             .await
             .expect("ambiguous fallback markers");
         assert_eq!(ambiguous.len(), 1);
-        assert!(ambiguous[0].anchor.is_none());
+        assert_eq!(ambiguous[0].anchor.as_ref(), Some(&ambiguous_fallback));
         assert_eq!(
             ambiguous[0].relocation_status,
             MarkerRelocationStatus::Unresolved

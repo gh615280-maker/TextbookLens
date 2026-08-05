@@ -33,8 +33,10 @@ class FakeApi implements ReaderApi {
       {
         id: 'marker',
         kind: 'note',
+        conversationId: null,
         anchor: null,
         relocationStatus: 'unresolved',
+        accessibilityLabel: 'View personal note marker',
       },
     ],
   );
@@ -145,8 +147,10 @@ describe('ReaderController', () => {
       {
         id: 'late',
         kind: 'note',
+        conversationId: null,
         anchor: null,
         relocationStatus: 'unresolved',
+        accessibilityLabel: 'View personal note marker',
       },
     ]);
     await opening;

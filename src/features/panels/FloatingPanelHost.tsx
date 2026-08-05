@@ -1,9 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import {
   useLearningRequestActions,
   useLearningRequestSnapshot,
 } from '../learning/LearningRequestProvider';
+import type { LearningRequestView } from '../learning/learning-request-store';
+import {
+  ConversationPanelStore,
+  conversationPanels,
+  type ConversationHistory,
+} from '../history/conversation-api';
 import {
   movePanel,
   DebouncedPanelGeometryWriter,
@@ -29,16 +35,31 @@ const HANDLES: readonly ResizeHandle[] = [
 
 interface FloatingPanelHostProps {
   store?: PanelStore;
+  historyStore?: ConversationPanelStore;
 }
 
 /** Structural host only. Answer rendering and panel commands are intentionally Task 5 work. */
 export function FloatingPanelHost({
   store: suppliedStore,
+  historyStore: suppliedHistoryStore,
 }: FloatingPanelHostProps) {
   const requestSnapshot = useLearningRequestSnapshot();
   const requestActions = useLearningRequestActions();
   const [store] = useState(() => suppliedStore ?? new PanelStore());
+  const [historyStore] = useState(
+    () => suppliedHistoryStore ?? conversationPanels,
+  );
+  const historySnapshot = useSyncExternalStore(
+    (listener) => historyStore.subscribe(listener),
+    () => historyStore.snapshot(),
+    () => historyStore.snapshot(),
+  );
   const [panels, setPanels] = useState(() => store.snapshot());
+  const [deleteFailures, setDeleteFailures] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const openedHistory = useRef(new Map<string, ConversationHistory>());
+  const refreshedRequests = useRef(new Set<string>());
   const interaction = useRef<{
     id: string;
     handle: ResizeHandle | 'move';
@@ -57,12 +78,50 @@ export function FloatingPanelHost({
   }, [panels, preferenceWriter]);
   useEffect(() => {
     for (const request of requestSnapshot.requests) {
-      store.ensureRequest(request.requestId);
+      const owner = request.targetConversationId ?? request.conversationId;
+      if (owner && historyStore.isDeleted(owner)) continue;
+      if (request.targetConversationId) {
+        store.attachRequestToConversation(
+          request.requestId,
+          request.targetConversationId,
+        );
+      } else {
+        store.ensureRequest(request.requestId);
+      }
       if (request.conversationId) {
         store.completeRequest(request.requestId, request.conversationId);
       }
+      if (
+        request.status === 'completed' &&
+        request.targetConversationId &&
+        !refreshedRequests.current.has(request.requestId)
+      ) {
+        refreshedRequests.current.add(request.requestId);
+        void historyStore.refresh(request.targetConversationId).catch(() => {
+          // Durable history remains unchanged when a safe reload fails.
+        });
+      }
     }
-  }, [requestSnapshot, store]);
+  }, [historyStore, requestSnapshot, store]);
+  useEffect(() => {
+    const present = new Set<string>();
+    for (const history of historySnapshot.conversations) {
+      present.add(history.id);
+      if (openedHistory.current.get(history.id) !== history) {
+        openedHistory.current.set(history.id, history);
+        store.openConversation(history.id);
+      }
+    }
+    for (const [conversationId] of openedHistory.current) {
+      if (
+        !present.has(conversationId) &&
+        historyStore.isDeleted(conversationId)
+      ) {
+        openedHistory.current.delete(conversationId);
+        store.removeConversation(conversationId);
+      }
+    }
+  }, [historySnapshot, historyStore, store]);
   useEffect(() => {
     const move = (event: PointerEvent) => {
       const current = interaction.current;
@@ -106,20 +165,53 @@ export function FloatingPanelHost({
             request={requestSnapshot.requests.find(
               (request) => request.requestId === panel.requestId,
             )}
+            history={historySnapshot.conversations.find(
+              (history) => history.id === panel.conversationId,
+            )}
+            deletePending={
+              panel.conversationId
+                ? [...historySnapshot.pendingDeletes].some((key) =>
+                    key.endsWith(`:${panel.conversationId}`),
+                  )
+                : false
+            }
+            deleteFailed={
+              panel.conversationId
+                ? deleteFailures.has(panel.conversationId)
+                : false
+            }
             onFollowup={(question) => {
               const request = requestSnapshot.requests.find(
                 (current) => current.requestId === panel.requestId,
               );
-              if (!request?.conversationId || !requestActions) return;
+              const history = historySnapshot.conversations.find(
+                (current) => current.id === panel.conversationId,
+              );
+              const conversationId =
+                panel.conversationId ?? request?.conversationId;
+              if (!conversationId || !requestActions) return;
+              const historicalAssistant = history
+                ? [...history.messages]
+                    .reverse()
+                    .find((message) => message.role === 'assistant')
+                : undefined;
               void requestActions.startFollowup(
-                request.conversationId,
+                conversationId,
                 question,
                 Object.freeze({
                   action: 'continue',
                   selectionLabel:
-                    request.presentation?.selectionLabel ?? 'Learning request',
-                  provider: request.presentation?.provider ?? 'Current profile',
-                  model: request.presentation?.model ?? 'Current model',
+                    request?.presentation?.selectionLabel ??
+                    history?.selectedText ??
+                    'Visual region',
+                  provider:
+                    request?.presentation?.provider ??
+                    historicalAssistant?.providerId ??
+                    'Historical provider',
+                  model:
+                    request?.presentation?.model ??
+                    historicalAssistant?.modelId ??
+                    'Historical model',
                 }),
               );
             }}
@@ -133,6 +225,20 @@ export function FloatingPanelHost({
               ) {
                 void requestActions?.cancel(request.requestId);
               }
+            }}
+            onDelete={(history) => {
+              if (!window.confirm('Delete this conversation and its marker?'))
+                return;
+              setDeleteFailures((current) => {
+                const next = new Set(current);
+                next.delete(history.id);
+                return next;
+              });
+              void historyStore.delete(history).catch(() => {
+                setDeleteFailures((current) =>
+                  new Set(current).add(history.id),
+                );
+              });
             }}
             onPointerStart={(handle, event) => {
               event.preventDefault();
@@ -154,8 +260,12 @@ function Panel({
   panel,
   store,
   request,
+  history,
+  deletePending,
+  deleteFailed,
   onFollowup,
   onStop,
+  onDelete,
   onPointerStart,
 }: {
   panel: FloatingPanel;
@@ -163,8 +273,12 @@ function Panel({
   request:
     | ReturnType<typeof useLearningRequestSnapshot>['requests'][number]
     | undefined;
+  history: ConversationHistory | undefined;
+  deletePending: boolean;
+  deleteFailed: boolean;
   onFollowup(question: string): void;
   onStop(): void;
+  onDelete(history: ConversationHistory): void;
   onPointerStart(
     handle: ResizeHandle | 'move',
     event: React.PointerEvent,
@@ -174,7 +288,8 @@ function Panel({
     width: window.innerWidth,
     height: window.innerHeight,
   });
-  if (!request) return null;
+  const visibleRequest = request ?? (history ? historyRequest(history) : null);
+  if (!visibleRequest) return null;
   return (
     <section
       aria-label="Learning request"
@@ -190,12 +305,16 @@ function Panel({
     >
       <FloatingAnswerPanel
         collapsed={panel.collapsed}
-        request={request}
+        request={visibleRequest}
+        history={history}
+        deleteDisabled={deletePending}
+        deleteError={deleteFailed}
         onCollapse={() => store.setCollapsed(panel.id, !panel.collapsed)}
         onDragStart={(event) => onPointerStart('move', event)}
         onFollowup={onFollowup}
         onHide={() => store.hide(panel.id)}
         onStop={onStop}
+        onDelete={history ? () => onDelete(history) : undefined}
       />
       {HANDLES.map((handle) => (
         <button
@@ -228,4 +347,26 @@ function Panel({
       ))}
     </section>
   );
+}
+
+function historyRequest(history: ConversationHistory): LearningRequestView {
+  const assistant = [...history.messages]
+    .reverse()
+    .find((message) => message.role === 'assistant');
+  return Object.freeze({
+    requestId: `history:${history.id}`,
+    conversationId: history.id,
+    status: 'completed',
+    text: '',
+    usage: null,
+    safeError: null,
+    lastSeq: 0,
+    targetConversationId: null,
+    presentation: Object.freeze({
+      action: assistant?.action ?? 'learning',
+      selectionLabel: history.selectedText ?? 'Visual region',
+      provider: assistant?.providerId ?? 'Historical provider',
+      model: assistant?.modelId ?? 'Historical model',
+    }),
+  });
 }

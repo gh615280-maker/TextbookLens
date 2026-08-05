@@ -182,14 +182,17 @@ describe('PdfReaderAdapter', () => {
       label: '查看个人批注',
       relocationStatus: 'primary' as const,
       anchor: {
-        locator: {
-          format: 'pdf' as const,
-          startPage: 1,
-          endPage: 1,
-          rectsByPage: null,
+        kind: 'text' as const,
+        selection: {
+          locator: {
+            format: 'pdf' as const,
+            startPage: 1,
+            endPage: 1,
+            rectsByPage: null,
+          },
+          quote: { exact: 'target', prefix: 'prefix ', suffix: ' suffix' },
+          sectionId: 'section',
         },
-        quote: { exact: 'target', prefix: 'prefix ', suffix: ' suffix' },
-        sectionId: 'section',
       },
     };
     expect(
@@ -198,14 +201,43 @@ describe('PdfReaderAdapter', () => {
           ...base,
           anchor: {
             ...base.anchor,
-            locator: {
-              ...base.anchor.locator,
-              rectsByPage: { 1: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.1 }] },
+            selection: {
+              ...base.anchor.selection,
+              locator: {
+                ...base.anchor.selection.locator,
+                rectsByPage: {
+                  1: [{ x: 0.1, y: 0.1, width: 0.2, height: 0.1 }],
+                },
+              },
             },
           },
         },
       ]),
     ).toEqual([{ annotationId: 'marker', relocationStatus: 'primary' }]);
+    expect(
+      await adapter.showAnnotations([
+        {
+          id: 'region-marker',
+          kind: 'ai_conversation',
+          conversationId: 'conversation',
+          label: 'View AI conversation marker',
+          relocationStatus: 'primary',
+          anchor: {
+            kind: 'region',
+            region: {
+              locator: { format: 'pdf', page: 1 },
+              rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+              contentSha256: await sha256Text('target'),
+              textFallback: {
+                exact: 'target',
+                prefix: 'prefix ',
+                suffix: ' suffix',
+              },
+            },
+          },
+        },
+      ]),
+    ).toEqual([{ annotationId: 'region-marker', relocationStatus: 'primary' }]);
     expect(await adapter.showAnnotations([base])).toEqual([
       { annotationId: 'marker', relocationStatus: 'fallback' },
     ]);
@@ -216,7 +248,10 @@ describe('PdfReaderAdapter', () => {
           ...base,
           anchor: {
             ...base.anchor,
-            quote: { exact: 'target', prefix: '', suffix: '' },
+            selection: {
+              ...base.anchor.selection,
+              quote: { exact: 'target', prefix: '', suffix: '' },
+            },
           },
         },
       ]),
@@ -375,4 +410,14 @@ function deferred<T>() {
     resolve = done;
   });
   return { promise, resolve };
+}
+
+async function sha256Text(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(value),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 }

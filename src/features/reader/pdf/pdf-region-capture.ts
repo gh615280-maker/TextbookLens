@@ -2,6 +2,7 @@ import type {
   ContentAnchor,
   NormalizedRect,
   TextQuote,
+  RegionAnchor,
 } from '../../../lib/generated/document';
 import type { PdfTextItem } from '../../import/parsers/pdf-layout';
 import { assessPdfPageQuality } from '../../indexing/pdf-quality';
@@ -96,6 +97,51 @@ export async function capturePdfRegion(
   } catch (error) {
     capture.release();
     throw error;
+  }
+}
+
+/** Verifies the recorded page/rectangle content without nearest-page relocation. */
+export async function verifyPdfRegionAnchor(
+  page: HTMLElement,
+  anchor: RegionAnchor,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  if (
+    anchor.locator.format !== 'pdf' ||
+    !/^[0-9a-f]{64}$/u.test(anchor.contentSha256) ||
+    !validRect(anchor.rect) ||
+    page.dataset.pageNumber !== String(anchor.locator.page)
+  ) {
+    return false;
+  }
+  throwIfAborted(signal);
+  if (anchor.textFallback) {
+    const bytes = utf8(anchor.textFallback.exact);
+    let textHash: string;
+    try {
+      textHash = await sha256(bytes);
+    } finally {
+      bytes.fill(0);
+    }
+    if (textHash === anchor.contentSha256) {
+      const text = (page.textContent ?? '')
+        .normalize('NFC')
+        .replace(/\s+/gu, ' ')
+        .trim();
+      return occurrences(text, anchor.textFallback.exact) === 1;
+    }
+  }
+  const canvas = page.querySelector<HTMLCanvasElement>('canvas');
+  if (!canvas) return false;
+  try {
+    const capture = await cropPng(canvas, anchor.rect, signal);
+    try {
+      return (await sha256(capture.bytes)) === anchor.contentSha256;
+    } finally {
+      capture.release();
+    }
+  } catch {
+    return false;
   }
 }
 
@@ -247,6 +293,28 @@ function regionAnchor(
 
 function textQuote(exact: string): TextQuote {
   return { exact, prefix: '', suffix: '' };
+}
+function validRect(rect: NormalizedRect): boolean {
+  return (
+    [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) &&
+    rect.x >= 0 &&
+    rect.y >= 0 &&
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.x + rect.width <= 1 &&
+    rect.y + rect.height <= 1
+  );
+}
+function occurrences(value: string, needle: string): number {
+  if (!needle) return 0;
+  let count = 0;
+  let index = 0;
+  while ((index = value.indexOf(needle, index)) >= 0) {
+    count += 1;
+    if (count > 1) return count;
+    index += needle.length;
+  }
+  return count;
 }
 function utf8(text: string) {
   return new TextEncoder().encode(

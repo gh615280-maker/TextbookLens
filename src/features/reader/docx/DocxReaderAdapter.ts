@@ -9,9 +9,15 @@ import type {
   RegionSelectionOptions,
   RegionSelectionResult,
   SelectionSnapshot,
+  AnnotationMarker,
 } from '../contracts';
+import { groupOverlappingMarkers } from '../markers/MarkerLayer';
 import { snapshotDocxRange, rangeFromDocxLocator } from './docx-selection';
-import { addDocxRangeOverlay, recoverDocxRange } from './docx-markers';
+import {
+  addDocxRangeOverlay,
+  addDocxRegionOverlay,
+  recoverDocxRange,
+} from './docx-markers';
 import {
   captureDocxRegion,
   resolveDocxRegionAnchor,
@@ -70,30 +76,60 @@ export class DocxReaderAdapter implements ReaderAdapter {
       className: 'docx-reader-markers',
     });
     const statuses: MarkerRelocation[] = [];
+    const attached: AnnotationMarker[] = [];
     for (const item of items) {
       const anchor = item.anchor;
-      const locator = anchor?.locator;
       let status: MarkerRelocation['relocationStatus'] = 'unresolved';
-      if (locator?.format === 'docx' && anchor) {
-        const primary = rangeFromDocxLocator(this.container, locator);
+      if (
+        anchor?.kind === 'text' &&
+        anchor.selection.locator.format === 'docx'
+      ) {
+        const selection = anchor.selection;
+        const locator = selection.locator as Extract<
+          DocumentLocator,
+          { format: 'docx' }
+        >;
+        const primaryCandidate = rangeFromDocxLocator(this.container, locator);
+        const primary =
+          primaryCandidate &&
+          rangeMatchesQuote(primaryCandidate, selection.quote.exact)
+            ? primaryCandidate
+            : null;
         const range =
           primary ??
-          (anchor.sectionId
-            ? recoverDocxRange(this.container, anchor.sectionId, anchor.quote)
+          (selection.sectionId
+            ? recoverDocxRange(
+                this.container,
+                selection.sectionId,
+                selection.quote,
+                locator,
+              )
             : null);
         if (range) {
           addDocxRangeOverlay(this.container, range);
           status = primary ? 'primary' : 'fallback';
         }
+      } else if (
+        anchor?.kind === 'region' &&
+        anchor.region.locator.format === 'docx'
+      ) {
+        const resolved = await resolveDocxRegionAnchor(
+          this.container,
+          anchor.region,
+        );
+        if (resolved) {
+          addDocxRegionOverlay(this.container, resolved.block, resolved.rect);
+          status = 'primary';
+        }
       }
       if (status === 'unresolved') this.events.onFailure(anchorNotFound());
-      else
-        bar.append(
-          markerButton(item.label, item.kind, () =>
-            this.events.onMarkerActivate(item.id),
-          ),
-        );
+      else attached.push(item);
       statuses.push({ annotationId: item.id, relocationStatus: status });
+    }
+    for (const group of groupOverlappingMarkers(attached)) {
+      bar.append(
+        markerButton(group, () => this.events.onMarkerActivate(group)),
+      );
     }
     if (bar.childElementCount > 0) this.container.append(bar);
     return statuses;
@@ -364,18 +400,42 @@ function anchorNotFound() {
   };
 }
 function markerButton(
-  label: string,
-  kind: 'ai_conversation' | 'note',
+  group: readonly AnnotationMarker[],
   activate: () => void,
 ): HTMLButtonElement {
+  const first = group[0];
+  const overlap = group.length > 1;
   const button = Object.assign(document.createElement('button'), {
     type: 'button',
-    textContent: kind === 'ai_conversation' ? 'AI' : '◆',
+    textContent: overlap
+      ? String(group.length)
+      : first.kind === 'ai_conversation'
+        ? 'AI'
+        : 'N',
+    className: 'reader-marker-button',
   });
-  button.setAttribute('aria-label', label);
-  button.dataset.markerShape = kind === 'ai_conversation' ? 'speech' : 'note';
-  button.dataset.markerPattern =
-    kind === 'ai_conversation' ? 'stripes' : 'dots';
+  button.setAttribute(
+    'aria-label',
+    overlap ? `Open ${group.length} overlapping markers` : first.label,
+  );
+  button.dataset.annotationId = first.id;
+  button.dataset.markerShape = overlap
+    ? 'overlap'
+    : first.kind === 'ai_conversation'
+      ? 'speech'
+      : 'note';
+  button.dataset.markerPattern = overlap
+    ? 'mixed'
+    : first.kind === 'ai_conversation'
+      ? 'stripes'
+      : 'dots';
   button.addEventListener('click', activate);
   return button;
+}
+
+function rangeMatchesQuote(range: Range, exact: string): boolean {
+  return (
+    range.toString().normalize('NFC').replace(/\s+/gu, ' ').trim() ===
+    exact.normalize('NFC').replace(/\s+/gu, ' ').trim()
+  );
 }

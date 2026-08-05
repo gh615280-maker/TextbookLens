@@ -237,6 +237,59 @@ main {
   display: none;
 }
 
+.reader-marker-button::before,
+.margin-marker-dot {
+  position: absolute;
+  inline-size: 0.55rem;
+  block-size: 0.55rem;
+  border: 1px solid Canvas;
+  border-radius: 50%;
+  background: #c42b1c;
+  content: '';
+  inset-block-start: -0.2rem;
+  inset-inline-end: -0.2rem;
+}
+
+.margin-marker {
+  position: relative;
+}
+
+.overlapping-marker-menu {
+  position: fixed;
+  z-index: 10000;
+  inset-block-start: 20%;
+  inset-inline-start: 50%;
+  translate: -50% 0;
+  inline-size: min(24rem, calc(100vw - 2rem));
+  max-block-size: min(28rem, calc(100vh - 2rem));
+  overflow: auto;
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-16);
+}
+
+.overlapping-marker-menu-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.overlapping-marker-menu ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.overlapping-marker-menu li > button {
+  inline-size: 100%;
+  text-align: start;
+}
+
 .reader-settings label {
   display: grid;
   gap: var(--space-1);

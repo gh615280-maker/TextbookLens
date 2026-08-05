@@ -11,6 +11,7 @@ const request = {
   usage: null,
   safeError: null,
   lastSeq: 1,
+  targetConversationId: null,
   presentation: {
     action: 'explain',
     selectionLabel: 'Original selection',
