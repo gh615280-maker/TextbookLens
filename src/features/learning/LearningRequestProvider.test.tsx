@@ -26,6 +26,7 @@ describe('LearningRequestProvider', () => {
         return { snapshot: initial(), unsubscribe: vi.fn() };
       }),
       cancel: vi.fn(),
+      startFollowup: vi.fn(async () => initial()),
     };
     const store = new LearningRequestStore();
     const { unmount } = render(
@@ -59,6 +60,7 @@ function Starter() {
       preparationId: '33333333-3333-4333-8333-333333333333',
       summary: {} as never,
       action: 'explain',
+      selectionLabel: 'Synthetic selection',
     });
   }, [surface]);
   return null;

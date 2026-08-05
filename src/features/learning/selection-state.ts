@@ -59,6 +59,8 @@ export interface PreparedLearningHandoff {
   readonly preparationId: string;
   readonly summary: Readonly<PreparationSummary>;
   readonly action: PreparedLearningAction;
+  /** Display-only source description. It contains no capture bytes or anchor. */
+  readonly selectionLabel: string;
 }
 
 /** Phase 12 owns consuming the opaque preparation and any persisted UI. */

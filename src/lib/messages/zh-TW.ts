@@ -173,4 +173,24 @@ export const zhTW = {
   'learning.region.instruction':
     '\u5728\u540c\u4e00\u5167\u5bb9\u5340\u57df\u5167\u62d6\u66f3\u4ee5\u6846\u9078\u3002\u6309 Escape \u53d6\u6d88\u3002',
   'learning.region.status': '\u53d6\u6d88\u5340\u57df\u9078\u53d6',
+  'panel.title': '\u5b78\u7fd2\u8acb\u6c42',
+  'panel.status.preparing': '\u6b63\u5728\u6e96\u5099',
+  'panel.status.streaming': '\u6b63\u5728\u56de\u7b54',
+  'panel.status.completed': '\u5df2\u5b8c\u6210',
+  'panel.status.failed': '\u5df2\u5931\u6557',
+  'panel.status.cancelled': '\u5df2\u53d6\u6d88',
+  'panel.action': '\u64cd\u4f5c',
+  'panel.citations': '\u5f15\u7528',
+  'panel.noCitations':
+    '\u76ee\u524d\u6c92\u6709\u5df2\u9a57\u8b49\u7684\u5f15\u7528\u3002',
+  'panel.stop': '\u505c\u6b62',
+  'panel.retry': '\u91cd\u8a66',
+  'panel.hide': '\u96b1\u85cf',
+  'panel.collapse': '\u6536\u5408',
+  'panel.expand': '\u5c55\u958b',
+  'panel.delete': '\u522a\u9664',
+  'panel.followup': '\u7e7c\u7e8c\u63d0\u554f',
+  'panel.send': '\u767c\u9001',
+  'panel.retryUnavailable':
+    '\u91cd\u8a66\u9700\u8981\u65b0\u7684\u5b89\u5168\u6e96\u5099\u3002',
 } satisfies MessageCatalog;

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { useLearningRequestSnapshot } from '../learning/LearningRequestProvider';
+import {
+  useLearningRequestActions,
+  useLearningRequestSnapshot,
+} from '../learning/LearningRequestProvider';
 import {
   movePanel,
   DebouncedPanelGeometryWriter,
@@ -10,6 +13,8 @@ import {
   type ResizeHandle,
 } from './panel-geometry';
 import { PanelStore, type FloatingPanel } from './panel-store';
+import { FloatingAnswerPanel } from './FloatingAnswerPanel';
+import './floating-panels.css';
 
 const HANDLES: readonly ResizeHandle[] = [
   'n',
@@ -31,6 +36,7 @@ export function FloatingPanelHost({
   store: suppliedStore,
 }: FloatingPanelHostProps) {
   const requestSnapshot = useLearningRequestSnapshot();
+  const requestActions = useLearningRequestActions();
   const [store] = useState(() => suppliedStore ?? new PanelStore());
   const [panels, setPanels] = useState(() => store.snapshot());
   const interaction = useRef<{
@@ -96,6 +102,38 @@ export function FloatingPanelHost({
           <Panel
             key={panel.id}
             panel={panel}
+            store={store}
+            request={requestSnapshot.requests.find(
+              (request) => request.requestId === panel.requestId,
+            )}
+            onFollowup={(question) => {
+              const request = requestSnapshot.requests.find(
+                (current) => current.requestId === panel.requestId,
+              );
+              if (!request?.conversationId || !requestActions) return;
+              void requestActions.startFollowup(
+                request.conversationId,
+                question,
+                Object.freeze({
+                  action: 'continue',
+                  selectionLabel:
+                    request.presentation?.selectionLabel ?? 'Learning request',
+                  provider: request.presentation?.provider ?? 'Current profile',
+                  model: request.presentation?.model ?? 'Current model',
+                }),
+              );
+            }}
+            onStop={() => {
+              const request = requestSnapshot.requests.find(
+                (current) => current.requestId === panel.requestId,
+              );
+              if (
+                request?.status === 'preparing' ||
+                request?.status === 'streaming'
+              ) {
+                void requestActions?.cancel(request.requestId);
+              }
+            }}
             onPointerStart={(handle, event) => {
               event.preventDefault();
               interaction.current = {
@@ -114,9 +152,19 @@ export function FloatingPanelHost({
 
 function Panel({
   panel,
+  store,
+  request,
+  onFollowup,
+  onStop,
   onPointerStart,
 }: {
   panel: FloatingPanel;
+  store: PanelStore;
+  request:
+    | ReturnType<typeof useLearningRequestSnapshot>['requests'][number]
+    | undefined;
+  onFollowup(question: string): void;
+  onStop(): void;
   onPointerStart(
     handle: ResizeHandle | 'move',
     event: React.PointerEvent,
@@ -126,6 +174,7 @@ function Panel({
     width: window.innerWidth,
     height: window.innerHeight,
   });
+  if (!request) return null;
   return (
     <section
       aria-label="Learning request"
@@ -139,18 +188,41 @@ function Panel({
         zIndex: panel.zIndex,
       }}
     >
-      <div
-        aria-label="Move learning panel"
-        onPointerDown={(event) => onPointerStart('move', event)}
-      >
-        Learning request
-      </div>
+      <FloatingAnswerPanel
+        collapsed={panel.collapsed}
+        request={request}
+        onCollapse={() => store.setCollapsed(panel.id, !panel.collapsed)}
+        onDragStart={(event) => onPointerStart('move', event)}
+        onFollowup={onFollowup}
+        onHide={() => store.hide(panel.id)}
+        onStop={onStop}
+      />
       {HANDLES.map((handle) => (
         <button
           key={handle}
           aria-label={`Resize ${handle}`}
           data-resize-handle={handle}
           type="button"
+          onKeyDown={(event) => {
+            const step = event.shiftKey ? 32 : 16;
+            const keys = {
+              ArrowUp: { x: 0, y: -step },
+              ArrowDown: { x: 0, y: step },
+              ArrowLeft: { x: -step, y: 0 },
+              ArrowRight: { x: step, y: 0 },
+            } as const;
+            const delta = keys[event.key as keyof typeof keys];
+            if (!delta) return;
+            event.preventDefault();
+            const viewport = {
+              width: window.innerWidth,
+              height: window.innerHeight,
+            };
+            store.setGeometry(
+              panel.id,
+              resizePanel(panel.geometry, handle, delta, viewport),
+            );
+          }}
           onPointerDown={(event) => onPointerStart(handle, event)}
         />
       ))}

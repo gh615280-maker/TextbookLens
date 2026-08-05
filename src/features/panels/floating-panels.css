@@ -1,0 +1,69 @@
+.floating-answer-panel {
+  background: Canvas;
+  border: 1px solid CanvasText;
+  box-sizing: border-box;
+  color: CanvasText;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.floating-panel-titlebar {
+  align-items: center;
+  border-bottom: 1px solid currentColor;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.4rem;
+}
+.floating-panel-titlebar > div {
+  cursor: move;
+  flex: 1;
+  min-width: 0;
+}
+.floating-panel-titlebar strong,
+.floating-panel-titlebar span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.floating-panel-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0.75rem;
+}
+.floating-answer {
+  user-select: text;
+  white-space: normal;
+}
+.floating-answer pre {
+  max-height: 16rem;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.floating-panel-live {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  position: absolute;
+  width: 1px;
+  clip: rect(0 0 0 0);
+}
+.floating-panel-actions,
+.followup-composer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.followup-composer {
+  flex-direction: column;
+  margin-top: 0.75rem;
+}
+.followup-composer textarea {
+  display: block;
+  min-height: 4rem;
+  resize: vertical;
+  width: 100%;
+}

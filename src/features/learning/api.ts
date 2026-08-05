@@ -321,6 +321,10 @@ export interface LearningRequestApi {
     onEvent: (event: LearningRequestEvent) => void,
   ): Promise<{ snapshot: LearningRequestSnapshot; unsubscribe(): void }>;
   cancel(requestId: string): Promise<void>;
+  startFollowup(
+    conversationId: string,
+    question: string,
+  ): Promise<LearningRequestSnapshot>;
 }
 
 export class TauriLearningApi implements LearningApi, LearningRequestApi {
@@ -508,6 +512,29 @@ export class TauriLearningApi implements LearningApi, LearningRequestApi {
       await invoke('cancel_learning_request', {
         requestId: uuidSchema.parse(requestId),
       });
+    } catch (error) {
+      if (isLearningError(error)) throw error;
+      throw invocationError(error);
+    }
+  }
+
+  async startFollowup(conversationId: string, question: string) {
+    let args: { conversationId: string; question: string };
+    try {
+      args = {
+        conversationId: uuidSchema.parse(conversationId),
+        question: boundedText(MAX_QUESTION_CODE_POINTS)
+          .trim()
+          .min(1)
+          .parse(question),
+      };
+    } catch {
+      throw learningError('INVALID_INPUT');
+    }
+    try {
+      return parseRequestSnapshot(
+        await invoke<unknown>('start_conversation_followup', args),
+      );
     } catch (error) {
       if (isLearningError(error)) throw error;
       throw invocationError(error);

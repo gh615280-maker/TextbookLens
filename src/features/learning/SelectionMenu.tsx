@@ -129,6 +129,7 @@ export function SelectionMenu({
           preparationId: summary.preparationId,
           summary,
           action,
+          selectionLabel: selectionLabel(snapshot),
         }),
       );
       releaseSnapshotCapture(snapshot);
@@ -344,6 +345,12 @@ export function SelectionMenu({
     };
     await api.stageRegionCapture(metadata, bytes);
   }
+}
+
+function selectionLabel(snapshot: Readonly<LearningSelectionSnapshot>): string {
+  const text = snapshot.selectedText?.trim();
+  if (!text) return 'Selected region';
+  return [...text].slice(0, 240).join('');
 }
 
 async function setNoPrompt(

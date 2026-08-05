@@ -171,4 +171,23 @@ export const zhCN = {
   'learning.region.instruction':
     '\u5728\u540c\u4e00\u5185\u5bb9\u533a\u57df\u5185\u62d6\u52a8\u4ee5\u6846\u9009\u3002\u6309 Escape \u53d6\u6d88\u3002',
   'learning.region.status': '\u53d6\u6d88\u533a\u57df\u9009\u62e9',
+  'panel.title': '\u5b66\u4e60\u8bf7\u6c42',
+  'panel.status.preparing': '\u6b63\u5728\u51c6\u5907',
+  'panel.status.streaming': '\u6b63\u5728\u56de\u7b54',
+  'panel.status.completed': '\u5df2\u5b8c\u6210',
+  'panel.status.failed': '\u5df2\u5931\u8d25',
+  'panel.status.cancelled': '\u5df2\u53d6\u6d88',
+  'panel.action': '\u64cd\u4f5c',
+  'panel.citations': '\u5f15\u7528',
+  'panel.noCitations': '\u6682\u65e0\u5df2\u9a8c\u8bc1\u7684\u5f15\u7528\u3002',
+  'panel.stop': '\u505c\u6b62',
+  'panel.retry': '\u91cd\u8bd5',
+  'panel.hide': '\u9690\u85cf',
+  'panel.collapse': '\u6536\u8d77',
+  'panel.expand': '\u5c55\u5f00',
+  'panel.delete': '\u5220\u9664',
+  'panel.followup': '\u7ee7\u7eed\u63d0\u95ee',
+  'panel.send': '\u53d1\u9001',
+  'panel.retryUnavailable':
+    '\u91cd\u8bd5\u9700\u8981\u65b0\u7684\u5b89\u5168\u51c6\u5907\u3002',
 } as const;

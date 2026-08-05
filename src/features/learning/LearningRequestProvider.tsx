@@ -13,6 +13,7 @@ import {
 import { TauriLearningApi, type LearningRequestApi } from './api';
 import {
   LearningRequestStore,
+  type LearningRequestPresentation,
   type LearningRequestStoreSnapshot,
 } from './learning-request-store';
 import type {
@@ -23,6 +24,12 @@ import type {
 interface LearningRequestContextValue {
   readonly store: LearningRequestStore;
   readonly surface: LearningSurfacePort;
+  startFollowup(
+    conversationId: string,
+    question: string,
+    presentation: Readonly<LearningRequestPresentation>,
+  ): Promise<void>;
+  cancel(requestId: string): Promise<void>;
 }
 
 const LearningRequestContext =
@@ -62,7 +69,23 @@ export function LearningRequestProvider({
       handoff: (prepared: Readonly<PreparedLearningHandoff>) =>
         controller.handoff(api, store, prepared),
     });
-    return Object.freeze({ store, surface });
+    return Object.freeze({
+      store,
+      surface,
+      startFollowup: (
+        conversationId: string,
+        question: string,
+        presentation: Readonly<LearningRequestPresentation>,
+      ) =>
+        controller.startFollowup(
+          api,
+          store,
+          conversationId,
+          question,
+          presentation,
+        ),
+      cancel: (requestId: string) => api.cancel(requestId),
+    });
   }, [api, controller, store]);
 
   return (
@@ -95,6 +118,34 @@ class LearningRequestController {
     const started = await api.start(prepared.preparationId);
     if (!this.active) return;
     store.applySnapshot(started);
+    store.setPresentation(started.requestId, {
+      action: prepared.action,
+      selectionLabel: prepared.selectionLabel,
+      provider: prepared.summary.providerDisplayName,
+      model: prepared.summary.modelDisplayName,
+    });
+    this.subscribe(api, store, started);
+  }
+
+  async startFollowup(
+    api: LearningRequestApi,
+    store: LearningRequestStore,
+    conversationId: string,
+    question: string,
+    presentation: Readonly<LearningRequestPresentation>,
+  ) {
+    const started = await api.startFollowup(conversationId, question);
+    if (!this.active) return;
+    store.applySnapshot(started);
+    store.setPresentation(started.requestId, presentation);
+    this.subscribe(api, store, started);
+  }
+
+  private subscribe(
+    api: LearningRequestApi,
+    store: LearningRequestStore,
+    started: { requestId: string; lastSeq: number },
+  ) {
     void api
       .subscribe(started.requestId, started.lastSeq, (event) => {
         if (this.active) store.applyEvent(event);
@@ -124,4 +175,17 @@ export function useLearningRequestSnapshot(): LearningRequestStoreSnapshot {
     () => store?.snapshot() ?? EMPTY_SNAPSHOT,
     () => EMPTY_SNAPSHOT,
   );
+}
+
+export function useLearningRequestActions(): Pick<
+  LearningRequestContextValue,
+  'startFollowup' | 'cancel'
+> | null {
+  const context = useContext(LearningRequestContext);
+  return context
+    ? Object.freeze({
+        startFollowup: context.startFollowup,
+        cancel: context.cancel,
+      })
+    : null;
 }

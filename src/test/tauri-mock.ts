@@ -62,6 +62,13 @@ function safeRecordedPayload(
       afterSeq: args?.afterSeq,
     };
   }
+  if (command === 'start_conversation_followup') {
+    const args = asRecord(payload);
+    return {
+      conversationId: args?.conversationId,
+      hasQuestion: typeof args?.question === 'string',
+    };
+  }
   if (command === 'create_note' || command === 'update_note') {
     const args = asRecord(payload);
     return {

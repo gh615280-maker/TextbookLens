@@ -14,6 +14,14 @@ export interface LearningRequestView {
   readonly usage: LearningUsage | null;
   readonly safeError: SafeLearningError | null;
   readonly lastSeq: number;
+  readonly presentation: LearningRequestPresentation | null;
+}
+
+export interface LearningRequestPresentation {
+  readonly action: string;
+  readonly selectionLabel: string;
+  readonly provider: string;
+  readonly model: string;
 }
 
 export interface LearningRequestStoreSnapshot {
@@ -47,6 +55,23 @@ export class LearningRequestStore {
 
   get(requestId: string): LearningRequestView | undefined {
     return this.requests.get(requestId);
+  }
+
+  setPresentation(
+    requestId: string,
+    presentation: Readonly<LearningRequestPresentation>,
+  ): boolean {
+    const current = this.requests.get(requestId);
+    if (!current) return false;
+    this.requests.set(
+      requestId,
+      freezeView({
+        ...current,
+        presentation: Object.freeze({ ...presentation }),
+      }),
+    );
+    this.emit();
+    return true;
   }
 
   applySnapshot(snapshot: LearningRequestSnapshot): boolean {
@@ -144,7 +169,9 @@ function applyEvent(
   }
 }
 
-function freezeView(value: LearningRequestSnapshot): LearningRequestView {
+function freezeView(
+  value: LearningRequestSnapshot | LearningRequestView,
+): LearningRequestView {
   return Object.freeze({
     requestId: value.requestId,
     conversationId: value.conversationId,
@@ -160,5 +187,9 @@ function freezeView(value: LearningRequestSnapshot): LearningRequestView {
       ? Object.freeze({ code: value.safeError.code })
       : null,
     lastSeq: value.lastSeq,
+    presentation:
+      'presentation' in value && value.presentation
+        ? Object.freeze({ ...value.presentation })
+        : null,
   });
 }

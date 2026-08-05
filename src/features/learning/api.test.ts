@@ -64,6 +64,31 @@ describe('TauriLearningApi', () => {
     });
   });
 
+  it('starts a followup as a new request using only a validated question', async () => {
+    const calls = installTauriMock((command) => {
+      expect(command).toBe('start_conversation_followup');
+      return {
+        requestId: PREPARATION_ID,
+        conversationId: null,
+        status: 'preparing',
+        text: '',
+        usage: null,
+        safeError: null,
+        lastSeq: 0,
+      };
+    });
+    const api = new TauriLearningApi();
+    const started = await api.startFollowup(BOOK_ID, 'Continue safely');
+    expect(started.requestId).toBe(PREPARATION_ID);
+    expect(calls[0]?.payload).toEqual({
+      conversationId: BOOK_ID,
+      hasQuestion: true,
+    });
+    await expect(api.startFollowup(BOOK_ID, ' ')).rejects.toEqual({
+      code: 'INVALID_INPUT',
+    });
+  });
+
   it('hash-checks bounded capture bytes, records no image body, and zeroes buffers', async () => {
     const bytes = new TextEncoder().encode('IMAGE_BODY_SENTINEL');
     const hash = await sha256Hex(bytes);
