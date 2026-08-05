@@ -28,10 +28,17 @@ type SafePreparedRecord = {
   anchorKind: string;
   selectionMatchesAnchor: boolean;
 };
+type SafeStartedRecord = {
+  action: string;
+  preparationId: string;
+  requestId: string;
+  summary: Record<string, unknown>;
+};
 
 class SyntheticSelectionBackend {
   readonly calls = new Map<string, number>();
   readonly preparations: SafePreparedRecord[] = [];
+  readonly started: SafeStartedRecord[] = [];
   readonly consoleErrors: string[] = [];
   readonly externalOrigins = new Set<string>();
   readonly pdf: number[];
@@ -105,6 +112,15 @@ class SyntheticSelectionBackend {
           }));
       case 'prepare_learning_request':
         return this.prepare(payload.metadata as Record<string, unknown>);
+      case 'start_learning_request':
+        return this.start(String(payload.preparationId));
+      case 'subscribe_learning_request':
+        return this.subscribe(
+          String(payload.requestId),
+          Number(payload.afterSeq),
+        );
+      case 'cancel_learning_request':
+        return undefined;
       case 'authorize_learning_request':
         this.authorizations.push(String(payload.decision));
         return payload.decision === 'allow'
@@ -137,6 +153,7 @@ class SyntheticSelectionBackend {
     return {
       calls: Object.fromEntries(this.calls),
       preparations: this.preparations,
+      started: this.started,
       noteCount: this.notes.length,
       noteRevisions: this.notes.map((note) => note.revision),
       authorizations: this.authorizations,
@@ -260,6 +277,49 @@ class SyntheticSelectionBackend {
     };
   }
 
+  private start(preparationId: string) {
+    const index = Number(preparationId.slice(0, 8));
+    const prepared = this.preparations[index - 1];
+    if (!prepared) throw { code: 'NOT_FOUND' };
+    const requestId = `${String(index).padStart(8, '0')}-bbbb-4bbb-8bbb-bbbbbbbbbbbb`;
+    const summary = {
+      estimatedInputTokens: 42,
+      sourceCount: 2,
+      citationCount: 2,
+      willSendImage: prepared.contentKind === 'visual_region',
+      requiresBlockingConfirmation: prepared.contentKind === 'visual_region',
+    };
+    this.started.push({
+      action: prepared.action,
+      preparationId,
+      requestId,
+      summary,
+    });
+    return this.requestSnapshot(requestId);
+  }
+
+  private subscribe(requestId: string, afterSeq: number) {
+    if (
+      afterSeq !== 1 ||
+      !this.started.some((item) => item.requestId === requestId)
+    ) {
+      throw { code: 'INVALID_INPUT' };
+    }
+    return this.requestSnapshot(requestId);
+  }
+
+  private requestSnapshot(requestId: string) {
+    return {
+      requestId,
+      conversationId: null,
+      status: 'preparing',
+      text: '',
+      usage: null,
+      safeError: null,
+      lastSeq: 1,
+    };
+  }
+
   private createNote(payload: Record<string, unknown>) {
     const note = {
       id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(this.nextNote++).padStart(12, '0')}`,
@@ -349,11 +409,12 @@ selectionTest(
       await selectDocxText(page);
       await page.getByRole('menuitem', { name: action }).click();
       await expect
-        .poll(() => handoffCount(page))
+        .poll(() => backend.started.length)
         .toBeGreaterThanOrEqual(
           action === 'Explain' ? 1 : action === 'Give an example' ? 2 : 3,
         );
       await expect(page.getByRole('dialog')).toHaveCount(0);
+      await hideNewestPanel(page);
     }
 
     await selectDocxText(page);
@@ -456,7 +517,7 @@ selectionTest(
         anchorKind: 'region',
         selectionMatchesAnchor: true,
       });
-      const handoff = await latestHandoff(page);
+      const handoff = backend.started.at(-1);
       expect(handoff).toMatchObject({
         action: 'explain',
         summary: {
@@ -469,6 +530,7 @@ selectionTest(
       });
       expect(JSON.stringify(handoff)).not.toContain(TEXTBOOK_SENTINEL);
       expect(JSON.stringify(handoff)).not.toContain(HASH_SENTINEL);
+      await hideNewestPanel(page);
     }
     const stats = backend.safeStats();
     expect(stats.stageCount).toBe(0);
@@ -501,7 +563,7 @@ selectionTest(
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect.poll(() => backend.discardCount).toBe(1);
     expect(backend.stageCount).toBe(0);
-    expect(await handoffCount(page)).toBe(0);
+    expect(backend.started).toHaveLength(0);
     expect(backend.notes).toHaveLength(0);
 
     await selectVisualDocxRegion(page);
@@ -510,7 +572,8 @@ selectionTest(
       .getByRole('button', { name: 'Authorize and continue' })
       .click();
     await expect.poll(() => backend.stageCount).toBe(1);
-    await expect.poll(() => handoffCount(page)).toBe(1);
+    await expect.poll(() => backend.started.length).toBe(1);
+    await hideNewestPanel(page);
     expect(backend.authorizations).toEqual(['deny', 'allow']);
     expect(backend.notes).toHaveLength(0);
     expect(backend.providerStreams).toBe(0);
@@ -554,8 +617,9 @@ async function installMock(page: Page, backend: SyntheticSelectionBackend) {
         command: string,
         payload?: Record<string, unknown>,
       ): Promise<unknown>;
-      __phase11Handoffs: unknown[];
       __TAURI_INTERNALS__: {
+        transformCallback(callback: (payload: unknown) => void): number;
+        unregisterCallback(id: number): void;
         invoke(
           command: string,
           payload?: Record<string, unknown> | Uint8Array,
@@ -564,11 +628,12 @@ async function installMock(page: Page, backend: SyntheticSelectionBackend) {
       };
     };
     const testWindow = window as TestWindow;
-    testWindow.__phase11Handoffs = [];
-    window.addEventListener('textbooklens:learning-prepared', (event) => {
-      testWindow.__phase11Handoffs.push((event as CustomEvent).detail);
-    });
+    let nextCallbackId = 1;
     testWindow.__TAURI_INTERNALS__ = {
+      transformCallback() {
+        return nextCallbackId++;
+      },
+      unregisterCallback() {},
       async invoke(command, payload = {}, options = {}) {
         let safePayload: Record<string, unknown>;
         if (command === 'stage_region_capture') {
@@ -580,6 +645,12 @@ async function installMock(page: Page, backend: SyntheticSelectionBackend) {
             ),
           };
           body.fill(0);
+        } else if (command === 'subscribe_learning_request') {
+          const args = payload as Record<string, unknown>;
+          safePayload = {
+            requestId: args.requestId,
+            afterSeq: args.afterSeq,
+          };
         } else {
           safePayload = payload as Record<string, unknown>;
         }
@@ -742,21 +813,10 @@ async function switchLanguage(
   await page.keyboard.press('Escape');
 }
 
-async function handoffCount(page: Page) {
-  return page.evaluate(
-    () =>
-      (window as unknown as { __phase11Handoffs: unknown[] }).__phase11Handoffs
-        .length,
-  );
-}
-
-async function latestHandoff(page: Page) {
-  return page.evaluate(() => {
-    const handoffs = (
-      window as unknown as { __phase11Handoffs: Array<Record<string, unknown>> }
-    ).__phase11Handoffs;
-    return handoffs.at(-1);
-  });
+async function hideNewestPanel(page: Page) {
+  const hide = page.getByRole('button', { name: 'Hide' }).last();
+  await expect(hide).toBeVisible();
+  await hide.click();
 }
 
 async function assertPrivacy(page: Page, backend: SyntheticSelectionBackend) {
