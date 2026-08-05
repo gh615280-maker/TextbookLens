@@ -2,6 +2,8 @@
 
 export type BlockKind = "heading" | "paragraph" | "list" | "table" | "caption" | "equation";
 
+export type ContentAnchor = { "kind": "text", selection: SelectionAnchor, } | { "kind": "region", region: RegionAnchor, };
+
 export type DocumentLocator = { "format": "pdf", startPage: number, endPage: number, rectsByPage: { [key in number]: Array<NormalizedRect> } | null, } | { "format": "epub", cfi: string, sectionId: string, } | { "format": "docx", startBlockId: string, startOffset: number, endBlockId: string, endOffset: number, };
 
 export type NormalizedBlockInput = { id: string, ordinal: number, kind: BlockKind, plainText: string, locator: DocumentLocator, };
@@ -11,6 +13,10 @@ export type NormalizedBookInput = { title: string, author: string | null, langua
 export type NormalizedRect = { x: number, y: number, width: number, height: number, };
 
 export type NormalizedSectionInput = { id: string, parentId: string | null, ordinal: number, title: string, locator: DocumentLocator, blocks: Array<NormalizedBlockInput>, };
+
+export type RegionAnchor = { locator: RegionLocator, rect: NormalizedRect, contentSha256: string, textFallback: TextQuote | null, };
+
+export type RegionLocator = { "format": "pdf", page: number, } | { "format": "epub", sectionId: string, cfi: string, } | { "format": "docx", blockId: string, };
 
 export type SelectionAnchor = { locator: DocumentLocator, quote: TextQuote, sectionId: string | null, };
 

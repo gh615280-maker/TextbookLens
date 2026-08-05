@@ -205,6 +205,176 @@ pub struct SelectionAnchor {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "format",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export_to = "document.ts")]
+pub enum RegionLocator {
+    Pdf { page: u32 },
+    Epub { section_id: Uuid, cfi: String },
+    Docx { block_id: Uuid },
+}
+
+impl RegionLocator {
+    pub fn pdf(page: u32) -> Result<Self, &'static str> {
+        if page == 0 {
+            return Err("PDF region page must be one-based");
+        }
+        Ok(Self::Pdf { page })
+    }
+
+    pub fn epub(section_id: Uuid, cfi: String) -> Result<Self, &'static str> {
+        if cfi.trim().is_empty() {
+            return Err("EPUB region CFI or element locator must not be empty");
+        }
+        Ok(Self::Epub { section_id, cfi })
+    }
+
+    pub fn docx(block_id: Uuid) -> Self {
+        Self::Docx { block_id }
+    }
+
+    fn is_valid(&self) -> bool {
+        match self {
+            Self::Pdf { page } => *page > 0,
+            Self::Epub { cfi, .. } => !cfi.trim().is_empty(),
+            Self::Docx { .. } => true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "document.ts")]
+pub struct RegionAnchor {
+    pub locator: RegionLocator,
+    pub rect: NormalizedRect,
+    pub content_sha256: String,
+    pub text_fallback: Option<TextQuote>,
+}
+
+impl RegionAnchor {
+    pub const MAX_FALLBACK_EXACT_CHARS: usize = 4096;
+    pub const MAX_FALLBACK_CONTEXT_CHARS: usize = 64;
+
+    pub fn new(
+        locator: RegionLocator,
+        rect: NormalizedRect,
+        content_sha256: String,
+        text_fallback: Option<TextQuote>,
+    ) -> Result<Self, &'static str> {
+        if !locator.is_valid() {
+            return Err("region locator is invalid");
+        }
+        let values = [rect.x, rect.y, rect.width, rect.height];
+        if values.iter().any(|value| !value.is_finite())
+            || rect.x < 0.0
+            || rect.y < 0.0
+            || rect.width <= 0.0
+            || rect.height <= 0.0
+            || rect.x + rect.width > 1.0
+            || rect.y + rect.height > 1.0
+        {
+            return Err("region rectangle must be finite, normalized, and positive");
+        }
+        if content_sha256.len() != 64
+            || !content_sha256
+                .bytes()
+                .all(|value| value.is_ascii_digit() || (b'a'..=b'f').contains(&value))
+        {
+            return Err("region content hash must be a lowercase SHA-256 hex digest");
+        }
+        if let Some(fallback) = &text_fallback
+            && (fallback.exact.is_empty()
+                || fallback.exact.chars().count() > Self::MAX_FALLBACK_EXACT_CHARS
+                || fallback.prefix.chars().count() > Self::MAX_FALLBACK_CONTEXT_CHARS
+                || fallback.suffix.chars().count() > Self::MAX_FALLBACK_CONTEXT_CHARS)
+        {
+            return Err("region text fallback is invalid or exceeds its bounds");
+        }
+        Ok(Self {
+            locator,
+            rect,
+            content_sha256,
+            text_fallback,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SerializedRegionAnchor {
+    locator: RegionLocator,
+    rect: NormalizedRect,
+    content_sha256: String,
+    text_fallback: Option<TextQuote>,
+}
+
+impl<'de> Deserialize<'de> for RegionAnchor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = SerializedRegionAnchor::deserialize(deserializer)?;
+        Self::new(
+            value.locator,
+            value.rect,
+            value.content_sha256,
+            value.text_fallback,
+        )
+        .map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(export_to = "document.ts")]
+pub enum ContentAnchor {
+    Text { selection: SelectionAnchor },
+    Region { region: RegionAnchor },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TaggedContentAnchor {
+    Text { selection: SelectionAnchor },
+    Region { region: RegionAnchor },
+}
+
+impl<'de> Deserialize<'de> for ContentAnchor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if value
+            .as_object()
+            .is_some_and(|object| object.contains_key("kind"))
+        {
+            return Ok(
+                match serde_json::from_value::<TaggedContentAnchor>(value)
+                    .map_err(serde::de::Error::custom)?
+                {
+                    TaggedContentAnchor::Text { selection } => Self::Text { selection },
+                    TaggedContentAnchor::Region { region } => Self::Region { region },
+                },
+            );
+        }
+        serde_json::from_value::<SelectionAnchor>(value)
+            .map(|selection| Self::Text { selection })
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl From<SelectionAnchor> for ContentAnchor {
+    fn from(selection: SelectionAnchor) -> Self {
+        Self::Text { selection }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export_to = "document.ts")]
 pub enum BlockKind {

@@ -1,9 +1,13 @@
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
-    domain::{AnnotationKind, DocumentLocator, SelectionAnchor},
+    domain::{
+        AnnotationKind, ContentAnchor, DocumentLocator, RegionAnchor, RegionLocator,
+        SelectionAnchor, TextQuote,
+    },
     errors::{AppError, AppErrorCode, AppResult},
 };
 
@@ -20,7 +24,7 @@ pub enum MarkerRelocationStatus {
 pub struct AnnotationMarkerDto {
     pub id: Uuid,
     pub kind: AnnotationKind,
-    pub anchor: Option<SelectionAnchor>,
+    pub anchor: Option<ContentAnchor>,
     pub relocation_status: MarkerRelocationStatus,
 }
 
@@ -58,28 +62,48 @@ pub async fn list_annotation_markers(
             .transpose()?;
         let candidate = row
             .try_get::<Option<String>, _>("anchor_json")?
-            .and_then(|json| serde_json::from_str::<SelectionAnchor>(&json).ok());
-        let anchor = match candidate {
-            Some(anchor) if valid_anchor(pool, book_id, &format, section_id, &anchor).await? => {
-                Some(anchor)
+            .and_then(|json| serde_json::from_str::<ContentAnchor>(&json).ok());
+        let (anchor, relocation_status) = match candidate {
+            Some(anchor) => {
+                match resolve_anchor(pool, book_id, &format, section_id, &anchor).await? {
+                    Some(status) => (Some(anchor), status),
+                    None => (None, MarkerRelocationStatus::Unresolved),
+                }
             }
-            _ => None,
+            None => (None, MarkerRelocationStatus::Unresolved),
         };
         markers.push(AnnotationMarkerDto {
             id,
             kind,
-            relocation_status: if anchor.is_some() {
-                MarkerRelocationStatus::Primary
-            } else {
-                MarkerRelocationStatus::Unresolved
-            },
+            relocation_status,
             anchor,
         });
     }
     Ok(markers)
 }
 
-async fn valid_anchor(
+async fn resolve_anchor(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    format: &str,
+    annotation_section_id: Option<Uuid>,
+    anchor: &ContentAnchor,
+) -> AppResult<Option<MarkerRelocationStatus>> {
+    match anchor {
+        ContentAnchor::Text { selection } => {
+            Ok(
+                valid_selection_anchor(pool, book_id, format, annotation_section_id, selection)
+                    .await?
+                    .then_some(MarkerRelocationStatus::Primary),
+            )
+        }
+        ContentAnchor::Region { region } => {
+            resolve_region_anchor(pool, book_id, format, annotation_section_id, region).await
+        }
+    }
+}
+
+async fn valid_selection_anchor(
     pool: &SqlitePool,
     book_id: Uuid,
     format: &str,
@@ -155,6 +179,165 @@ async fn valid_anchor(
         }
         _ => Ok(false),
     }
+}
+
+async fn resolve_region_anchor(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    format: &str,
+    annotation_section_id: Option<Uuid>,
+    anchor: &RegionAnchor,
+) -> AppResult<Option<MarkerRelocationStatus>> {
+    let Some(section_id) = annotation_section_id else {
+        return Ok(None);
+    };
+    let Some(section_locator_json) = sqlx::query_scalar::<_, String>(
+        "SELECT locator_json FROM sections WHERE id = ? AND book_id = ?",
+    )
+    .bind(section_id.to_string())
+    .bind(book_id.to_string())
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(None);
+    };
+    let section_locator = serde_json::from_str::<DocumentLocator>(&section_locator_json).ok();
+
+    let primary = match (&anchor.locator, format, section_locator.as_ref()) {
+        (
+            RegionLocator::Pdf { page },
+            "pdf",
+            Some(DocumentLocator::Pdf {
+                start_page,
+                end_page,
+                ..
+            }),
+        ) => page >= start_page && page <= end_page,
+        (
+            RegionLocator::Epub {
+                section_id: locator_section,
+                cfi,
+            },
+            "epub",
+            Some(DocumentLocator::Epub {
+                section_id: stored_section,
+                cfi: stored_cfi,
+            }),
+        ) => {
+            locator_section == &section_id
+                && stored_section == &section_id
+                && (cfi == stored_cfi
+                    || epub_block_locator_exists(pool, book_id, section_id, cfi).await?)
+        }
+        (RegionLocator::Docx { block_id }, "docx", _) => {
+            block_info(pool, book_id, section_id, *block_id)
+                .await?
+                .is_some()
+        }
+        _ => return Ok(None),
+    };
+
+    if primary && primary_hash_semantics_hold(pool, book_id, section_id, anchor).await? {
+        return Ok(Some(MarkerRelocationStatus::Primary));
+    }
+
+    let Some(fallback) = anchor.text_fallback.as_ref() else {
+        return Ok(None);
+    };
+    if sha256_text(&fallback.exact) != anchor.content_sha256 {
+        return Ok(None);
+    }
+    let matches =
+        fallback_match_count(pool, book_id, section_id, &anchor.locator, fallback).await?;
+    Ok((matches == 1).then_some(MarkerRelocationStatus::Fallback))
+}
+
+async fn epub_block_locator_exists(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    section_id: Uuid,
+    cfi: &str,
+) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM blocks WHERE book_id = ? AND section_id = ? AND json_extract(locator_json, '$.format') = 'epub' AND json_extract(locator_json, '$.sectionId') = ? AND json_extract(locator_json, '$.cfi') = ?)",
+    )
+    .bind(book_id.to_string())
+    .bind(section_id.to_string())
+    .bind(section_id.to_string())
+    .bind(cfi)
+    .fetch_one(pool)
+    .await?)
+}
+
+async fn primary_hash_semantics_hold(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    section_id: Uuid,
+    anchor: &RegionAnchor,
+) -> AppResult<bool> {
+    let Some(fallback) = anchor.text_fallback.as_ref() else {
+        // Visual regions use a hash of bounded pixels that can only be reverified by the
+        // reader adapter. The database validates its strict digest shape and ownership.
+        return Ok(true);
+    };
+    if sha256_text(&fallback.exact) != anchor.content_sha256 {
+        // A visual region may retain text as a fallback while hashing pixels.
+        return Ok(true);
+    }
+    Ok(fallback_match_count(pool, book_id, section_id, &anchor.locator, fallback).await? > 0)
+}
+
+async fn fallback_match_count(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    section_id: Uuid,
+    locator: &RegionLocator,
+    fallback: &TextQuote,
+) -> AppResult<usize> {
+    let rows = sqlx::query(
+        "SELECT id, plain_text, locator_json FROM blocks WHERE book_id = ? AND section_id = ? ORDER BY ordinal",
+    )
+    .bind(book_id.to_string())
+    .bind(section_id.to_string())
+    .fetch_all(pool)
+    .await?;
+    let mut count = 0usize;
+    for row in rows {
+        let id = parse_uuid(&row.try_get::<String, _>("id")?)?;
+        let text: String = row.try_get("plain_text")?;
+        let locator_json: String = row.try_get("locator_json")?;
+        let block_locator = serde_json::from_str::<DocumentLocator>(&locator_json).ok();
+        let same_container = match (locator, block_locator.as_ref()) {
+            (
+                RegionLocator::Pdf { page },
+                Some(DocumentLocator::Pdf {
+                    start_page,
+                    end_page,
+                    ..
+                }),
+            ) => page >= start_page && page <= end_page,
+            (
+                RegionLocator::Epub {
+                    section_id: owner, ..
+                },
+                _,
+            ) => owner == &section_id,
+            (RegionLocator::Docx { block_id }, _) => block_id == &id,
+            _ => false,
+        };
+        if same_container {
+            count = count.saturating_add(text.match_indices(&fallback.exact).count());
+            if count > 1 {
+                return Ok(count);
+            }
+        }
+    }
+    Ok(count)
+}
+
+fn sha256_text(value: &str) -> String {
+    let digest = Sha256::digest(value.as_bytes());
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 async fn block_info(

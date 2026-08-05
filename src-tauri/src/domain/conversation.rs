@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::SelectionAnchor;
+use super::ContentAnchor;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -34,7 +34,7 @@ pub struct ConversationDto {
     pub book_id: Uuid,
     pub section_id: Option<Uuid>,
     pub scope: ConversationScope,
-    pub anchor: Option<SelectionAnchor>,
+    pub anchor: Option<ContentAnchor>,
     pub selected_text: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -48,7 +48,7 @@ pub enum LearningRequest {
         request_id: Uuid,
         book_id: Uuid,
         section_id: Uuid,
-        anchor: SelectionAnchor,
+        anchor: Box<ContentAnchor>,
         selected_text: String,
         action: LearningAction,
         question: Option<String>,

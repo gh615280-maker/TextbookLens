@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use super::SelectionAnchor;
+use super::ContentAnchor;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -21,7 +21,7 @@ pub struct AnnotationDto {
     pub book_id: Uuid,
     pub section_id: Option<Uuid>,
     pub kind: AnnotationKind,
-    pub anchor: Option<SelectionAnchor>,
+    pub anchor: Option<ContentAnchor>,
     pub selected_text: Option<String>,
     pub note_text: Option<String>,
     pub conversation_id: Option<Uuid>,

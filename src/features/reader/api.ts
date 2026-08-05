@@ -31,6 +31,13 @@ export interface ReaderSearchHit {
 export interface AnnotationMarkerDto {
   id: string;
   kind: 'ai_conversation' | 'note';
+  anchor: import('../../lib/generated/document').ContentAnchor | null;
+  relocationStatus: 'primary' | 'fallback' | 'unresolved';
+}
+
+export interface ReaderAnnotationMarkerDto {
+  id: string;
+  kind: 'ai_conversation' | 'note';
   anchor: import('../../lib/generated/document').SelectionAnchor | null;
   relocationStatus: 'primary' | 'fallback' | 'unresolved';
 }
@@ -57,7 +64,7 @@ export interface ReaderApi {
     query: string,
     limit: number,
   ): Promise<ReaderSearchHit[]>;
-  listAnnotationMarkers(bookId: string): Promise<AnnotationMarkerDto[]>;
+  listAnnotationMarkers(bookId: string): Promise<ReaderAnnotationMarkerDto[]>;
 }
 
 export class TauriReaderApi implements ReaderApi {
@@ -149,10 +156,25 @@ export class TauriReaderApi implements ReaderApi {
     }
   }
 
-  async listAnnotationMarkers(bookId: string): Promise<AnnotationMarkerDto[]> {
+  async listAnnotationMarkers(
+    bookId: string,
+  ): Promise<ReaderAnnotationMarkerDto[]> {
     try {
-      return await invoke<AnnotationMarkerDto[]>('list_annotation_markers', {
-        bookId,
+      const markers = await invoke<AnnotationMarkerDto[]>(
+        'list_annotation_markers',
+        {
+          bookId,
+        },
+      );
+      return markers.map((marker) => {
+        if (marker.anchor?.kind === 'text') {
+          return { ...marker, anchor: marker.anchor.selection };
+        }
+        return {
+          ...marker,
+          anchor: null,
+          relocationStatus: 'unresolved',
+        };
       });
     } catch (error) {
       throw toUserError(error);

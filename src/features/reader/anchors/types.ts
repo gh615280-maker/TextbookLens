@@ -1,6 +1,11 @@
-import type { TextQuote } from '../../../lib/generated/document';
+import type {
+  ContentAnchor,
+  RegionAnchor,
+  RegionLocator,
+  TextQuote,
+} from '../../../lib/generated/document';
 
-export type { TextQuote };
+export type { ContentAnchor, RegionAnchor, RegionLocator, TextQuote };
 
 export interface QuoteMatch {
   startCp: number;

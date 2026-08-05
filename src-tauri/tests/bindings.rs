@@ -2,21 +2,21 @@ use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
     AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookIndexAggregateStatus, BookSummary,
-    CapabilitySupport, ContentSource, ConversationDto, CredentialStatus, DocumentLocator,
-    ImageLimits, ImageMime, IndexAggregate, IndexAggregateStatus, IndexCorrectionConflictState,
-    IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind,
-    IndexPageBlockReviewDto, IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto,
-    IndexQualityReason, IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto,
-    LearningEvent, LearningRequest, LocalTextQuality, NormalizedBookInput, NormalizedRect,
-    OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind, ProviderCapability,
-    ProviderCapabilityRegistryDto, ProviderModelCapability, ProviderOperationConsent,
-    ProviderOperationConsentCategory, ProviderOperationConsentDecision, ProviderPageAnalysis,
-    ProviderProfileSummary, RemoteCleanupStatus, SafeIndexErrorDto, TeachingInstructionDto,
-    UiLanguage, UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent,
-    UntrustedNormalizedRect, UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell,
-    UpdateTeachingInstruction, ValidationResult, VisionAssetMeta, stable_block_id,
-    stable_index_page_block_id, stable_index_page_id, stable_index_search_chunk_id,
-    stable_section_id,
+    CapabilitySupport, ContentAnchor, ContentSource, ConversationDto, CredentialStatus,
+    DocumentLocator, ImageLimits, ImageMime, IndexAggregate, IndexAggregateStatus,
+    IndexCorrectionConflictState, IndexCorrectionReviewDto, IndexCorrectionValueKind,
+    IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto, IndexPageReviewDto,
+    IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason, IndexReviewReason,
+    IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent, LearningRequest,
+    LocalTextQuality, NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep,
+    PageAnalysisBlockKind, ProviderCapability, ProviderCapabilityRegistryDto,
+    ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
+    ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor,
+    RegionLocator, RemoteCleanupStatus, SafeIndexErrorDto, TeachingInstructionDto, UiLanguage,
+    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
+    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
+    ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
+    stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -227,6 +227,30 @@ fn document_constructors_reject_invalid_values() {
 
     let rects = BTreeMap::from([(1, vec![NormalizedRect::new(0.0, 0.0, 0.5, 0.5).unwrap()])]);
     assert!(DocumentLocator::pdf(1, 1, Some(rects)).is_ok());
+
+    let rect = NormalizedRect::new(0.0, 0.0, 0.5, 0.5).unwrap();
+    assert!(RegionLocator::pdf(0).is_err());
+    assert!(
+        RegionAnchor::new(
+            RegionLocator::pdf(1).unwrap(),
+            rect.clone(),
+            "A".repeat(64),
+            None,
+        )
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<ContentAnchor>(serde_json::json!({
+            "kind": "region",
+            "region": {
+                "locator": { "format": "pdf", "page": 1 },
+                "rect": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.5 },
+                "contentSha256": "a".repeat(64),
+                "textFallback": null
+            }
+        }))
+        .is_err()
+    );
 }
 
 #[test]
@@ -239,6 +263,7 @@ fn export_bindings() {
     IndexAggregate::export_all(&config).unwrap();
     BookIndexAggregateStatus::export_all(&config).unwrap();
     NormalizedBookInput::export_all(&config).unwrap();
+    ContentAnchor::export_all(&config).unwrap();
     AnnotationDto::export_all(&config).unwrap();
     ConversationDto::export_all(&config).unwrap();
     LearningRequest::export_all(&config).unwrap();
