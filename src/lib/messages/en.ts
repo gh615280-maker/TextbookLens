@@ -135,4 +135,29 @@ export const en = {
   'library.indexStatus.needs_review': 'Needs review',
   'library.indexStatus.failed': 'Failed',
   'library.indexStart': 'AI-assisted index',
+  'learning.menu': 'Learning actions',
+  'learning.explain': 'Explain',
+  'learning.example': 'Give an example',
+  'learning.derive': 'Derive',
+  'learning.translate': 'Translate',
+  'learning.ask': 'Ask',
+  'learning.note': 'Add note',
+  'learning.input': 'Your question, language, or note',
+  'learning.submit': 'Continue',
+  'learning.unavailable':
+    'Learning actions are unavailable for this selection.',
+  'learning.error': 'This learning action could not be prepared locally.',
+  'learning.confirm.title': 'Confirm learning request',
+  'learning.confirm.details':
+    'Provider: {provider}. Profile: {profile}. Model: {model}. Estimated input: {tokens} tokens. Sources: {sources}. Citations: {citations}.',
+  'learning.confirm.noPrompt':
+    'Do not show this prompt again for this profile and category',
+  'learning.confirm.cancel': 'Cancel',
+  'learning.confirm.continue': 'Authorize and continue',
+  'learning.confirm.imageRisk':
+    'This request will send one local image after authorization.',
+  'learning.confirm.costRisk': 'This request may incur provider charges.',
+  'learning.region.instruction':
+    'Drag within one area to select a region. Press Escape to cancel.',
+  'learning.region.status': 'Cancel region selection',
 } satisfies MessageCatalog;

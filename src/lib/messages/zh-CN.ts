@@ -128,4 +128,32 @@ export const zhCN = {
   'library.indexStatus.needs_review': '\u9700\u8981\u590d\u6838',
   'library.indexStatus.failed': '\u7d22\u5f15\u5931\u8d25',
   'library.indexStart': 'AI 辅助索引',
+  'learning.menu': '\u5b66\u4e60\u64cd\u4f5c',
+  'learning.explain': '\u89e3\u91ca',
+  'learning.example': '\u4e3e\u4f8b',
+  'learning.derive': '\u63a8\u5bfc',
+  'learning.translate': '\u7ffb\u8bd1',
+  'learning.ask': '\u63d0\u95ee',
+  'learning.note': '\u6dfb\u52a0\u6279\u6ce8',
+  'learning.input':
+    '\u8f93\u5165\u95ee\u9898\u3001\u76ee\u6807\u8bed\u8a00\u6216\u6279\u6ce8',
+  'learning.submit': '\u7ee7\u7eed',
+  'learning.unavailable':
+    '\u5f53\u524d\u9009\u533a\u4e0d\u53ef\u7528\u4e8e\u5b66\u4e60\u64cd\u4f5c\u3002',
+  'learning.error':
+    '\u65e0\u6cd5\u5728\u672c\u5730\u51c6\u5907\u6b64\u5b66\u4e60\u64cd\u4f5c\u3002',
+  'learning.confirm.title': '\u786e\u8ba4\u5b66\u4e60\u8bf7\u6c42',
+  'learning.confirm.details':
+    '\u670d\u52a1\u5546\uff1a{provider}\u3002\u914d\u7f6e\uff1a{profile}\u3002\u6a21\u578b\uff1a{model}\u3002\u9884\u8ba1\u8f93\u5165\uff1a{tokens} tokens\u3002\u6765\u6e90\uff1a{sources}\u3002\u5f15\u7528\uff1a{citations}\u3002',
+  'learning.confirm.noPrompt':
+    '\u4e0d\u518d\u4e3a\u6b64\u914d\u7f6e\u548c\u7c7b\u522b\u663e\u793a\u63d0\u793a',
+  'learning.confirm.cancel': '\u53d6\u6d88',
+  'learning.confirm.continue': '\u6388\u6743\u5e76\u7ee7\u7eed',
+  'learning.confirm.imageRisk':
+    '\u8be5\u8bf7\u6c42\u5c06\u5728\u6388\u6743\u540e\u53d1\u9001\u4e00\u5f20\u672c\u5730\u56fe\u7247\u3002',
+  'learning.confirm.costRisk':
+    '\u8be5\u8bf7\u6c42\u53ef\u80fd\u4ea7\u751f\u670d\u52a1\u5546\u8d39\u7528\u3002',
+  'learning.region.instruction':
+    '\u5728\u540c\u4e00\u5185\u5bb9\u533a\u57df\u5185\u62d6\u52a8\u4ee5\u6846\u9009\u3002\u6309 Escape \u53d6\u6d88\u3002',
+  'learning.region.status': '\u53d6\u6d88\u533a\u57df\u9009\u62e9',
 } as const;

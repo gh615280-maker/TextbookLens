@@ -4,7 +4,19 @@ import { useParams, useSearchParams } from 'react-router-dom';
 
 import { useLanguage } from '../../app/LanguageProvider';
 import type { DocumentLocator } from '../../lib/generated/document';
+import type { ProviderProfileSummary } from '../../lib/generated/provider';
 import type { AppSettingsDto } from '../../lib/generated/settings';
+import { TauriLearningApi } from '../learning/api';
+import { RegionSelectionOverlay } from '../learning/RegionSelectionOverlay';
+import { SelectionMenu } from '../learning/SelectionMenu';
+import {
+  menuSnapshotFromRegion,
+  menuSnapshotFromText,
+  releaseSnapshotCapture,
+  unavailableLearningSurfacePort,
+  type LearningProfile,
+  type LearningSelectionSnapshot,
+} from '../learning/selection-state';
 import type { ReaderBootstrap, ReaderSection, ReaderSettings } from './api';
 import { TauriReaderApi } from './api';
 import { DocxReaderAdapter } from './docx/DocxReaderAdapter';
@@ -19,6 +31,7 @@ export function ReaderPage() {
   const [searchParams] = useSearchParams();
   const { message, uiLanguage } = useLanguage();
   const api = useMemo(() => new TauriReaderApi(), []);
+  const learningApi = useMemo(() => new TauriLearningApi(), []);
   const [settings, setSettings] = useState<ReaderSettings | null>(null);
   const [bootstrap, setBootstrap] = useState<ReaderBootstrap | null>(null);
   const [sections, setSections] = useState<ReaderSection[]>([]);
@@ -27,10 +40,24 @@ export function ReaderPage() {
     null,
   );
   const [firstHintVisible, setFirstHintVisible] = useState(false);
+  const [learningProfile, setLearningProfile] =
+    useState<LearningProfile | null>(null);
+  const [learningSelection, setLearningSelection] =
+    useState<Readonly<LearningSelectionSnapshot> | null>(null);
+  const [regionSelecting, setRegionSelecting] = useState(false);
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const markerHistoryRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ReaderController>(null);
   const hintCompletionInFlight = useRef(false);
+  const learningProfileRef = useRef<LearningProfile | null>(null);
+  const sectionsRef = useRef<ReaderSection[]>([]);
+
+  useEffect(() => {
+    learningProfileRef.current = learningProfile;
+  }, [learningProfile]);
+  useEffect(() => {
+    sectionsRef.current = sections;
+  }, [sections]);
 
   const completeFirstHint = useCallback(() => {
     if (hintCompletionInFlight.current) return;
@@ -49,7 +76,23 @@ export function ReaderPage() {
       .then(setSettings)
       .catch(() => {});
     void invoke<AppSettingsDto>('get_app_settings')
-      .then((value) => setFirstHintVisible(!value.firstReaderHintCompleted))
+      .then(async (value) => {
+        setFirstHintVisible(!value.firstReaderHintCompleted);
+        const profiles = await invoke<ProviderProfileSummary[]>(
+          'list_provider_profiles',
+          {
+            operation: 'text_learning',
+          },
+        );
+        const selected = profiles.find(
+          (profile) =>
+            profile.id ===
+            (value.defaultLearningProfileId ?? value.activeProviderProfileId),
+        );
+        setLearningProfile(
+          selected ? { id: selected.id, modelId: selected.modelId } : null,
+        );
+      })
       .catch(() => {});
     if (!bookId) return;
     void api
@@ -80,7 +123,20 @@ export function ReaderPage() {
       },
       {
         onSelection: (selection) => {
-          if (selection) completeFirstHint();
+          if (!selection) return;
+          completeFirstHint();
+          const profile = learningProfileRef.current;
+          const sectionId =
+            selection.anchor.sectionId ?? sectionsRef.current[0]?.id;
+          if (!profile || !sectionId) return;
+          setLearningSelection(
+            menuSnapshotFromText(selection, {
+              bookId,
+              sectionId,
+              profile,
+              position: selectionPosition(),
+            }),
+          );
         },
         onProgress: (progress) => setCurrentLocator(progress.locator),
         onFailure: (error) => setPanelContent(error.message),
@@ -91,6 +147,10 @@ export function ReaderPage() {
     void controller.open(bookId);
     return () => {
       controller.dispose();
+      setLearningSelection((current) => {
+        releaseSnapshotCapture(current);
+        return null;
+      });
       if (controllerRef.current === controller) controllerRef.current = null;
     };
   }, [api, bookId, completeFirstHint]);
@@ -100,6 +160,33 @@ export function ReaderPage() {
       .then(setSettings)
       .catch(() => {});
   };
+  const beginRegionSelection = useCallback(() => {
+    const profile = learningProfile;
+    const sectionId = sections[0]?.id;
+    if (!bookId || !profile || !sectionId || regionSelecting) {
+      setPanelContent(message('learning.unavailable'));
+      return;
+    }
+    setRegionSelecting(true);
+    void controllerRef.current
+      ?.beginRegionSelection()
+      .then((region) => {
+        if (!region) return;
+        setLearningSelection(
+          menuSnapshotFromRegion(region, {
+            bookId,
+            sectionId:
+              region.anchor.kind === 'region' &&
+              region.anchor.region.locator.format === 'epub'
+                ? region.anchor.region.locator.sectionId
+                : sectionId,
+            profile,
+            position: selectionPosition(),
+          }),
+        );
+      })
+      .finally(() => setRegionSelecting(false));
+  }, [bookId, learningProfile, message, regionSelecting, sections]);
   return (
     <>
       {searchParams.get('index') === 'local-only' ? (
@@ -125,9 +212,59 @@ export function ReaderPage() {
         }
         readerContainerRef={readerContainerRef}
         markerHistoryRef={markerHistoryRef}
+        onStartRegionSelection={beginRegionSelection}
+        regionSelecting={regionSelecting}
       />
+      <RegionSelectionOverlay
+        active={regionSelecting}
+        instruction={message('learning.region.instruction')}
+        status={message('learning.region.status')}
+        onCancel={() => {
+          controllerRef.current?.cancelRegionSelection();
+          setRegionSelecting(false);
+        }}
+      />
+      {learningSelection && (
+        <SelectionMenu
+          api={learningApi}
+          labels={{
+            menu: message('learning.menu'),
+            explain: message('learning.explain'),
+            example: message('learning.example'),
+            derive: message('learning.derive'),
+            translate: message('learning.translate'),
+            ask: message('learning.ask'),
+            note: message('learning.note'),
+            input: message('learning.input'),
+            submit: message('learning.submit'),
+            unavailable: message('learning.unavailable'),
+            error: message('learning.error'),
+            confirmation: {
+              title: message('learning.confirm.title'),
+              details: message('learning.confirm.details'),
+              noPrompt: message('learning.confirm.noPrompt'),
+              cancel: message('learning.confirm.cancel'),
+              continue: message('learning.confirm.continue'),
+              imageRisk: message('learning.confirm.imageRisk'),
+              costRisk: message('learning.confirm.costRisk'),
+            },
+          }}
+          snapshot={learningSelection}
+          surface={unavailableLearningSurfacePort}
+          onClose={() => setLearningSelection(null)}
+          onError={setPanelContent}
+        />
+      )}
     </>
   );
+}
+
+function selectionPosition() {
+  const range = document.getSelection()?.rangeCount
+    ? document.getSelection()?.getRangeAt(0)
+    : null;
+  const rect = range?.getBoundingClientRect();
+  return { x: rect?.left ?? 8, y: rect?.bottom ?? 8 };
 }
 
 function formatLocation(

@@ -130,4 +130,32 @@ export const zhTW = {
   'library.indexStatus.needs_review': '\u9700\u8981\u8907\u6838',
   'library.indexStatus.failed': '\u7d22\u5f15\u5931\u6557',
   'library.indexStart': 'AI 輔助索引',
+  'learning.menu': '\u5b78\u7fd2\u64cd\u4f5c',
+  'learning.explain': '\u89e3\u91cb',
+  'learning.example': '\u8209\u4f8b',
+  'learning.derive': '\u63a8\u5c0e',
+  'learning.translate': '\u7ffb\u8b6f',
+  'learning.ask': '\u63d0\u554f',
+  'learning.note': '\u65b0\u589e\u7b46\u8a18',
+  'learning.input':
+    '\u8f38\u5165\u554f\u984c\u3001\u76ee\u6a19\u8a9e\u8a00\u6216\u7b46\u8a18',
+  'learning.submit': '\u7e7c\u7e8c',
+  'learning.unavailable':
+    '\u76ee\u524d\u9078\u53d6\u7bc4\u570d\u7121\u6cd5\u9032\u884c\u5b78\u7fd2\u64cd\u4f5c\u3002',
+  'learning.error':
+    '\u7121\u6cd5\u5728\u672c\u6a5f\u6e96\u5099\u6b64\u5b78\u7fd2\u64cd\u4f5c\u3002',
+  'learning.confirm.title': '\u78ba\u8a8d\u5b78\u7fd2\u8acb\u6c42',
+  'learning.confirm.details':
+    '\u670d\u52d9\u5546\uff1a{provider}\u3002\u8a2d\u5b9a\u6a94\uff1a{profile}\u3002\u6a21\u578b\uff1a{model}\u3002\u9810\u4f30\u8f38\u5165\uff1a{tokens} tokens\u3002\u4f86\u6e90\uff1a{sources}\u3002\u5f15\u7528\uff1a{citations}\u3002',
+  'learning.confirm.noPrompt':
+    '\u6b64\u8a2d\u5b9a\u6a94\u8207\u985e\u5225\u4e0d\u518d\u986f\u793a\u63d0\u793a',
+  'learning.confirm.cancel': '\u53d6\u6d88',
+  'learning.confirm.continue': '\u6388\u6b0a\u4e26\u7e7c\u7e8c',
+  'learning.confirm.imageRisk':
+    '\u6b64\u8acb\u6c42\u6703\u5728\u6388\u6b0a\u5f8c\u50b3\u9001\u4e00\u5f35\u672c\u6a5f\u5716\u7247\u3002',
+  'learning.confirm.costRisk':
+    '\u6b64\u8acb\u6c42\u53ef\u80fd\u7522\u751f\u670d\u52d9\u5546\u8cbb\u7528\u3002',
+  'learning.region.instruction':
+    '\u5728\u540c\u4e00\u5167\u5bb9\u5340\u57df\u5167\u62d6\u66f3\u4ee5\u6846\u9078\u3002\u6309 Escape \u53d6\u6d88\u3002',
+  'learning.region.status': '\u53d6\u6d88\u5340\u57df\u9078\u53d6',
 } satisfies MessageCatalog;

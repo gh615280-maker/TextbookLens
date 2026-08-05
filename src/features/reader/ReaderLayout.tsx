@@ -160,6 +160,8 @@ interface ReaderLayoutProps {
   onNavigate?(locator: DocumentLocator): Promise<boolean>;
   readerContainerRef?: RefObject<HTMLDivElement | null>;
   markerHistoryRef?: RefObject<HTMLDivElement | null>;
+  onStartRegionSelection?(): void;
+  regionSelecting?: boolean;
 }
 
 export function ReaderLayout({
@@ -179,6 +181,8 @@ export function ReaderLayout({
   onNavigate,
   readerContainerRef,
   markerHistoryRef,
+  onStartRegionSelection,
+  regionSelecting,
 }: ReaderLayoutProps) {
   const labels = copy[language];
   const rootRef = useRef<HTMLDivElement>(null);
@@ -288,6 +292,8 @@ export function ReaderLayout({
           onToggleFullscreen={() => {
             void toggleReaderFullscreen(rootRef.current);
           }}
+          onStartRegionSelection={onStartRegionSelection}
+          regionSelecting={regionSelecting}
         />
       </header>
 

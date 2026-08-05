@@ -23,6 +23,8 @@ interface ReaderToolbarProps {
   settingsButtonRef: RefObject<HTMLButtonElement | null>;
   onToggleLayer(layer: 'toc' | 'search' | 'settings'): void;
   onToggleFullscreen(): void;
+  onStartRegionSelection?(): void;
+  regionSelecting?: boolean;
 }
 
 export function ReaderToolbar({
@@ -36,6 +38,8 @@ export function ReaderToolbar({
   settingsButtonRef,
   onToggleLayer,
   onToggleFullscreen,
+  onStartRegionSelection,
+  regionSelecting = false,
 }: ReaderToolbarProps) {
   return (
     <div className="reader-toolbar" role="toolbar" aria-label={labels.toolbar}>
@@ -67,9 +71,10 @@ export function ReaderToolbar({
       </button>
       <button
         type="button"
-        disabled
-        title={labels.selectionUnavailable}
-        aria-label={`${labels.selection}：${labels.selectionUnavailable}`}
+        aria-pressed={regionSelecting}
+        disabled={!onStartRegionSelection}
+        title={onStartRegionSelection ? undefined : labels.selectionUnavailable}
+        onClick={onStartRegionSelection}
       >
         {labels.selection}
       </button>

@@ -179,4 +179,21 @@ describe('ReaderController', () => {
     expect(api.listAnnotationMarkers).toHaveBeenCalledOnce();
     expect(api.listAnnotationMarkers).toHaveBeenCalledWith('new-book');
   });
+
+  it('exposes one-shot region selection and cancels the active adapter session', async () => {
+    const api = new FakeApi();
+    const pdf = adapter('pdf');
+    const beginRegionSelection = vi.fn(async () => null);
+    const cancelRegionSelection = vi.fn();
+    pdf.beginRegionSelection = beginRegionSelection;
+    pdf.cancelRegionSelection = cancelRegionSelection;
+    const controller = new ReaderController(api, { pdf: () => pdf });
+
+    await controller.open(bookId);
+    await expect(controller.beginRegionSelection()).resolves.toBeNull();
+    controller.cancelRegionSelection();
+
+    expect(beginRegionSelection).toHaveBeenCalledOnce();
+    expect(cancelRegionSelection).toHaveBeenCalledOnce();
+  });
 });

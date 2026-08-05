@@ -7,6 +7,7 @@ import type {
   ReaderAdapter,
   ReaderAdapterEvents,
   ReaderAdapterFactory,
+  RegionSelectionResult,
   ReaderSource,
   ReadingProgress,
 } from './contracts';
@@ -137,6 +138,7 @@ export class ReaderController {
     this.#bookId = null;
     this.#markerRelocations = [];
     this.#markerLayer.dispose();
+    adapter?.cancelRegionSelection?.();
     adapter?.dispose();
   }
 
@@ -150,6 +152,40 @@ export class ReaderController {
 
   getMarkerRelocations(): readonly MarkerRelocation[] {
     return this.#markerRelocations;
+  }
+
+  getSelectionSnapshot() {
+    return this.#adapter?.getSelectionSnapshot() ?? null;
+  }
+
+  async beginRegionSelection(): Promise<RegionSelectionResult | null> {
+    const adapter = this.#adapter;
+    const generation = this.#openGeneration;
+    if (!adapter?.beginRegionSelection) {
+      this.#events.onFailure(invalidInput('区域选择当前不可用。'));
+      return null;
+    }
+    try {
+      // Capture bytes remain local until Task 5 authorizes their staging.
+      const result = await adapter.beginRegionSelection({
+        confirmVisualCapture: () => true,
+      });
+      if (generation !== this.#openGeneration || adapter !== this.#adapter) {
+        result?.capture?.release();
+        return null;
+      }
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  cancelRegionSelection(): void {
+    if (this.#adapter?.cancelRegionSelection) {
+      this.#adapter.cancelRegionSelection();
+      return;
+    }
+    this.#adapter?.cancel?.();
   }
 
   private queueProgress(progress: ReadingProgress): void {
