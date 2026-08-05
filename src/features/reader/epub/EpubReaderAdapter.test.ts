@@ -216,4 +216,214 @@ describe('EpubReaderAdapter', () => {
       expect.objectContaining({ code: 'ANCHOR_NOT_FOUND' }),
     );
   });
+
+  it('captures a keyboard-accessible iframe region without pixels for reliable text', async () => {
+    const setup = await openRegionAdapter(
+      '<p>Reliable EPUB region text with enough useful characters.</p>',
+    );
+    const confirm = vi.fn(() => {
+      throw new Error('confirmation must not run');
+    });
+    const pending = setup.adapter.beginRegionSelection({
+      confirmVisualCapture: confirm,
+    });
+    setup.element.dispatchEvent(pointer(setup.window, 'pointerdown', 10, 10));
+    setup.element.dispatchEvent(pointer(setup.window, 'pointerup', 70, 70));
+    await expect(pending).resolves.toMatchObject({
+      sectionId: 'spine-0',
+      cfi: 'epubcfi(/6/2!/4/2)',
+      rect: { x: 0.1, y: 0.1, width: 0.6, height: 0.6 },
+      capture: null,
+      anchor: {
+        kind: 'region',
+        region: {
+          locator: {
+            format: 'epub',
+            sectionId: 'spine-0',
+            cfi: 'epubcfi(/6/2!/4/2)',
+          },
+          contentSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        },
+      },
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(setup.iframe.getAttribute('sandbox')).toBe('allow-same-origin');
+    expect(setup.iframe.getAttribute('sandbox')).not.toContain('allow-scripts');
+    setup.adapter.dispose();
+    setup.root.remove();
+  });
+
+  it('cancels region mode on Escape and pointer cancellation with stable codes', async () => {
+    const setup = await openRegionAdapter(
+      '<p>Reliable EPUB region text with enough useful characters.</p>',
+    );
+    const escape = setup.adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    setup.document.dispatchEvent(
+      new setup.window.KeyboardEvent('keydown', { key: 'Escape' }),
+    );
+    await expect(escape).rejects.toMatchObject({
+      instructionCode: 'epub_region_cancelled',
+    });
+    const cancelled = setup.adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    setup.document.dispatchEvent(new setup.window.Event('pointercancel'));
+    await expect(cancelled).rejects.toMatchObject({
+      instructionCode: 'epub_region_cancelled',
+    });
+    setup.adapter.dispose();
+    setup.root.remove();
+  });
+
+  it('rejects a tiny element rect and a visual confirmation that returns after dispose', async () => {
+    const text = await openRegionAdapter(
+      '<p>Reliable EPUB region text with enough useful characters.</p>',
+    );
+    const tiny = text.adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+    text.element.dispatchEvent(pointer(text.window, 'pointerdown', 10, 10));
+    text.element.dispatchEvent(pointer(text.window, 'pointerup', 17, 70));
+    await expect(tiny).rejects.toMatchObject({
+      instructionCode: 'epub_region_too_small',
+    });
+    text.adapter.dispose();
+    text.root.remove();
+
+    const visual = await openRegionAdapter(
+      '<figure><img src="data:image/png;base64,iVBORw0KGgo=" alt="diagram"></figure>',
+    );
+    const image = visual.element.querySelector('img')!;
+    setBounds(image, 0, 0, 100, 100);
+    Object.defineProperties(image, {
+      naturalWidth: { value: 100 },
+      naturalHeight: { value: 100 },
+    });
+    const confirmation = deferred<boolean>();
+    const confirm = vi.fn(() => confirmation.promise);
+    const create = vi.spyOn(visual.document, 'createElement');
+    const pending = visual.adapter.beginRegionSelection({
+      confirmVisualCapture: confirm,
+    });
+    image.dispatchEvent(pointer(visual.window, 'pointerdown', 10, 10));
+    image.dispatchEvent(pointer(visual.window, 'pointerup', 70, 70));
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    visual.adapter.dispose();
+    confirmation.resolve(true);
+    await expect(pending).rejects.toMatchObject({
+      instructionCode: 'epub_region_cancelled',
+    });
+    await Promise.resolve();
+    expect(create.mock.calls.filter(([tag]) => tag === 'canvas')).toHaveLength(
+      0,
+    );
+    visual.root.remove();
+  });
 });
+
+async function openRegionAdapter(html: string) {
+  const root = document.createElement('div');
+  document.body.append(root);
+  let contentHook!: (contents: {
+    document: Document;
+    sectionIndex: number;
+    cfiFromNode(node: Node): string;
+  }) => void;
+  const rendition = {
+    display: vi.fn(async () => {}),
+    on: vi.fn(),
+    off: vi.fn(),
+    destroy: vi.fn(),
+    annotations: { add: vi.fn(), remove: vi.fn() },
+    hooks: {
+      content: {
+        register: vi.fn(
+          (handler: typeof contentHook) => (contentHook = handler),
+        ),
+      },
+    },
+  };
+  const book = {
+    open: vi.fn(async () => {}),
+    ready: Promise.resolve(),
+    renderTo: vi.fn(() => rendition),
+    getRange: vi.fn(),
+    destroy: vi.fn(),
+    spine: { get: vi.fn(() => ({ index: 0 })) },
+  };
+  const adapter = new EpubReaderAdapter(
+    root,
+    {
+      onSelection: vi.fn(),
+      onProgress: vi.fn(),
+      onMarkerActivate: vi.fn(),
+      onFailure: vi.fn(),
+    },
+    () => book,
+  );
+  await adapter.open({ kind: 'document_bytes', bytes: new ArrayBuffer(1) });
+  const iframe = document.createElement('iframe');
+  root.append(iframe);
+  const frameDocument = iframe.contentDocument!;
+  frameDocument.body.innerHTML = html;
+  const element = frameDocument.body.firstElementChild as HTMLElement;
+  setBounds(element, 0, 0, 100, 100);
+  contentHook({
+    document: frameDocument,
+    sectionIndex: 0,
+    cfiFromNode: () => 'epubcfi(/6/2!/4/2)',
+  });
+  return {
+    adapter,
+    root,
+    iframe,
+    document: frameDocument,
+    window: iframe.contentWindow! as Window & typeof globalThis,
+    element,
+  };
+}
+
+function pointer(
+  window: Window & typeof globalThis,
+  type: string,
+  clientX: number,
+  clientY: number,
+) {
+  return new window.MouseEvent(type, {
+    bubbles: true,
+    button: 0,
+    clientX,
+    clientY,
+  });
+}
+
+function setBounds(
+  element: Element,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+) {
+  element.getBoundingClientRect = () =>
+    ({
+      left,
+      top,
+      right: left + width,
+      bottom: top + height,
+      width,
+      height,
+      x: left,
+      y: top,
+      toJSON: () => ({}),
+    }) as DOMRect;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}

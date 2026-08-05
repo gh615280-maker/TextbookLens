@@ -7,10 +7,23 @@ import type {
   ReaderAdapterEvents,
   ReaderSource,
   ReadingProgress,
+  RegionSelectionOptions,
+  RegionSelectionResult,
   SelectionSnapshot,
 } from '../contracts';
 import { recoverEpubCfi } from './epub-markers';
 import { sanitizeEpubDocument, snapshotEpubRange } from './epub-selection';
+import {
+  captureEpubRegion,
+  hashEpubRegionElement,
+} from './epub-region-capture';
+import {
+  epubElementRelativeRect,
+  epubRegionContainer,
+  elementAtEpubPoint,
+  EpubRegionSelectionError,
+  iframePointToReader,
+} from './epub-region-selection';
 import './epub-reader.css';
 
 type SpineSectionLike = {
@@ -52,9 +65,14 @@ type RenditionLike = {
   };
   hooks: {
     content: {
-      register(handler: (contents: { document: Document }) => void): void;
+      register(handler: (contents: EpubContentsLike) => void): void;
     };
   };
+};
+type EpubContentsLike = {
+  document: Document;
+  sectionIndex: number;
+  cfiFromNode(node: Node): string;
 };
 type BookFactory = () => BookLike;
 
@@ -67,6 +85,12 @@ export class EpubReaderAdapter implements ReaderAdapter {
   #generation = 0;
   #locationsReady = false;
   #markerCfis: string[] = [];
+  #contents = new Map<Document, EpubContentsLike>();
+  #regionAbort: AbortController | null = null;
+  #regionReject: ((reason: unknown) => void) | null = null;
+  #regionCleanup: (() => void) | null = null;
+  #regionAttach: ((contents: EpubContentsLike) => void) | null = null;
+  #regionCapture: RegionSelectionResult['capture'] = null;
   #selected = (cfi: string) => {
     void this.captureSelection(cfi);
   };
@@ -115,9 +139,13 @@ export class EpubReaderAdapter implements ReaderAdapter {
       flow: 'scrolled',
     });
     this.#rendition = rendition;
-    rendition.hooks.content.register(({ document }) =>
-      sanitizeEpubDocument(document),
-    );
+    rendition.hooks.content.register((contents) => {
+      if (generation !== this.#generation || rendition !== this.#rendition)
+        return;
+      sanitizeEpubDocument(contents.document);
+      this.#contents.set(contents.document, contents);
+      this.#regionAttach?.(contents);
+    });
     rendition.on('selected', this.#selected);
     rendition.on('relocated', this.#relocated);
     this.container.addEventListener('keydown', this.#keyDown);
@@ -233,7 +261,280 @@ export class EpubReaderAdapter implements ReaderAdapter {
         : null,
     };
   }
+
+  beginRegionSelection(
+    options: RegionSelectionOptions,
+  ): Promise<RegionSelectionResult | null> {
+    this.cancelRegionSelection();
+    if (!this.#rendition || !this.#book)
+      return Promise.reject(
+        new EpubRegionSelectionError('epub_region_unavailable'),
+      );
+    const abort = new AbortController();
+    this.#regionAbort = abort;
+    this.container.classList.add('epub-region-selecting');
+    const instruction = Object.assign(document.createElement('div'), {
+      className: 'epub-region-instruction',
+      textContent:
+        'Drag within one EPUB element to select a region. Press Escape to cancel.',
+    });
+    instruction.setAttribute('role', 'status');
+    instruction.setAttribute('aria-live', 'polite');
+    this.container.append(instruction);
+    return new Promise((resolve, reject) => {
+      this.#regionReject = reject;
+      const cleanups = new Set<() => void>();
+      let finished = false;
+      let preview: HTMLElement | null = null;
+      let start:
+        | {
+            contents: EpubContentsLike;
+            document: Document;
+            element: HTMLElement;
+            sectionId: string;
+            cfi: string;
+            point: { x: number; y: number };
+          }
+        | undefined;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        for (const cleanup of cleanups) cleanup();
+        cleanups.clear();
+        preview?.remove();
+        instruction.remove();
+        this.container.classList.remove('epub-region-selecting');
+        this.#regionAttach = null;
+        if (this.#regionAbort === abort) {
+          this.#regionAbort = null;
+          this.#regionReject = null;
+          this.#regionCleanup = null;
+        }
+      };
+      const fail = (
+        code: ConstructorParameters<typeof EpubRegionSelectionError>[0],
+      ) => {
+        if (finished) return;
+        abort.abort();
+        finish();
+        reject(new EpubRegionSelectionError(code));
+      };
+      const pointTarget = (contents: EpubContentsLike, event: PointerEvent) =>
+        epubRegionContainer(event.target, contents.document) ??
+        epubRegionContainer(
+          elementAtEpubPoint(contents.document, {
+            x: event.clientX,
+            y: event.clientY,
+          }),
+          contents.document,
+        );
+      const previewPoint = (
+        contents: EpubContentsLike,
+        point: { x: number; y: number },
+      ) => {
+        const frame = contents.document.defaultView?.frameElement;
+        if (!(frame instanceof HTMLElement)) return point;
+        return iframePointToReader(
+          this.container.getBoundingClientRect(),
+          frame.getBoundingClientRect(),
+          point,
+        );
+      };
+      const updatePreview = (
+        contents: EpubContentsLike,
+        point: { x: number; y: number },
+      ) => {
+        if (!start || !preview) return;
+        const first = previewPoint(start.contents, start.point);
+        const last = previewPoint(contents, point);
+        Object.assign(preview.style, {
+          left: `${Math.min(first.x, last.x)}px`,
+          top: `${Math.min(first.y, last.y)}px`,
+          width: `${Math.abs(last.x - first.x)}px`,
+          height: `${Math.abs(last.y - first.y)}px`,
+        });
+      };
+      const onDown = (contents: EpubContentsLike, event: PointerEvent) => {
+        if (event.button !== 0) return;
+        const element = pointTarget(contents, event);
+        if (!element) return;
+        const cfi = contents.cfiFromNode(element);
+        const currentSection = `spine-${contents.sectionIndex}`;
+        if (
+          !cfi ||
+          exactSectionId(this.#book, cfi) !== currentSection ||
+          element.getBoundingClientRect().width <= 0 ||
+          element.getBoundingClientRect().height <= 0
+        ) {
+          fail('epub_region_unstable_container');
+          return;
+        }
+        event.preventDefault();
+        start = {
+          contents,
+          document: contents.document,
+          element,
+          sectionId: currentSection,
+          cfi,
+          point: { x: event.clientX, y: event.clientY },
+        };
+        preview = Object.assign(document.createElement('div'), {
+          className: 'epub-region-preview',
+        });
+        preview.setAttribute('aria-hidden', 'true');
+        this.container.append(preview);
+        updatePreview(contents, start.point);
+      };
+      const onMove = (contents: EpubContentsLike, event: PointerEvent) => {
+        if (!start) return;
+        updatePreview(contents, { x: event.clientX, y: event.clientY });
+      };
+      const onUp = async (contents: EpubContentsLike, event: PointerEvent) => {
+        if (!start) return;
+        if (contents !== start.contents) {
+          fail('epub_region_cross_section');
+          return;
+        }
+        const endElement = pointTarget(contents, event);
+        if (endElement !== start.element) {
+          fail('epub_region_unstable_container');
+          return;
+        }
+        let captureToRelease: RegionSelectionResult['capture'] = null;
+        try {
+          const rect = epubElementRelativeRect(
+            start.element.getBoundingClientRect(),
+            start.point,
+            { x: event.clientX, y: event.clientY },
+          );
+          const generation = this.#generation;
+          const selected = start;
+          const result = await captureEpubRegion(
+            {
+              sectionId: selected.sectionId,
+              cfi: selected.cfi,
+              element: selected.element,
+              rect,
+            },
+            options.confirmVisualCapture,
+            abort.signal,
+          );
+          captureToRelease = result?.capture ?? null;
+          if (generation !== this.#generation || abort.signal.aborted) {
+            captureToRelease?.release();
+            captureToRelease = null;
+            return;
+          }
+          if (!result) {
+            finish();
+            resolve(null);
+            return;
+          }
+          const region =
+            result.anchor.kind === 'region' && result.anchor.region;
+          const currentContents = this.#contents.get(selected.document);
+          const currentHash = await hashEpubRegionElement(
+            selected.element,
+            abort.signal,
+          );
+          if (
+            !region ||
+            region.locator.format !== 'epub' ||
+            currentContents !== selected.contents ||
+            !selected.element.isConnected ||
+            exactSectionId(this.#book, selected.cfi) !== selected.sectionId ||
+            currentHash !== region.contentSha256
+          ) {
+            throw new EpubRegionSelectionError('epub_region_content_changed');
+          }
+          this.#regionCapture?.release();
+          this.#regionCapture = result.capture;
+          captureToRelease = null;
+          finish();
+          resolve({
+            sectionId: selected.sectionId,
+            cfi: selected.cfi,
+            rect,
+            ...result,
+          });
+        } catch (error) {
+          captureToRelease?.release();
+          if (abort.signal.aborted) return;
+          finish();
+          reject(error);
+        }
+      };
+      const onCancel = () => fail('epub_region_cancelled');
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        fail('epub_region_cancelled');
+      };
+      const attach = (contents: EpubContentsLike) => {
+        if (
+          [...cleanups].some(
+            (cleanup) =>
+              (cleanup as { document?: Document }).document ===
+              contents.document,
+          )
+        )
+          return;
+        const down = (event: PointerEvent) => onDown(contents, event);
+        const move = (event: PointerEvent) => onMove(contents, event);
+        const up = (event: PointerEvent) => void onUp(contents, event);
+        contents.document.addEventListener('pointerdown', down);
+        contents.document.addEventListener('pointermove', move);
+        contents.document.addEventListener('pointerup', up);
+        contents.document.addEventListener('pointercancel', onCancel);
+        contents.document.addEventListener('keydown', onKeyDown);
+        const cleanup = Object.assign(
+          () => {
+            contents.document.removeEventListener('pointerdown', down);
+            contents.document.removeEventListener('pointermove', move);
+            contents.document.removeEventListener('pointerup', up);
+            contents.document.removeEventListener('pointercancel', onCancel);
+            contents.document.removeEventListener('keydown', onKeyDown);
+          },
+          { document: contents.document },
+        );
+        cleanups.add(cleanup);
+      };
+      this.#regionAttach = attach;
+      for (const contents of this.#contents.values()) attach(contents);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('keydown', onKeyDown);
+      cleanups.add(() => {
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('keydown', onKeyDown);
+      });
+      this.#regionCleanup = finish;
+    });
+  }
+
+  cancelRegionSelection(): void {
+    this.#regionCapture?.release();
+    this.#regionCapture = null;
+    if (!this.#regionAbort) return;
+    this.#regionAbort.abort();
+    const reject = this.#regionReject;
+    const cleanup = this.#regionCleanup;
+    this.#regionAbort = null;
+    this.#regionReject = null;
+    this.#regionCleanup = null;
+    this.#regionAttach = null;
+    cleanup?.();
+    this.container.classList.remove('epub-region-selecting');
+    reject?.(new EpubRegionSelectionError('epub_region_cancelled'));
+  }
+
+  cancel(): void {
+    this.cancelRegionSelection();
+  }
+
   dispose(): void {
+    this.cancelRegionSelection();
+    this.#regionCapture?.release();
+    this.#regionCapture = null;
     this.#generation += 1;
     this.container.removeEventListener('keydown', this.#keyDown);
     this.#rendition?.off?.('selected', this.#selected);
@@ -245,6 +546,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.#selection = null;
     this.#locationsReady = false;
     this.#markerCfis = [];
+    this.#contents.clear();
+    this.#regionAttach = null;
     this.container.replaceChildren();
     this.container.classList.remove('epub-reader');
   }
@@ -269,6 +572,10 @@ export class EpubReaderAdapter implements ReaderAdapter {
 }
 function sectionId(book: BookLike | null, cfi: string): string {
   return `spine-${book?.spine.get(cfi)?.index ?? 0}`;
+}
+function exactSectionId(book: BookLike | null, cfi: string): string | null {
+  const section = book?.spine.get(cfi);
+  return section ? `spine-${section.index}` : null;
 }
 function anchorNotFound() {
   return {

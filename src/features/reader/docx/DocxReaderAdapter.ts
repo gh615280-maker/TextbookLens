@@ -6,16 +6,32 @@ import type {
   ReaderAdapterEvents,
   ReaderSource,
   ReadingProgress,
+  RegionSelectionOptions,
+  RegionSelectionResult,
   SelectionSnapshot,
 } from '../contracts';
 import { snapshotDocxRange, rangeFromDocxLocator } from './docx-selection';
 import { addDocxRangeOverlay, recoverDocxRange } from './docx-markers';
+import {
+  captureDocxRegion,
+  resolveDocxRegionAnchor,
+} from './docx-region-capture';
+import {
+  docxBlockRelativeRect,
+  docxRegionBlock,
+  DocxRegionSelectionError,
+} from './docx-region-selection';
 import './docx-reader.css';
 
 /** Renders only the imported, sanitized derived HTML and never reparses it as executable content. */
 export class DocxReaderAdapter implements ReaderAdapter {
   readonly format = 'docx' as const;
   #selection: SelectionSnapshot | null = null;
+  #generation = 0;
+  #regionAbort: AbortController | null = null;
+  #regionReject: ((reason: unknown) => void) | null = null;
+  #regionCleanup: (() => void) | null = null;
+  #regionCapture: RegionSelectionResult['capture'] = null;
   #onMouseUp = () => this.captureSelection();
   constructor(
     private readonly container: HTMLElement,
@@ -103,7 +119,195 @@ export class DocxReaderAdapter implements ReaderAdapter {
         : null,
     };
   }
+  beginRegionSelection(
+    options: RegionSelectionOptions,
+  ): Promise<RegionSelectionResult | null> {
+    this.cancelRegionSelection();
+    if (!this.container.classList.contains('docx-reader'))
+      return Promise.reject(
+        new DocxRegionSelectionError('docx_region_unavailable'),
+      );
+    const abort = new AbortController();
+    this.#regionAbort = abort;
+    this.container.classList.add('docx-region-selecting');
+    const instruction = Object.assign(document.createElement('div'), {
+      className: 'docx-region-instruction',
+      textContent:
+        'Drag within one DOCX block to select a region. Press Escape to cancel.',
+    });
+    instruction.setAttribute('role', 'status');
+    instruction.setAttribute('aria-live', 'polite');
+    this.container.append(instruction);
+    return new Promise((resolve, reject) => {
+      this.#regionReject = reject;
+      let finished = false;
+      let start:
+        | {
+            block: HTMLElement;
+            blockId: string;
+            x: number;
+            y: number;
+          }
+        | undefined;
+      let preview: HTMLElement | null = null;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        this.container.removeEventListener('pointerdown', onDown);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('keydown', onKeyDown);
+        preview?.remove();
+        instruction.remove();
+        this.container.classList.remove('docx-region-selecting');
+        if (this.#regionAbort === abort) {
+          this.#regionAbort = null;
+          this.#regionReject = null;
+          this.#regionCleanup = null;
+        }
+      };
+      const fail = (
+        code: ConstructorParameters<typeof DocxRegionSelectionError>[0],
+      ) => {
+        if (finished) return;
+        abort.abort();
+        finish();
+        reject(new DocxRegionSelectionError(code));
+      };
+      const targetBlock = (event: PointerEvent) =>
+        docxRegionBlock(event.target, this.container) ??
+        docxRegionBlock(
+          document.elementFromPoint?.(event.clientX, event.clientY),
+          this.container,
+        );
+      const onDown = (event: PointerEvent) => {
+        if (event.button !== 0) return;
+        const block = targetBlock(event);
+        const blockId = block?.dataset.blockId;
+        if (!block || !blockId) return;
+        const bounds = block.getBoundingClientRect();
+        if (bounds.width <= 0 || bounds.height <= 0) {
+          fail('docx_region_unavailable');
+          return;
+        }
+        event.preventDefault();
+        start = { block, blockId, x: event.clientX, y: event.clientY };
+        preview = Object.assign(document.createElement('div'), {
+          className: 'docx-region-preview',
+        });
+        preview.setAttribute('aria-hidden', 'true');
+        this.container.append(preview);
+        updatePreview(event.clientX, event.clientY);
+      };
+      const updatePreview = (x: number, y: number) => {
+        if (!start || !preview) return;
+        const root = this.container.getBoundingClientRect();
+        Object.assign(preview.style, {
+          left: `${Math.min(start.x, x) - root.left}px`,
+          top: `${Math.min(start.y, y) - root.top}px`,
+          width: `${Math.abs(x - start.x)}px`,
+          height: `${Math.abs(y - start.y)}px`,
+        });
+      };
+      const onMove = (event: PointerEvent) => {
+        if (start) updatePreview(event.clientX, event.clientY);
+      };
+      const onUp = async (event: PointerEvent) => {
+        if (!start) return;
+        const selected = start;
+        const endBlock = targetBlock(event);
+        if (endBlock !== selected.block) {
+          fail('docx_region_cross_block');
+          return;
+        }
+        let captureToRelease: RegionSelectionResult['capture'] = null;
+        try {
+          const rect = docxBlockRelativeRect(
+            selected.block.getBoundingClientRect(),
+            { x: selected.x, y: selected.y },
+            { x: event.clientX, y: event.clientY },
+          );
+          const generation = this.#generation;
+          const result = await captureDocxRegion(
+            { blockId: selected.blockId, block: selected.block, rect },
+            options.confirmVisualCapture,
+            abort.signal,
+          );
+          captureToRelease = result?.capture ?? null;
+          if (generation !== this.#generation || abort.signal.aborted) {
+            captureToRelease?.release();
+            captureToRelease = null;
+            return;
+          }
+          if (!result) {
+            finish();
+            resolve(null);
+            return;
+          }
+          const region =
+            result.anchor.kind === 'region' && result.anchor.region;
+          const relocated = region
+            ? await resolveDocxRegionAnchor(
+                this.container,
+                region,
+                abort.signal,
+              )
+            : null;
+          if (!relocated) {
+            throw new DocxRegionSelectionError('docx_region_content_changed');
+          }
+          this.#regionCapture?.release();
+          this.#regionCapture = result.capture;
+          captureToRelease = null;
+          finish();
+          resolve({ blockId: selected.blockId, rect, ...result });
+        } catch (error) {
+          captureToRelease?.release();
+          if (abort.signal.aborted) return;
+          finish();
+          reject(error);
+        }
+      };
+      const onCancel = () => fail('docx_region_cancelled');
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        fail('docx_region_cancelled');
+      };
+      this.container.addEventListener('pointerdown', onDown);
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+      window.addEventListener('keydown', onKeyDown);
+      this.#regionCleanup = finish;
+    });
+  }
+
+  cancelRegionSelection(): void {
+    this.#regionCapture?.release();
+    this.#regionCapture = null;
+    if (!this.#regionAbort) return;
+    this.#regionAbort.abort();
+    const reject = this.#regionReject;
+    const cleanup = this.#regionCleanup;
+    this.#regionAbort = null;
+    this.#regionReject = null;
+    this.#regionCleanup = null;
+    cleanup?.();
+    this.container.classList.remove('docx-region-selecting');
+    reject?.(new DocxRegionSelectionError('docx_region_cancelled'));
+  }
+
+  cancel(): void {
+    this.cancelRegionSelection();
+  }
+
   dispose(): void {
+    this.cancelRegionSelection();
+    this.#regionCapture?.release();
+    this.#regionCapture = null;
+    this.#generation += 1;
     this.container.removeEventListener('mouseup', this.#onMouseUp);
     this.#selection = null;
     this.container.replaceChildren();
@@ -134,8 +338,14 @@ function renderSafeHtml(container: HTMLElement, html: string): void {
     for (const attribute of [...element.attributes])
       if (
         attribute.name.toLowerCase().startsWith('on') ||
-        attribute.name === 'href' ||
-        (attribute.name === 'src' && !/^data:image\//iu.test(attribute.value))
+        attribute.name.toLowerCase().endsWith('href') ||
+        /^(?:srcset|poster|background)$/u.test(attribute.name.toLowerCase()) ||
+        (attribute.name === 'style' &&
+          /(?:url\s*\(|@import|expression\s*\()/iu.test(attribute.value)) ||
+        (attribute.name === 'src' &&
+          !/^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/]+={0,2}$/iu.test(
+            attribute.value,
+          ))
       )
         element.removeAttribute(attribute.name);
   });

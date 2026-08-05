@@ -2,6 +2,31 @@
   position: relative;
   min-height: min(75vh, 56rem);
 }
+.docx-region-selecting {
+  cursor: crosshair;
+  user-select: none;
+}
+.docx-region-instruction {
+  position: sticky;
+  z-index: 4;
+  inset-block-start: 0.75rem;
+  display: block;
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  margin-inline: auto;
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.35rem;
+  color: CanvasText;
+  background: Canvas;
+  border: 1px solid ButtonBorder;
+}
+.docx-region-preview {
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
+  border: 2px solid Highlight;
+  background: color-mix(in srgb, Highlight 16%, transparent);
+}
 .docx-marker-overlay {
   pointer-events: none;
   position: absolute;
@@ -11,4 +36,11 @@
   position: absolute;
   background: color-mix(in srgb, #ffd54f 45%, transparent);
   outline: 1px solid #b7791f;
+}
+@media (forced-colors: active) {
+  .docx-region-preview {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: transparent;
+  }
 }

@@ -55,13 +55,40 @@ export type PdfRegionInstructionCode =
   | 'pdf_region_cancelled'
   | 'pdf_region_unavailable';
 
+export type EpubRegionInstructionCode =
+  | 'epub_region_cross_section'
+  | 'epub_region_unstable_container'
+  | 'epub_region_too_small'
+  | 'epub_region_cancelled'
+  | 'epub_region_content_changed'
+  | 'epub_region_unavailable';
+
+export type DocxRegionInstructionCode =
+  | 'docx_region_cross_block'
+  | 'docx_region_too_small'
+  | 'docx_region_cancelled'
+  | 'docx_region_content_changed'
+  | 'docx_region_unavailable';
+
+export type RegionInstructionCode =
+  | PdfRegionInstructionCode
+  | EpubRegionInstructionCode
+  | DocxRegionInstructionCode;
+
 export interface RegionSelectionOptions {
   /** Required before any mixed/visual pixels are materialized. */
   confirmVisualCapture(): boolean | Promise<boolean>;
 }
 
 export interface RegionSelectionResult {
-  page: number;
+  /** Present only for PDF. Screen/page coordinates are never retained. */
+  page?: number;
+  /** Present only for EPUB and copied from the rendition section. */
+  sectionId?: string;
+  /** Present only for EPUB and identifies the primary region container. */
+  cfi?: string;
+  /** Present only for DOCX and identifies the sole owning block. */
+  blockId?: string;
   rect: NormalizedRect;
   text: string | null;
   anchor: ContentAnchor;
