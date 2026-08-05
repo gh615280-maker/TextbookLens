@@ -248,6 +248,35 @@ describe('ImportCoordinator', () => {
     ]);
   });
 
+  it('accepts dense emitted PDF sections when source page locators skip an empty page', async () => {
+    const ipc = new FakeImportIpc();
+    const first = section(0);
+    const third = section(1);
+    third.locator = {
+      format: 'pdf',
+      startPage: 3,
+      endPage: 3,
+      rectsByPage: null,
+    };
+    third.blocks[0]!.locator = {
+      format: 'pdf',
+      startPage: 3,
+      endPage: 3,
+      rectsByPage: null,
+    };
+    const parse = parser(async (_context, sink) => {
+      await sink.begin(metadata());
+      await sink.append([first, third]);
+    });
+
+    await expect(
+      coordinator(ipc, parse).importDocument('C:/transient.pdf'),
+    ).resolves.toMatchObject({ importStatus: 'ready' });
+
+    expect(ipc.batches).toEqual([[first, third]]);
+    expect(ipc.calls).not.toContain('mark_import_failed');
+  });
+
   it('sequences IPC, preserves binary view bounds, and enforces both batch limits', async () => {
     const ipc = new FakeImportIpc();
     const backing = new Uint8Array([99, 1, 2, 3, 88]);

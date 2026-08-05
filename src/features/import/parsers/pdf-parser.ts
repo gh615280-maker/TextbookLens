@@ -83,32 +83,34 @@ export class PdfParser implements DocumentParser {
           (total, block) => total + countMeaningfulCharacters(block.text),
           0,
         );
-        const sectionOrdinal = pageNumber - 1;
-        const sectionId = stableSectionId(context.bookId, sectionOrdinal);
-        sections.push({
-          id: sectionId,
-          parentId: null,
-          ordinal: sectionOrdinal,
-          title: `第 ${pageNumber} 页`,
-          locator: {
-            format: 'pdf',
-            startPage: pageNumber,
-            endPage: pageNumber,
-            rectsByPage: null,
-          },
-          blocks: blocks.map((block, blockOrdinal): NormalizedBlockInput => ({
-            id: stableBlockId(context.bookId, sectionOrdinal, blockOrdinal),
-            ordinal: blockOrdinal,
-            kind: isEquationText(block.text) ? 'equation' : 'paragraph',
-            plainText: block.text,
+        if (blocks.length > 0) {
+          const sectionOrdinal = sections.length;
+          const sectionId = stableSectionId(context.bookId, sectionOrdinal);
+          sections.push({
+            id: sectionId,
+            parentId: null,
+            ordinal: sectionOrdinal,
+            title: `第 ${pageNumber} 页`,
             locator: {
               format: 'pdf',
               startPage: pageNumber,
               endPage: pageNumber,
               rectsByPage: null,
             },
-          })),
-        });
+            blocks: blocks.map((block, blockOrdinal): NormalizedBlockInput => ({
+              id: stableBlockId(context.bookId, sectionOrdinal, blockOrdinal),
+              ordinal: blockOrdinal,
+              kind: isEquationText(block.text) ? 'equation' : 'paragraph',
+              plainText: block.text,
+              locator: {
+                format: 'pdf',
+                startPage: pageNumber,
+                endPage: pageNumber,
+                rectsByPage: null,
+              },
+            })),
+          });
+        }
         sink.progress({
           stage: 'parsing',
           completed: pageNumber,

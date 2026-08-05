@@ -79,6 +79,87 @@ describe('PdfParser', () => {
     expect(sink.sections[0]?.blocks[0]?.id).toBe(stableBlockId(bookId, 0, 0));
   });
 
+  it('skips an empty middle page while keeping emitted IDs dense and source locators true', async () => {
+    const pageCleanup = vi.fn();
+    const documentCleanup = vi.fn();
+    const destroy = vi.fn();
+    const getPage = vi.fn(async (pageNumber: number) => ({
+      getTextContent: async () => ({
+        items: [{ str: pageNumber === 2 ? 'empty' : `page-${pageNumber}` }],
+      }),
+      cleanup: pageCleanup,
+    }));
+    vi.resetModules();
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({
+          numPages: 3,
+          getMetadata: async () => ({ info: { Title: 'Synthetic PDF' } }),
+          getPage,
+          cleanup: documentCleanup,
+        }),
+        destroy,
+      })),
+      GlobalWorkerOptions: {},
+    }));
+    vi.doMock('pdfjs-dist/legacy/build/pdf.worker.mjs?url', () => ({
+      default: '/assets/pdf.worker.mjs',
+    }));
+    vi.doMock('./pdf-layout', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./pdf-layout')>();
+      return {
+        ...actual,
+        pdfTextItems: (items: Array<{ str: string }>) => items,
+        normalizePdfPage: (items: Array<{ str: string }>) =>
+          items[0]?.str === 'empty' ? [] : [{ text: items[0]?.str ?? '' }],
+      };
+    });
+
+    try {
+      const { PdfParser } = await import('./pdf-parser');
+      const sink = createSink();
+
+      await new PdfParser().parse(
+        {
+          bookId,
+          format: 'pdf',
+          source: new Uint8Array([37, 80, 68, 70]).buffer,
+          signal: new AbortController().signal,
+        },
+        sink,
+      );
+
+      expect(sink.sections).toHaveLength(2);
+      expect(sink.sections.map((section) => section.ordinal)).toEqual([0, 1]);
+      expect(sink.sections.map((section) => section.id)).toEqual([
+        stableSectionId(bookId, 0),
+        stableSectionId(bookId, 1),
+      ]);
+      expect(
+        sink.sections.map((section) => {
+          expect(section.locator.format).toBe('pdf');
+          return section.locator.format === 'pdf'
+            ? section.locator.startPage
+            : null;
+        }),
+      ).toEqual([1, 3]);
+      expect(sink.sections.map((section) => section.blocks[0]?.id)).toEqual([
+        stableBlockId(bookId, 0, 0),
+        stableBlockId(bookId, 1, 0),
+      ]);
+      expect(sink.progress).toHaveBeenCalledTimes(3);
+      expect(getPage).toHaveBeenCalledTimes(3);
+      expect(pageCleanup).toHaveBeenCalledTimes(3);
+      expect(documentCleanup).toHaveBeenCalledOnce();
+      expect(destroy).toHaveBeenCalledOnce();
+    } finally {
+      vi.doUnmock('pdfjs-dist/legacy/build/pdf.mjs');
+      vi.doUnmock('pdfjs-dist/legacy/build/pdf.worker.mjs?url');
+      vi.doUnmock('./pdf-layout');
+      vi.resetModules();
+    }
+  });
+
   it('maps PDF.js corruption and encryption errors to distinct safe codes', async () => {
     const destroy = vi.fn();
     vi.resetModules();
