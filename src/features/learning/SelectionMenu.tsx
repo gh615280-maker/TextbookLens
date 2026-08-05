@@ -20,6 +20,7 @@ import {
   type LearningSelectionSnapshot,
   type LearningSurfacePort,
 } from './selection-state';
+import { useLearningSurfacePort } from './LearningRequestProvider';
 
 const MAX_INLINE_CODE_POINTS = 16_384;
 
@@ -60,6 +61,8 @@ export function SelectionMenu({
   onError,
   onNoteSaved,
 }: SelectionMenuProps) {
+  const globalSurface = useLearningSurfacePort();
+  const learningSurface = globalSurface ?? surface;
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonsRef = useRef<Array<HTMLButtonElement | null>>([]);
   const live = useRef(true);
@@ -121,7 +124,7 @@ export function SelectionMenu({
         releaseSnapshotCapture(snapshot);
         return;
       }
-      await surface.handoff(
+      await learningSurface.handoff(
         Object.freeze({
           preparationId: summary.preparationId,
           summary,

@@ -50,6 +50,18 @@ function safeRecordedPayload(
     const request = asRecord(asRecord(payload)?.request);
     return { request: { reason: request?.reason } };
   }
+  if (
+    command === 'start_learning_request' ||
+    command === 'subscribe_learning_request' ||
+    command === 'cancel_learning_request'
+  ) {
+    const args = asRecord(payload);
+    return {
+      requestId: args?.requestId,
+      preparationId: args?.preparationId,
+      afterSeq: args?.afterSeq,
+    };
+  }
   if (command === 'create_note' || command === 'update_note') {
     const args = asRecord(payload);
     return {

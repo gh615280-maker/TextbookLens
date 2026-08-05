@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { z } from 'zod';
 
 import {
@@ -19,6 +19,10 @@ import {
   type PrepareLearningRequestMetadata,
   type RegionCaptureMetadata,
 } from './learning-contract';
+import type {
+  LearningRequestEvent,
+  LearningRequestSnapshot,
+} from '../../lib/generated/panel';
 
 const CAPTURE_METADATA_HEADER = 'x-textbooklens-learning-capture';
 const MAX_CAPTURE_BYTES = 4 * 1024 * 1024;
@@ -309,7 +313,17 @@ export interface LearningApi {
   invalidate(request: InvalidateLearningPreparations): Promise<number>;
 }
 
-export class TauriLearningApi implements LearningApi {
+export interface LearningRequestApi {
+  start(preparationId: string): Promise<LearningRequestSnapshot>;
+  subscribe(
+    requestId: string,
+    afterSeq: number,
+    onEvent: (event: LearningRequestEvent) => void,
+  ): Promise<{ snapshot: LearningRequestSnapshot; unsubscribe(): void }>;
+  cancel(requestId: string): Promise<void>;
+}
+
+export class TauriLearningApi implements LearningApi, LearningRequestApi {
   async prepare(metadata: PrepareLearningRequestMetadata) {
     let request: Readonly<PrepareLearningRequestMetadata>;
     try {
@@ -442,6 +456,143 @@ export class TauriLearningApi implements LearningApi {
       throw invocationError(error);
     }
   }
+
+  async start(preparationId: string): Promise<LearningRequestSnapshot> {
+    try {
+      return parseRequestSnapshot(
+        await invoke<unknown>('start_learning_request', {
+          preparationId: uuidSchema.parse(preparationId),
+        }),
+      );
+    } catch (error) {
+      if (isLearningError(error)) throw error;
+      throw invocationError(error);
+    }
+  }
+
+  async subscribe(
+    requestId: string,
+    afterSeq: number,
+    onEvent: (event: LearningRequestEvent) => void,
+  ) {
+    try {
+      const channel = new Channel<unknown>((event) =>
+        onEvent(parseRequestEvent(event)),
+      );
+      const snapshot = parseRequestSnapshot(
+        await invoke<unknown>('subscribe_learning_request', {
+          requestId: uuidSchema.parse(requestId),
+          afterSeq: uint32Schema.parse(afterSeq),
+          events: channel,
+        }),
+      );
+      let active = true;
+      return {
+        snapshot,
+        unsubscribe() {
+          // Tauri channels have no explicit unsubscribe command. Stop delivery locally;
+          // this must never cancel the backend request.
+          if (!active) return;
+          active = false;
+          channel.onmessage = () => {};
+        },
+      };
+    } catch (error) {
+      if (isLearningError(error)) throw error;
+      throw invocationError(error);
+    }
+  }
+
+  async cancel(requestId: string): Promise<void> {
+    try {
+      await invoke('cancel_learning_request', {
+        requestId: uuidSchema.parse(requestId),
+      });
+    } catch (error) {
+      if (isLearningError(error)) throw error;
+      throw invocationError(error);
+    }
+  }
+}
+
+const learningRequestStatusSchema = z.enum([
+  'preparing',
+  'streaming',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+const safeLearningErrorSchema = z.object({ code: z.string().max(64) }).strict();
+const learningUsageSchema = z
+  .object({
+    inputTokens: uint32Schema.nullable(),
+    outputTokens: uint32Schema.nullable(),
+  })
+  .strict();
+const learningRequestSnapshotSchema = z
+  .object({
+    requestId: uuidSchema,
+    conversationId: uuidSchema.nullable(),
+    status: learningRequestStatusSchema,
+    text: z.string().max(MAX_CAPTURE_BYTES),
+    usage: learningUsageSchema.nullable(),
+    safeError: safeLearningErrorSchema.nullable(),
+    lastSeq: uint32Schema,
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    if (
+      (snapshot.status === 'completed' &&
+        (!snapshot.conversationId ||
+          !snapshot.text.trim() ||
+          snapshot.safeError)) ||
+      (snapshot.status === 'failed' &&
+        (snapshot.conversationId || !snapshot.safeError)) ||
+      (['preparing', 'streaming', 'cancelled'].includes(snapshot.status) &&
+        (snapshot.conversationId || snapshot.safeError))
+    ) {
+      context.addIssue({ code: 'custom', message: 'invalid request snapshot' });
+    }
+  });
+const learningRequestEventSchema = z
+  .object({
+    requestId: uuidSchema,
+    seq: positiveUint32Schema,
+    event: z.discriminatedUnion('type', [
+      z.object({ type: z.literal('preparing') }).strict(),
+      z
+        .object({
+          type: z.literal('text_delta'),
+          text: z.string().min(1).max(MAX_CAPTURE_BYTES),
+        })
+        .strict(),
+      z
+        .object({
+          type: z.literal('usage'),
+          inputTokens: uint32Schema.nullable(),
+          outputTokens: uint32Schema.nullable(),
+        })
+        .strict(),
+      z
+        .object({ type: z.literal('completed'), conversationId: uuidSchema })
+        .strict(),
+      z
+        .object({
+          type: z.literal('failed'),
+          safeError: safeLearningErrorSchema,
+        })
+        .strict(),
+      z.object({ type: z.literal('cancelled') }).strict(),
+    ]),
+  })
+  .strict();
+
+function parseRequestSnapshot(value: unknown): LearningRequestSnapshot {
+  return learningRequestSnapshotSchema.parse(value) as LearningRequestSnapshot;
+}
+
+function parseRequestEvent(value: unknown): LearningRequestEvent {
+  return learningRequestEventSchema.parse(value) as LearningRequestEvent;
 }
 
 function isUint8Array(value: unknown): value is Uint8Array {
