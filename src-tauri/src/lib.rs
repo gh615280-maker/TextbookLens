@@ -159,6 +159,7 @@ pub fn run() {
             commands::maintenance::create_local_backup,
             commands::maintenance::restore_local_backup,
             commands::maintenance::clear_all_textbooklens_data,
+            commands::maintenance::restart_application,
             commands::settings::get_app_settings,
             commands::settings::initialize_ui_language,
             commands::settings::update_ui_language,

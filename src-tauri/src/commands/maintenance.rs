@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
     app_state::AppState,
@@ -98,4 +98,12 @@ pub async fn clear_all_textbooklens_data(
     .clear_all_data(confirmation)
     .await
     .map_err(MaintenanceErrorDto::from)
+}
+
+/// This command is intentionally separate from restore/clear: those commands first
+/// finish their durable staging work, then the user explicitly crosses the restart
+/// boundary from the UI.
+#[tauri::command]
+pub fn restart_application(app: AppHandle) {
+    app.restart()
 }

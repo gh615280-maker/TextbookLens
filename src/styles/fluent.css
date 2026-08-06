@@ -87,6 +87,105 @@ main {
   max-width: var(--reader-column-width);
 }
 
+.settings-page {
+  display: grid;
+  width: min(100%, 72rem);
+  gap: var(--space-6);
+  margin-inline: auto;
+}
+
+.settings-page > h1,
+.settings-card > :first-child {
+  margin-block: 0;
+}
+
+.settings-card,
+.settings-notice,
+.settings-dialog {
+  padding: var(--space-5);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-medium);
+}
+
+.settings-card {
+  display: grid;
+  gap: var(--space-3);
+}
+.settings-card > p {
+  margin: 0;
+}
+.settings-card .reader-settings {
+  max-width: 32rem;
+}
+.settings-storage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+.settings-storage > div {
+  padding: var(--space-3);
+  background: var(--color-canvas);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-small);
+}
+.settings-storage dt {
+  color: var(--color-muted-text);
+  font-weight: 600;
+}
+.settings-storage dd {
+  margin: var(--space-1) 0 0;
+  font-weight: 700;
+}
+.settings-maintenance {
+  color: var(--color-muted-text);
+}
+.settings-danger {
+  color: var(--color-danger-text);
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.settings-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-color: var(--color-accent);
+}
+.settings-notice p {
+  margin: 0;
+}
+.settings-dialog-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 45%);
+}
+.settings-dialog {
+  width: min(100%, 38rem);
+  max-height: calc(100vh - var(--space-8));
+  overflow: auto;
+  box-shadow: var(--elevation-1);
+}
+.settings-dialog h2 {
+  margin-top: 0;
+}
+.settings-dialog label {
+  display: grid;
+  gap: var(--space-2);
+}
+.settings-dialog input {
+  min-height: var(--control-height);
+  padding-inline: var(--space-2);
+  color: var(--color-text);
+  background: var(--color-canvas);
+  border: var(--border-width) solid var(--color-border);
+}
+
 .reader-layout {
   min-height: 100vh;
   background: var(--color-canvas);
@@ -467,6 +566,11 @@ button:disabled {
   .book-card__cover {
     width: 4rem;
   }
+
+  .settings-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 @media (forced-colors: active) {
@@ -479,6 +583,9 @@ button:disabled {
   .book-card,
   .import-progress,
   .inline-error,
+  .settings-card,
+  .settings-notice,
+  .settings-dialog,
   .empty-state {
     background: Canvas;
   }

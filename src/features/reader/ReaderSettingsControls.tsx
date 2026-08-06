@@ -3,7 +3,7 @@ import type { ReaderSettings, ReaderTheme } from './api';
 
 interface ReaderSettingsControlsProps {
   settings: ReaderSettings;
-  format: 'pdf' | 'epub' | 'docx';
+  format: 'pdf' | 'epub' | 'docx' | 'defaults';
   language?: UiLanguage;
   onChange(settings: ReaderSettings): void;
 }
@@ -93,7 +93,7 @@ export function ReaderSettingsControls({
           />
         </>
       )}
-      {format === 'pdf' && (
+      {(format === 'pdf' || format === 'defaults') && (
         <Range
           label={labels.zoom}
           value={settings.pdfZoom}
