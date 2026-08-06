@@ -29,28 +29,56 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let raw_root = app.path().app_data_dir()?;
+            let credential_store: Arc<dyn credentials::CredentialStore> =
+                Arc::new(credentials::KeyringCredentialStore::new());
+            match std::fs::symlink_metadata(&raw_root) {
+                Ok(_) => {
+                    let clear_outcome = tauri::async_runtime::block_on(
+                        maintenance::clear_all::recover_pending_clear(
+                            &raw_root,
+                            credential_store.as_ref(),
+                        ),
+                    )?;
+                    if clear_outcome
+                        == maintenance::clear_all::ClearStartupOutcome::CredentialCleanupRequired
+                    {
+                        return Err(
+                            errors::AppError::new(errors::AppErrorCode::RequestConflict).into()
+                        );
+                    }
+                    maintenance::restore::recover_pending_restore(&raw_root)?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
             let paths = app_state::AppPaths::from_app(app.handle())?;
             let log_guard = logging::init(&paths.logs)?;
             let database = db::Database::open(&paths.database)?;
             maintenance::delete_book::recover_pending_deletions(database.pool(), &paths)?;
             db::settings::recover_interrupted_imports(database.pool(), &paths)?;
             indexing::recovery::recover_on_startup(database.pool(), &paths.indexing_scratch())?;
-            let credential_store: Arc<dyn credentials::CredentialStore> =
-                Arc::new(credentials::KeyringCredentialStore::new());
             let remote_cleaner = indexing::remote_cleanup::RuntimeRemoteResourceCleaner::new(
                 credential_store.clone(),
                 provider_capabilities.clone(),
             );
             let remote_cleanup_pool = database.pool().clone();
             let remote_cleanup_store = credential_store.clone();
-            app.manage(app_state::AppState::new(
+            let app_state = app_state::AppState::new(
                 database,
                 paths,
                 log_guard,
                 credential_store,
                 provider_capabilities,
-            ));
+            );
+            let remote_cleanup_gate = app_state.maintenance_gate.clone();
+            app.manage(app_state);
             tauri::async_runtime::spawn(async move {
+                let Ok(_permit) =
+                    remote_cleanup_gate.try_acquire_normal(domain::ActiveOperationKind::Indexing)
+                else {
+                    return;
+                };
                 let _ = indexing::remote_cleanup::sweep_remote_resources(
                     &remote_cleanup_pool,
                     remote_cleanup_store.as_ref(),
@@ -129,6 +157,8 @@ pub fn run() {
             commands::maintenance::get_storage_usage,
             commands::maintenance::open_app_data_directory,
             commands::maintenance::create_local_backup,
+            commands::maintenance::restore_local_backup,
+            commands::maintenance::clear_all_textbooklens_data,
             commands::settings::get_app_settings,
             commands::settings::initialize_ui_language,
             commands::settings::update_ui_language,

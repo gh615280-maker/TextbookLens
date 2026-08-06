@@ -3,25 +3,25 @@ use std::collections::BTreeMap;
 use textbooklens_lib::domain::{
     ActiveOperationKind, ActiveOperationSummaryDto, AiOperation, AnnotationDto, AppSettingsDto,
     BackupSummaryDto, BlockKind, BookIndexAggregateStatus, BookSummary, CapabilitySupport,
-    Citation, CitationReviewStatus, ContentAnchor, ContentSource, ConversationAnchorKind,
-    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
-    IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
-    IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
-    IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
-    IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent,
-    LearningRequest, LearningRequestEvent, LearningRequestEventPayload, LearningRequestSnapshot,
-    LearningRequestStatus, LearningUsage, LocalTextQuality, MaintenanceErrorCode,
-    MaintenanceErrorDto, MaintenanceStatusCode, MaintenanceStatusDto, NormalizedBookInput,
-    NormalizedRect, OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind, PanelGeometry,
-    ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
+    Citation, CitationReviewStatus, ClearAllDataStatusCode, ClearAllDataSummaryDto, ContentAnchor,
+    ContentSource, ConversationAnchorKind, ConversationDto, CredentialStatus, DocumentLocator,
+    ImageLimits, ImageMime, IndexAggregate, IndexAggregateStatus, IndexCorrectionConflictState,
+    IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind,
+    IndexPageBlockReviewDto, IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto,
+    IndexQualityReason, IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto,
+    LearningEvent, LearningRequest, LearningRequestEvent, LearningRequestEventPayload,
+    LearningRequestSnapshot, LearningRequestStatus, LearningUsage, LocalTextQuality,
+    MaintenanceErrorCode, MaintenanceErrorDto, MaintenanceStatusCode, MaintenanceStatusDto,
+    NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind,
+    PanelGeometry, ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
     ProviderOperationConsent, ProviderOperationConsentCategory, ProviderOperationConsentDecision,
     ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor, RegionLocator, RemoteCleanupStatus,
-    SafeIndexErrorDto, SafeLearningError, StorageCategory, StorageCategoryUsageDto,
-    StorageUsageDto, TeachingInstructionDto, UiLanguage, UnifiedChatRequest, UnifiedMessage,
-    UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis,
-    UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction, ValidationResult,
-    VisionAssetMeta, stable_block_id, stable_index_page_block_id, stable_index_page_id,
-    stable_index_search_chunk_id, stable_section_id,
+    RestoreBackupStatusCode, RestoreBackupSummaryDto, SafeIndexErrorDto, SafeLearningError,
+    StorageCategory, StorageCategoryUsageDto, StorageUsageDto, TeachingInstructionDto, UiLanguage,
+    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
+    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
+    ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
+    stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -476,6 +476,47 @@ fn maintenance_bindings_are_bounded_structural_and_path_free() {
     for forbidden in ["path", "title", "content", "profile", "credential", "id"] {
         assert!(!serialized.to_ascii_lowercase().contains(forbidden));
     }
+
+    let restore = RestoreBackupSummaryDto {
+        status: RestoreBackupStatusCode::ReadyToRestart,
+        restart_required: true,
+        ai_configuration_required: true,
+    };
+    let restore_serialized = serde_json::to_string(&restore).unwrap();
+    assert_eq!(
+        serde_json::to_value(&restore).unwrap(),
+        serde_json::json!({
+            "status": "RESTORE_READY_TO_RESTART",
+            "restartRequired": true,
+            "aiConfigurationRequired": true
+        })
+    );
+    let clear = ClearAllDataSummaryDto {
+        status: ClearAllDataStatusCode::CredentialCleanupRequired,
+        restart_required: false,
+    };
+    let serialized = serde_json::to_string(&clear).unwrap();
+    assert_eq!(
+        serde_json::to_value(clear).unwrap(),
+        serde_json::json!({
+            "status": "CLEAR_CREDENTIAL_CLEANUP_REQUIRED",
+            "restartRequired": false
+        })
+    );
+    for forbidden in [
+        "path",
+        "title",
+        "content",
+        "profileid",
+        "credentialtarget",
+        "credentialkey",
+        "providertarget",
+        "providerid",
+        "archive",
+    ] {
+        assert!(!serialized.to_ascii_lowercase().contains(forbidden));
+        assert!(!restore_serialized.to_ascii_lowercase().contains(forbidden));
+    }
 }
 
 #[test]
@@ -562,4 +603,8 @@ fn export_bindings() {
     StorageCategoryUsageDto::export_all(&config).unwrap();
     StorageUsageDto::export_all(&config).unwrap();
     BackupSummaryDto::export_all(&config).unwrap();
+    RestoreBackupStatusCode::export_all(&config).unwrap();
+    RestoreBackupSummaryDto::export_all(&config).unwrap();
+    ClearAllDataStatusCode::export_all(&config).unwrap();
+    ClearAllDataSummaryDto::export_all(&config).unwrap();
 }

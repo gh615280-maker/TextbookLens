@@ -460,7 +460,7 @@ fn validate_directory_shape(relative: &Path) -> StorageResult<()> {
             }
             Ok(())
         }
-        Some("cache" | "logs") => Ok(()),
+        Some("cache" | "logs" | "maintenance") => Ok(()),
         _ => Err(entry_unsafe()),
     }
 }
@@ -501,6 +501,7 @@ fn classify_file(relative: &Path) -> StorageResult<StorageCategory> {
             }
         }
         Some("logs") => Ok(StorageCategory::Log),
+        Some("maintenance") => Ok(StorageCategory::Cache),
         _ => Err(entry_unsafe()),
     }
 }

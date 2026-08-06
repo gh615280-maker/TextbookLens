@@ -5,8 +5,8 @@ use crate::{
     app_state::AppState,
     db::providers,
     domain::{
-        AiOperation, ProviderCapabilityRegistryDto, ProviderOperationConsentCategory,
-        ProviderOperationConsentDecision, ProviderProfileSummary,
+        ActiveOperationKind, AiOperation, ProviderCapabilityRegistryDto,
+        ProviderOperationConsentCategory, ProviderOperationConsentDecision, ProviderProfileSummary,
     },
     errors::AppErrorDto,
 };
@@ -21,6 +21,7 @@ pub async fn list_provider_profiles(
     operation: Option<AiOperation>,
     state: State<'_, AppState>,
 ) -> Result<Vec<ProviderProfileSummary>, AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
     let profiles =
         providers::list_provider_profiles(state.db.pool(), state.credential_store.as_ref())
             .await
@@ -38,6 +39,7 @@ pub async fn set_active_provider_profile(
     profile_id: Uuid,
     state: State<'_, AppState>,
 ) -> Result<(), AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
     providers::set_active_provider_profile(state.db.pool(), profile_id)
         .await
         .map_err(AppErrorDto::from)
@@ -48,6 +50,7 @@ pub async fn delete_provider_profile(
     profile_id: Uuid,
     state: State<'_, AppState>,
 ) -> Result<(), AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
     providers::delete_provider_profile(state.db.pool(), state.credential_store.clone(), profile_id)
         .await
         .map_err(AppErrorDto::from)
@@ -59,6 +62,7 @@ pub async fn set_default_provider_profile(
     profile_id: Uuid,
     state: State<'_, AppState>,
 ) -> Result<(), AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
     providers::set_default_provider_profile(
         state.db.pool(),
         &state.provider_capabilities,
@@ -76,6 +80,7 @@ pub async fn update_provider_operation_consent(
     decision: ProviderOperationConsentDecision,
     state: State<'_, AppState>,
 ) -> Result<(), AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
     providers::update_provider_operation_consent(state.db.pool(), profile_id, category, decision)
         .await
         .map_err(AppErrorDto::from)
@@ -86,7 +91,18 @@ pub async fn reset_provider_operation_consents(
     profile_id: Option<Uuid>,
     state: State<'_, AppState>,
 ) -> Result<(), AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
     providers::reset_provider_operation_consents(state.db.pool(), profile_id)
         .await
+        .map_err(AppErrorDto::from)
+}
+
+fn maintenance_permit(
+    state: &AppState,
+) -> Result<crate::maintenance::gate::NormalOperationPermit, AppErrorDto> {
+    state
+        .maintenance_gate
+        .try_acquire_normal(ActiveOperationKind::Storage)
+        .map_err(crate::errors::AppError::from)
         .map_err(AppErrorDto::from)
 }

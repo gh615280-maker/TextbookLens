@@ -566,19 +566,21 @@ struct BackupManifest {
     entries: Vec<BackupManifestEntry>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-struct BackupManifestEntry {
-    path: String,
-    offset: u64,
-    size: u64,
-    sha256: String,
+pub(crate) struct BackupManifestEntry {
+    pub(crate) path: String,
+    pub(crate) offset: u64,
+    pub(crate) size: u64,
+    pub(crate) sha256: String,
 }
 
-struct VerifiedBackup {
-    archive_bytes: u64,
-    entry_count: u64,
-    total_bytes: u64,
+pub(crate) struct VerifiedBackup {
+    pub(crate) archive_bytes: u64,
+    pub(crate) entry_count: u64,
+    pub(crate) total_bytes: u64,
+    pub(crate) manifest_sha256: String,
+    pub(crate) entries: Vec<BackupManifestEntry>,
 }
 
 impl fmt::Debug for VerifiedBackup {
@@ -588,6 +590,8 @@ impl fmt::Debug for VerifiedBackup {
             .field("archive_bytes", &self.archive_bytes)
             .field("entry_count", &self.entry_count)
             .field("total_bytes", &self.total_bytes)
+            .field("manifest_sha256", &"<redacted>")
+            .field("entries", &self.entries.len())
             .finish()
     }
 }
@@ -861,7 +865,7 @@ fn write_source_entry(
     })
 }
 
-fn verify_archive_file(path: &Path) -> Result<VerifiedBackup, BackupArchiveError> {
+pub(crate) fn verify_archive_file(path: &Path) -> Result<VerifiedBackup, BackupArchiveError> {
     let canonical_path = canonical_existing_file(path).map_err(|_| verification_failed())?;
     let path = canonical_path.as_path();
     let path_entry = stable_path_entry(path, EntryKind::File).map_err(|_| verification_failed())?;
@@ -955,7 +959,278 @@ fn verify_archive_file(path: &Path) -> Result<VerifiedBackup, BackupArchiveError
         archive_bytes: path_entry.len,
         entry_count: manifest.entry_count,
         total_bytes: manifest.total_bytes,
+        manifest_sha256: hex_digest(expected_manifest_hash),
+        entries: manifest.entries,
     })
+}
+
+/// Copies one user-selected archive into an already-created app-owned staging
+/// directory before parsing it. Both the source path and open handle are
+/// witnessed so a reparse/hard-link/race cannot switch the bytes under us.
+pub(crate) fn copy_archive_into_staging(
+    source: &Path,
+    staged_archive: &Path,
+    app_root: &Path,
+) -> Result<VerifiedBackup, BackupArchiveError> {
+    validate_local_absolute_path(source).map_err(|_| verification_failed())?;
+    if source
+        .extension()
+        .and_then(OsStr::to_str)
+        .is_none_or(|extension| !extension.eq_ignore_ascii_case("tlbackup"))
+    {
+        return Err(verification_failed());
+    }
+    let canonical_source = canonical_existing_file(source)?;
+    if path_is_within(&canonical_source, app_root) {
+        return Err(verification_failed());
+    }
+    let source_entry =
+        stable_path_entry(&canonical_source, EntryKind::File).map_err(|_| verification_failed())?;
+    if source_entry.links != 1 {
+        return Err(verification_failed());
+    }
+    let maximum = HEADER_BYTES
+        .checked_add(MAX_ARCHIVE_BYTES)
+        .and_then(|value| value.checked_add(MAX_MANIFEST_BYTES))
+        .and_then(|value| value.checked_add(FOOTER_BYTES))
+        .ok_or_else(verification_failed)?;
+    if source_entry.len > maximum {
+        return Err(limit_exceeded());
+    }
+
+    let staged_parent = staged_archive.parent().ok_or_else(write_failed)?;
+    let parent_entry =
+        stable_path_entry(staged_parent, EntryKind::Directory).map_err(|_| write_failed())?;
+    if !path_is_within(staged_parent, app_root) || path_exists(staged_archive)? {
+        return Err(write_failed());
+    }
+    let mut input = fs::File::open(&canonical_source).map_err(|_| verification_failed())?;
+    if stable_open_file(&canonical_source, &input).map_err(|_| verification_failed())?
+        != source_entry
+    {
+        return Err(verification_failed());
+    }
+    let mut output = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(staged_archive)
+        .map_err(|_| write_failed())?;
+    let created = stable_open_file(staged_archive, &output).map_err(|_| write_failed())?;
+    if created.links != 1 || created.identity.volume != parent_entry.identity.volume {
+        drop(output);
+        let _ = fs::remove_file(staged_archive);
+        return Err(write_failed());
+    }
+
+    let copied = (|| {
+        let mut total = 0_u64;
+        let mut buffer = vec![0_u8; COPY_BUFFER_BYTES];
+        loop {
+            let count = input.read(&mut buffer).map_err(|_| verification_failed())?;
+            if count == 0 {
+                break;
+            }
+            total = total
+                .checked_add(u64::try_from(count).map_err(|_| limit_exceeded())?)
+                .filter(|value| *value <= maximum)
+                .ok_or_else(limit_exceeded)?;
+            if total > source_entry.len {
+                return Err(verification_failed());
+            }
+            output
+                .write_all(&buffer[..count])
+                .map_err(|_| write_failed())?;
+        }
+        if total != source_entry.len
+            || stable_open_file(&canonical_source, &input).map_err(|_| verification_failed())?
+                != source_entry
+        {
+            return Err(verification_failed());
+        }
+        output.sync_all().map_err(|_| write_failed())?;
+        let staged_entry = stable_open_file(staged_archive, &output).map_err(|_| write_failed())?;
+        if staged_entry.identity != created.identity
+            || staged_entry.len != source_entry.len
+            || staged_entry.links != 1
+        {
+            return Err(write_failed());
+        }
+        drop(output);
+        require_stable_path(&canonical_source, EntryKind::File, source_entry)
+            .map_err(|_| verification_failed())?;
+        require_stable_path(staged_archive, EntryKind::File, staged_entry)
+            .map_err(|_| write_failed())?;
+        sync_directory(staged_parent)?;
+        verify_archive_file(staged_archive)
+    })();
+    if copied.is_err() {
+        drop(input);
+        let _ = fs::remove_file(staged_archive);
+        let _ = sync_directory(staged_parent);
+    }
+    copied
+}
+
+/// Expands a previously verified TLBACKUP into a fresh app-owned directory.
+/// Paths are reconstructed only from the canonical manifest grammar; no
+/// archive-provided absolute path is ever accepted.
+pub(crate) fn extract_verified_archive(
+    archive: &Path,
+    verified: &VerifiedBackup,
+    dataset_root: &Path,
+) -> Result<(), BackupArchiveError> {
+    let archive_entry =
+        stable_path_entry(archive, EntryKind::File).map_err(|_| verification_failed())?;
+    if archive_entry.links != 1 || archive_entry.len != verified.archive_bytes {
+        return Err(verification_failed());
+    }
+    let dataset_entry =
+        stable_path_entry(dataset_root, EntryKind::Directory).map_err(|_| write_failed())?;
+    if fs::read_dir(dataset_root)
+        .map_err(|_| write_failed())?
+        .next()
+        .is_some()
+    {
+        return Err(write_failed());
+    }
+    let mut input = fs::File::open(archive).map_err(|_| verification_failed())?;
+    if stable_open_file(archive, &input).map_err(|_| verification_failed())? != archive_entry {
+        return Err(verification_failed());
+    }
+    let mut created_directories = HashSet::new();
+    created_directories.insert(normalized_path_identity(dataset_root));
+    let mut buffer = vec![0_u8; COPY_BUFFER_BYTES];
+    for entry in &verified.entries {
+        validate_manifest_path(&entry.path)?;
+        let components = entry.path.split('/').collect::<Vec<_>>();
+        let mut parent = dataset_root.to_path_buf();
+        for component in &components[..components.len().saturating_sub(1)] {
+            parent.push(component);
+            let identity = normalized_path_identity(&parent);
+            if created_directories.insert(identity) {
+                fs::create_dir(&parent).map_err(|_| write_failed())?;
+                let current =
+                    stable_path_entry(&parent, EntryKind::Directory).map_err(|_| write_failed())?;
+                if current.links == 0 || current.identity.volume != dataset_entry.identity.volume {
+                    return Err(write_failed());
+                }
+                sync_directory(parent.parent().ok_or_else(write_failed)?)?;
+            } else {
+                stable_path_entry(&parent, EntryKind::Directory).map_err(|_| write_failed())?;
+            }
+        }
+        let file_name = components.last().ok_or_else(verification_failed)?;
+        let target = parent.join(file_name);
+        if target.parent() != Some(parent.as_path()) || !path_is_within(&target, dataset_root) {
+            return Err(verification_failed());
+        }
+        let mut output = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|_| write_failed())?;
+        let created = stable_open_file(&target, &output).map_err(|_| write_failed())?;
+        if created.links != 1 || created.identity.volume != dataset_entry.identity.volume {
+            return Err(write_failed());
+        }
+        input
+            .seek(SeekFrom::Start(entry.offset))
+            .map_err(|_| verification_failed())?;
+        let mut remaining = entry.size;
+        let mut hasher = Sha256::new();
+        while remaining > 0 {
+            let count = usize::try_from(remaining.min(COPY_BUFFER_BYTES as u64))
+                .map_err(|_| verification_failed())?;
+            input
+                .read_exact(&mut buffer[..count])
+                .map_err(|_| verification_failed())?;
+            output
+                .write_all(&buffer[..count])
+                .map_err(|_| write_failed())?;
+            hasher.update(&buffer[..count]);
+            remaining = remaining
+                .checked_sub(u64::try_from(count).map_err(|_| verification_failed())?)
+                .ok_or_else(verification_failed)?;
+        }
+        if hex_digest(hasher.finalize()) != entry.sha256 {
+            return Err(verification_failed());
+        }
+        output.sync_all().map_err(|_| write_failed())?;
+        let after = stable_open_file(&target, &output).map_err(|_| write_failed())?;
+        if after.identity != created.identity || after.len != entry.size || after.links != 1 {
+            return Err(write_failed());
+        }
+        drop(output);
+        require_stable_path(&target, EntryKind::File, after).map_err(|_| write_failed())?;
+        sync_directory(&parent)?;
+    }
+    if stable_open_file(archive, &input).map_err(|_| verification_failed())? != archive_entry {
+        return Err(verification_failed());
+    }
+    require_stable_path(archive, EntryKind::File, archive_entry)
+        .map_err(|_| verification_failed())?;
+    let dataset_after =
+        stable_path_entry(dataset_root, EntryKind::Directory).map_err(|_| write_failed())?;
+    if dataset_after.identity != dataset_entry.identity || dataset_after.links == 0 {
+        return Err(write_failed());
+    }
+    sync_directory(dataset_root)
+}
+
+pub(crate) fn verify_materialized_file(
+    path: &Path,
+    expected_size: u64,
+    expected_sha256: &str,
+) -> Result<(), BackupArchiveError> {
+    let expected = stable_path_entry(path, EntryKind::File).map_err(|_| verification_failed())?;
+    if expected.links != 1 || expected.len != expected_size {
+        return Err(verification_failed());
+    }
+    let mut file = fs::File::open(path).map_err(|_| verification_failed())?;
+    if stable_open_file(path, &file).map_err(|_| verification_failed())? != expected {
+        return Err(verification_failed());
+    }
+    let mut remaining = expected_size;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; COPY_BUFFER_BYTES];
+    while remaining > 0 {
+        let count = usize::try_from(remaining.min(COPY_BUFFER_BYTES as u64))
+            .map_err(|_| verification_failed())?;
+        file.read_exact(&mut buffer[..count])
+            .map_err(|_| verification_failed())?;
+        hasher.update(&buffer[..count]);
+        remaining = remaining
+            .checked_sub(u64::try_from(count).map_err(|_| verification_failed())?)
+            .ok_or_else(verification_failed)?;
+    }
+    let mut trailing = [0_u8; 1];
+    if file
+        .read(&mut trailing)
+        .map_err(|_| verification_failed())?
+        != 0
+        || hex_digest(hasher.finalize()) != expected_sha256
+        || stable_open_file(path, &file).map_err(|_| verification_failed())? != expected
+    {
+        return Err(verification_failed());
+    }
+    drop(file);
+    require_stable_path(path, EntryKind::File, expected).map_err(|_| verification_failed())
+}
+
+pub(crate) fn require_safe_directory(path: &Path) -> Result<(), BackupArchiveError> {
+    stable_path_entry(path, EntryKind::Directory)
+        .map(|_| ())
+        .map_err(|_| verification_failed())
+}
+
+pub(crate) fn safe_path_exists(path: &Path) -> Result<bool, BackupArchiveError> {
+    path_exists(path)
+}
+
+pub(crate) fn sync_app_directory(path: &Path) -> Result<(), BackupArchiveError> {
+    sync_directory(path)
 }
 
 fn canonical_existing_file(path: &Path) -> Result<PathBuf, BackupArchiveError> {

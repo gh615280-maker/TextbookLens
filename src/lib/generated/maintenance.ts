@@ -6,13 +6,21 @@ export type ActiveOperationSummaryDto = { kind: ActiveOperationKind, count: numb
 
 export type BackupSummaryDto = { formatVersion: number, archiveBytes: bigint, entryCount: bigint, };
 
-export type MaintenanceErrorCode = "MAINTENANCE_BUSY" | "MAINTENANCE_SHUTTING_DOWN" | "MAINTENANCE_CAPACITY_EXCEEDED" | "STORAGE_ROOT_INVALID" | "STORAGE_ENTRY_UNSAFE" | "STORAGE_SCAN_FAILED" | "STORAGE_SIZE_OVERFLOW" | "APP_DATA_OPEN_FAILED" | "BACKUP_DESTINATION_INVALID" | "BACKUP_DESTINATION_EXISTS" | "BACKUP_SOURCE_UNSAFE" | "BACKUP_LIMIT_EXCEEDED" | "BACKUP_SNAPSHOT_FAILED" | "BACKUP_WRITE_FAILED" | "BACKUP_VERIFICATION_FAILED";
+export type ClearAllDataStatusCode = "CLEAR_READY_TO_RESTART" | "CLEAR_CREDENTIAL_CLEANUP_REQUIRED";
+
+export type ClearAllDataSummaryDto = { status: ClearAllDataStatusCode, restartRequired: boolean, };
+
+export type MaintenanceErrorCode = "MAINTENANCE_BUSY" | "MAINTENANCE_SHUTTING_DOWN" | "MAINTENANCE_CAPACITY_EXCEEDED" | "STORAGE_ROOT_INVALID" | "STORAGE_ENTRY_UNSAFE" | "STORAGE_SCAN_FAILED" | "STORAGE_SIZE_OVERFLOW" | "APP_DATA_OPEN_FAILED" | "BACKUP_DESTINATION_INVALID" | "BACKUP_DESTINATION_EXISTS" | "BACKUP_SOURCE_UNSAFE" | "BACKUP_LIMIT_EXCEEDED" | "BACKUP_SNAPSHOT_FAILED" | "BACKUP_WRITE_FAILED" | "BACKUP_VERIFICATION_FAILED" | "RESTORE_SOURCE_INVALID" | "RESTORE_ARCHIVE_INVALID" | "RESTORE_PREFLIGHT_FAILED" | "RESTORE_INTENT_CONFLICT" | "RESTORE_STAGE_FAILED" | "RESTORE_RECOVERY_FAILED" | "CLEAR_CONFIRMATION_REQUIRED" | "CLEAR_ROOT_INVALID" | "CLEAR_INTENT_CONFLICT" | "CLEAR_CREDENTIAL_CLEANUP_REQUIRED" | "CLEAR_RECOVERY_FAILED";
 
 export type MaintenanceErrorDto = { code: MaintenanceErrorCode, activeOperations: Array<ActiveOperationSummaryDto>, };
 
 export type MaintenanceStatusCode = "MAINTENANCE_AVAILABLE" | "NORMAL_OPERATIONS_ACTIVE" | "MAINTENANCE_WAITING" | "MAINTENANCE_EXCLUSIVE" | "MAINTENANCE_SHUTTING_DOWN";
 
 export type MaintenanceStatusDto = { code: MaintenanceStatusCode, activeOperations: Array<ActiveOperationSummaryDto>, };
+
+export type RestoreBackupStatusCode = "RESTORE_READY_TO_RESTART";
+
+export type RestoreBackupSummaryDto = { status: RestoreBackupStatusCode, restartRequired: boolean, aiConfigurationRequired: boolean, };
 
 export type StorageCategory = "source" | "derived" | "index" | "database" | "cache" | "log";
 

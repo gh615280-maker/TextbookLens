@@ -11,6 +11,12 @@ pub trait CredentialStore: Send + Sync {
     async fn set(&self, key: &str, value: SecretString) -> AppResult<()>;
     async fn get(&self, key: &str) -> AppResult<SecretString>;
     async fn delete(&self, key: &str) -> AppResult<()>;
+
+    /// Returns only TextbookLens-owned logical keys. Backends that cannot
+    /// enumerate safely leave this empty; the Windows runtime overrides it.
+    async fn list_textbooklens_keys(&self) -> AppResult<Vec<String>> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Default)]
@@ -77,5 +83,11 @@ impl CredentialStore for MemoryCredentialStore {
         }
         state.values.remove(key);
         Ok(())
+    }
+
+    async fn list_textbooklens_keys(&self) -> AppResult<Vec<String>> {
+        let mut keys = self.state.lock().values.keys().cloned().collect::<Vec<_>>();
+        keys.sort();
+        Ok(keys)
     }
 }

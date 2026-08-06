@@ -14,7 +14,7 @@ use crate::{
     app_state::AppState,
     credentials::CredentialStore,
     db::providers::{self, NewProviderProfile, ReplacementProviderCredential},
-    domain::{AiOperation, ProviderKind, ProviderProfileSummary},
+    domain::{ActiveOperationKind, AiOperation, ProviderKind, ProviderProfileSummary},
     errors::{AppErrorDto, AppResult},
 };
 
@@ -32,6 +32,11 @@ pub async fn validate_and_save_provider_profile(
     request: SaveProviderProfileRequest,
     state: State<'_, AppState>,
 ) -> Result<ProviderProfileSummary, AppErrorDto> {
+    let _permit = state
+        .maintenance_gate
+        .try_acquire_normal(ActiveOperationKind::Storage)
+        .map_err(crate::errors::AppError::from)
+        .map_err(AppErrorDto::from)?;
     let store = state.credential_store.clone();
     let runtime = ProviderRuntime::new(store.clone(), state.provider_capabilities.clone());
     validate_and_save_provider_profile_impl(request, state.db.pool(), store, &runtime)
@@ -45,6 +50,11 @@ pub async fn replace_provider_profile_credential(
     credential: String,
     state: State<'_, AppState>,
 ) -> Result<ProviderProfileSummary, AppErrorDto> {
+    let _permit = state
+        .maintenance_gate
+        .try_acquire_normal(ActiveOperationKind::Storage)
+        .map_err(crate::errors::AppError::from)
+        .map_err(AppErrorDto::from)?;
     let store = state.credential_store.clone();
     let runtime = ProviderRuntime::new(store.clone(), state.provider_capabilities.clone());
     replace_provider_profile_credential_impl(

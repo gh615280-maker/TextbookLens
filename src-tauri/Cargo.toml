@@ -39,6 +39,10 @@ ts-rs = { version = "=12.0.1", features = ["chrono-impl", "uuid-impl", "serde-js
 uuid = { version = "=1.24.0", features = ["v4", "v5", "serde"] }
 zeroize = "=1.9.0"
 
+[target.'cfg(windows)'.dependencies]
+keyring-core = "=1.0.0"
+windows-native-keyring-store = "=1.1.0"
+
 [dev-dependencies]
 insta = { version = "=1.48.0", features = ["json"] }
 proptest = "=1.11.0"

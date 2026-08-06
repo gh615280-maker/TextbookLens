@@ -17,6 +17,8 @@ use sqlx::{
 
 use crate::errors::{AppError, AppResult};
 
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
+
 pub struct Database {
     pool: SqlitePool,
 }
@@ -37,10 +39,7 @@ impl Database {
                 .connect_with(options)
                 .await
                 .map_err(AppError::from)?;
-            sqlx::migrate!()
-                .run(&pool)
-                .await
-                .map_err(AppError::database)?;
+            MIGRATOR.run(&pool).await.map_err(AppError::database)?;
             Ok(Self { pool })
         })
     }

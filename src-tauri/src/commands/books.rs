@@ -83,6 +83,12 @@ fn retry_detached_remote_cleanup(state: &AppState, resource_ids: &[Uuid]) {
     if resource_ids.is_empty() {
         return;
     }
+    let Ok(permit) = state
+        .maintenance_gate
+        .try_acquire_normal(crate::domain::ActiveOperationKind::Indexing)
+    else {
+        return;
+    };
     let pool = state.db.pool().clone();
     let credential_store = state.credential_store.clone();
     let cleaner = RuntimeRemoteResourceCleaner::new(
@@ -91,6 +97,7 @@ fn retry_detached_remote_cleanup(state: &AppState, resource_ids: &[Uuid]) {
     );
     let resource_ids = resource_ids.to_vec();
     tauri::async_runtime::spawn(async move {
+        let _permit = permit;
         let _ = sweep_remote_resource_ids(
             &pool,
             credential_store.as_ref(),

@@ -4870,6 +4870,7 @@ dependencies = [
  "futures-util",
  "insta",
  "keyring",
+ "keyring-core",
  "parking_lot",
  "proptest",
  "reqwest",
@@ -4890,6 +4891,7 @@ dependencies = [
  "tracing-subscriber",
  "ts-rs",
  "uuid",
+ "windows-native-keyring-store",
  "wiremock",
  "zeroize",
 ]

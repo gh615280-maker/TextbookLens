@@ -90,6 +90,28 @@ pub enum MaintenanceErrorCode {
     BackupWriteFailed,
     #[serde(rename = "BACKUP_VERIFICATION_FAILED")]
     BackupVerificationFailed,
+    #[serde(rename = "RESTORE_SOURCE_INVALID")]
+    RestoreSourceInvalid,
+    #[serde(rename = "RESTORE_ARCHIVE_INVALID")]
+    RestoreArchiveInvalid,
+    #[serde(rename = "RESTORE_PREFLIGHT_FAILED")]
+    RestorePreflightFailed,
+    #[serde(rename = "RESTORE_INTENT_CONFLICT")]
+    RestoreIntentConflict,
+    #[serde(rename = "RESTORE_STAGE_FAILED")]
+    RestoreStageFailed,
+    #[serde(rename = "RESTORE_RECOVERY_FAILED")]
+    RestoreRecoveryFailed,
+    #[serde(rename = "CLEAR_CONFIRMATION_REQUIRED")]
+    ClearConfirmationRequired,
+    #[serde(rename = "CLEAR_ROOT_INVALID")]
+    ClearRootInvalid,
+    #[serde(rename = "CLEAR_INTENT_CONFLICT")]
+    ClearIntentConflict,
+    #[serde(rename = "CLEAR_CREDENTIAL_CLEANUP_REQUIRED")]
+    ClearCredentialCleanupRequired,
+    #[serde(rename = "CLEAR_RECOVERY_FAILED")]
+    ClearRecoveryFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -175,4 +197,37 @@ pub struct BackupSummaryDto {
     pub format_version: u32,
     pub archive_bytes: u64,
     pub entry_count: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "maintenance.ts")]
+pub enum RestoreBackupStatusCode {
+    #[serde(rename = "RESTORE_READY_TO_RESTART")]
+    ReadyToRestart,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "maintenance.ts")]
+pub struct RestoreBackupSummaryDto {
+    pub status: RestoreBackupStatusCode,
+    pub restart_required: bool,
+    pub ai_configuration_required: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "maintenance.ts")]
+pub enum ClearAllDataStatusCode {
+    #[serde(rename = "CLEAR_READY_TO_RESTART")]
+    ReadyToRestart,
+    #[serde(rename = "CLEAR_CREDENTIAL_CLEANUP_REQUIRED")]
+    CredentialCleanupRequired,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "maintenance.ts")]
+pub struct ClearAllDataSummaryDto {
+    pub status: ClearAllDataStatusCode,
+    pub restart_required: bool,
 }
