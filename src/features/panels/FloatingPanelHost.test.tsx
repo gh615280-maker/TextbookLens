@@ -51,6 +51,37 @@ describe('FloatingPanelHost', () => {
     expect(learningApi.cancel).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps textbook-level requests on the overview instead of creating reader panels', () => {
+    const requests = new LearningRequestStore();
+    const panels = new PanelStore();
+    const requestId = '99999999-9999-4999-8999-999999999999';
+    requests.applySnapshot({
+      requestId,
+      conversationId: null,
+      status: 'streaming',
+      text: 'Inline overview answer',
+      usage: null,
+      safeError: null,
+      lastSeq: 1,
+    });
+    requests.setPresentation(requestId, {
+      action: 'ask',
+      selectionLabel: 'Book question',
+      provider: 'Synthetic provider',
+      model: 'Synthetic model',
+      bookId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    render(
+      <LearningRequestProvider store={requests} api={api()}>
+        <FloatingPanelHost store={panels} />
+      </LearningRequestProvider>,
+    );
+
+    expect(screen.queryByLabelText('Learning request')).not.toBeInTheDocument();
+    expect(panels.snapshot().panels).toHaveLength(0);
+  });
+
   it('loads immutable history on demand and removes the panel only after atomic delete succeeds', async () => {
     const deletion = deferred<void>();
     const history = conversation();

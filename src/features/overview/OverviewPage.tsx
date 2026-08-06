@@ -102,6 +102,10 @@ function OverviewContent({
   const seenTerminalRequests = useRef(new Set<string>());
   const tombstonesRef = useRef<ReadonlySet<string>>(new Set());
   const confirmationDialogRef = useRef<HTMLDialogElement>(null);
+  const confirmationButtonRef = useRef<HTMLButtonElement>(null);
+  const questionTriggerRef = useRef<HTMLButtonElement>(null);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
 
   const reloadHistory = useCallback(async () => {
     const generation = ++historyGeneration.current;
@@ -142,8 +146,24 @@ function OverviewContent({
   }, [reloadHistory]);
 
   useEffect(() => {
-    confirmationDialogRef.current?.focus();
+    confirmationButtonRef.current?.focus();
   }, [confirmation]);
+
+  useEffect(() => {
+    deleteCancelRef.current?.focus();
+  }, [deleteCandidate]);
+
+  const closeConfirmation = () => {
+    if (!confirmation) return;
+    void preparationApi.discard(confirmation.preparationId);
+    setConfirmation(null);
+    queueMicrotask(() => questionTriggerRef.current?.focus());
+  };
+
+  const closeDeleteDialog = () => {
+    setDeleteCandidate(null);
+    queueMicrotask(() => deleteTriggerRef.current?.focus());
+  };
 
   const bookRequests = requestSnapshot.requests.filter(
     (request) => request.presentation?.bookId === bookId,
@@ -211,8 +231,8 @@ function OverviewContent({
           presentation,
           conversationId ?? undefined,
         );
+        setQuestion('');
       }
-      setQuestion('');
     } catch {
       setQuestionError(true);
     } finally {
@@ -309,6 +329,7 @@ function OverviewContent({
           onChange={(event) => setQuestion(event.target.value)}
         />
         <button
+          ref={questionTriggerRef}
           type="button"
           disabled={!question.trim() || questionBusy || !actions}
           onClick={() => void submitQuestion()}
@@ -356,7 +377,10 @@ function OverviewContent({
                 </span>{' '}
                 <button
                   type="button"
-                  onClick={() => setDeleteCandidate(summary)}
+                  onClick={(event) => {
+                    deleteTriggerRef.current = event.currentTarget;
+                    setDeleteCandidate(summary);
+                  }}
                 >
                   {message('panel.delete')}
                 </button>
@@ -378,39 +402,48 @@ function OverviewContent({
         <dialog
           ref={confirmationDialogRef}
           open
+          aria-labelledby="book-confirm-title"
           aria-describedby="book-confirm-details"
           aria-modal="true"
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
-              void preparationApi.discard(confirmation.preparationId);
-              setConfirmation(null);
+              event.preventDefault();
+              closeConfirmation();
             }
           }}
         >
-          <h2>{message('learning.confirm.title')}</h2>
+          <h2 id="book-confirm-title">{message('learning.confirm.title')}</h2>
           <p id="book-confirm-details">
             {message('overview.confirmDetails', {
               provider: confirmation.provider,
               model: confirmation.model,
             })}
           </p>
-          <button type="button" onClick={() => void confirmQuestion()}>
+          <button
+            ref={confirmationButtonRef}
+            type="button"
+            onClick={() => void confirmQuestion()}
+          >
             {message('learning.confirm.continue')}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              void preparationApi.discard(confirmation.preparationId);
-              setConfirmation(null);
-            }}
-          >
+          <button type="button" onClick={closeConfirmation}>
             {message('learning.confirm.cancel')}
           </button>
         </dialog>
       ) : null}
       {deleteCandidate ? (
-        <div aria-modal="true" role="dialog">
-          <h2>{message('overview.deleteTitle')}</h2>
+        <div
+          aria-labelledby="book-delete-title"
+          aria-modal="true"
+          role="dialog"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              closeDeleteDialog();
+            }
+          }}
+        >
+          <h2 id="book-delete-title">{message('overview.deleteTitle')}</h2>
           {activeFor(deleteCandidate.id) ? (
             <p role="status">{message('overview.deleteWait')}</p>
           ) : (
@@ -426,7 +459,11 @@ function OverviewContent({
           >
             {message('panel.delete')}
           </button>
-          <button type="button" onClick={() => setDeleteCandidate(null)}>
+          <button
+            ref={deleteCancelRef}
+            type="button"
+            onClick={closeDeleteDialog}
+          >
             {message('learning.confirm.cancel')}
           </button>
         </div>

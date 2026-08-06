@@ -78,6 +78,10 @@ export function FloatingPanelHost({
   }, [panels, preferenceWriter]);
   useEffect(() => {
     for (const request of requestSnapshot.requests) {
+      if (request.presentation?.bookId) {
+        store.removeRequest(request.requestId);
+        continue;
+      }
       const owner = request.targetConversationId ?? request.conversationId;
       if (owner && historyStore.isDeleted(owner)) continue;
       if (request.targetConversationId) {

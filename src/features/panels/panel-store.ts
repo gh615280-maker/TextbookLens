@@ -121,6 +121,14 @@ export class PanelStore {
     return true;
   }
 
+  removeRequest(requestId: string): boolean {
+    const panel = this.byRequest(requestId);
+    if (!panel) return false;
+    this.panels.delete(panel.id);
+    this.emit();
+    return true;
+  }
+
   reopen(id: string): FloatingPanel {
     return this.replace(id, { hidden: false, zIndex: this.nextZ++ });
   }
