@@ -76,6 +76,20 @@ pub enum MaintenanceErrorCode {
     StorageSizeOverflow,
     #[serde(rename = "APP_DATA_OPEN_FAILED")]
     AppDataOpenFailed,
+    #[serde(rename = "BACKUP_DESTINATION_INVALID")]
+    BackupDestinationInvalid,
+    #[serde(rename = "BACKUP_DESTINATION_EXISTS")]
+    BackupDestinationExists,
+    #[serde(rename = "BACKUP_SOURCE_UNSAFE")]
+    BackupSourceUnsafe,
+    #[serde(rename = "BACKUP_LIMIT_EXCEEDED")]
+    BackupLimitExceeded,
+    #[serde(rename = "BACKUP_SNAPSHOT_FAILED")]
+    BackupSnapshotFailed,
+    #[serde(rename = "BACKUP_WRITE_FAILED")]
+    BackupWriteFailed,
+    #[serde(rename = "BACKUP_VERIFICATION_FAILED")]
+    BackupVerificationFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -152,4 +166,13 @@ pub struct StorageUsageDto {
     pub total_bytes: u64,
     pub total_file_count: u64,
     pub categories: Vec<StorageCategoryUsageDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "maintenance.ts")]
+pub struct BackupSummaryDto {
+    pub format_version: u32,
+    pub archive_bytes: u64,
+    pub entry_count: u64,
 }

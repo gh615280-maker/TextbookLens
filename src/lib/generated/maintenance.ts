@@ -4,7 +4,9 @@ export type ActiveOperationKind = "import" | "indexing" | "learning" | "storage"
 
 export type ActiveOperationSummaryDto = { kind: ActiveOperationKind, count: number, };
 
-export type MaintenanceErrorCode = "MAINTENANCE_BUSY" | "MAINTENANCE_SHUTTING_DOWN" | "MAINTENANCE_CAPACITY_EXCEEDED" | "STORAGE_ROOT_INVALID" | "STORAGE_ENTRY_UNSAFE" | "STORAGE_SCAN_FAILED" | "STORAGE_SIZE_OVERFLOW" | "APP_DATA_OPEN_FAILED";
+export type BackupSummaryDto = { formatVersion: number, archiveBytes: bigint, entryCount: bigint, };
+
+export type MaintenanceErrorCode = "MAINTENANCE_BUSY" | "MAINTENANCE_SHUTTING_DOWN" | "MAINTENANCE_CAPACITY_EXCEEDED" | "STORAGE_ROOT_INVALID" | "STORAGE_ENTRY_UNSAFE" | "STORAGE_SCAN_FAILED" | "STORAGE_SIZE_OVERFLOW" | "APP_DATA_OPEN_FAILED" | "BACKUP_DESTINATION_INVALID" | "BACKUP_DESTINATION_EXISTS" | "BACKUP_SOURCE_UNSAFE" | "BACKUP_LIMIT_EXCEEDED" | "BACKUP_SNAPSHOT_FAILED" | "BACKUP_WRITE_FAILED" | "BACKUP_VERIFICATION_FAILED";
 
 export type MaintenanceErrorDto = { code: MaintenanceErrorCode, activeOperations: Array<ActiveOperationSummaryDto>, };
 

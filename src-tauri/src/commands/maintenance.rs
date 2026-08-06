@@ -1,8 +1,14 @@
+use std::path::PathBuf;
+
 use tauri::State;
 
 use crate::{
     app_state::AppState,
-    domain::{ActiveOperationKind, MaintenanceErrorDto, MaintenanceStatusDto, StorageUsageDto},
+    domain::{
+        ActiveOperationKind, BackupSummaryDto, MaintenanceErrorDto, MaintenanceStatusDto,
+        StorageUsageDto,
+    },
+    maintenance::archive::BackupService,
     maintenance::storage::{
         StorageError, StorageLayout, WindowsDirectoryLauncher, collect_storage_usage,
         open_canonical_app_data_directory,
@@ -44,4 +50,19 @@ pub fn open_app_data_directory(state: State<'_, AppState>) -> Result<(), Mainten
         .map_err(MaintenanceErrorDto::from)?;
     open_canonical_app_data_directory(&state.paths.root, &WindowsDirectoryLauncher)
         .map_err(MaintenanceErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn create_local_backup(
+    state: State<'_, AppState>,
+    destination: String,
+) -> Result<BackupSummaryDto, MaintenanceErrorDto> {
+    BackupService::new(
+        state.db.pool().clone(),
+        state.paths.clone(),
+        state.maintenance_gate.clone(),
+    )
+    .create_backup(PathBuf::from(destination))
+    .await
+    .map_err(MaintenanceErrorDto::from)
 }

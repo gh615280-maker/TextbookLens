@@ -128,6 +128,7 @@ pub fn run() {
             commands::maintenance::get_maintenance_status,
             commands::maintenance::get_storage_usage,
             commands::maintenance::open_app_data_directory,
+            commands::maintenance::create_local_backup,
             commands::settings::get_app_settings,
             commands::settings::initialize_ui_language,
             commands::settings::update_ui_language,

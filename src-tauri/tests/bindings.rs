@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
     ActiveOperationKind, ActiveOperationSummaryDto, AiOperation, AnnotationDto, AppSettingsDto,
-    BlockKind, BookIndexAggregateStatus, BookSummary, CapabilitySupport, Citation,
-    CitationReviewStatus, ContentAnchor, ContentSource, ConversationAnchorKind, ConversationDto,
-    CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
+    BackupSummaryDto, BlockKind, BookIndexAggregateStatus, BookSummary, CapabilitySupport,
+    Citation, CitationReviewStatus, ContentAnchor, ContentSource, ConversationAnchorKind,
+    ConversationDto, CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
     IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
     IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
     IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
@@ -458,6 +458,24 @@ fn maintenance_bindings_are_bounded_structural_and_path_free() {
             "categories": [{ "category": "database", "bytes": 3, "fileCount": 1 }]
         })
     );
+
+    let backup = BackupSummaryDto {
+        format_version: 1,
+        archive_bytes: 4_096,
+        entry_count: 2,
+    };
+    let serialized = serde_json::to_string(&backup).unwrap();
+    assert_eq!(
+        serde_json::to_value(backup).unwrap(),
+        serde_json::json!({
+            "formatVersion": 1,
+            "archiveBytes": 4_096,
+            "entryCount": 2
+        })
+    );
+    for forbidden in ["path", "title", "content", "profile", "credential", "id"] {
+        assert!(!serialized.to_ascii_lowercase().contains(forbidden));
+    }
 }
 
 #[test]
@@ -543,4 +561,5 @@ fn export_bindings() {
     StorageCategory::export_all(&config).unwrap();
     StorageCategoryUsageDto::export_all(&config).unwrap();
     StorageUsageDto::export_all(&config).unwrap();
+    BackupSummaryDto::export_all(&config).unwrap();
 }
