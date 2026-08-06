@@ -4,6 +4,7 @@ pub mod corrections;
 pub mod indexing;
 pub mod messages;
 pub mod notes;
+pub mod overview;
 pub mod providers;
 pub mod settings;
 pub mod teaching;

@@ -7,6 +7,7 @@ pub mod indexing;
 pub mod learning;
 pub mod maintenance;
 pub mod onboarding;
+pub mod overview;
 pub mod providers;
 pub mod settings;
 pub mod teaching;

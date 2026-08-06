@@ -1,6 +1,7 @@
 pub mod captures;
 pub mod history;
 pub mod orchestrator;
+pub mod overview;
 pub mod preparation;
 mod prompt;
 pub mod registry;

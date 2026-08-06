@@ -2,26 +2,30 @@ use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
     ActiveOperationKind, ActiveOperationSummaryDto, AiOperation, AnnotationDto, AppSettingsDto,
-    BackupSummaryDto, BlockKind, BookIndexAggregateStatus, BookSummary, CapabilitySupport,
-    Citation, CitationReviewStatus, ClearAllDataStatusCode, ClearAllDataSummaryDto, ContentAnchor,
-    ContentSource, ConversationAnchorKind, ConversationDto, CredentialStatus, DocumentLocator,
-    ImageLimits, ImageMime, IndexAggregate, IndexAggregateStatus, IndexCorrectionConflictState,
-    IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind,
-    IndexPageBlockReviewDto, IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto,
-    IndexQualityReason, IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto,
-    LearningEvent, LearningRequest, LearningRequestEvent, LearningRequestEventPayload,
-    LearningRequestSnapshot, LearningRequestStatus, LearningUsage, LocalTextQuality,
-    MaintenanceErrorCode, MaintenanceErrorDto, MaintenanceStatusCode, MaintenanceStatusDto,
-    NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind,
-    PanelGeometry, ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
-    ProviderOperationConsent, ProviderOperationConsentCategory, ProviderOperationConsentDecision,
-    ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor, RegionLocator, RemoteCleanupStatus,
-    RestoreBackupStatusCode, RestoreBackupSummaryDto, SafeIndexErrorDto, SafeLearningError,
-    StorageCategory, StorageCategoryUsageDto, StorageUsageDto, TeachingInstructionDto, UiLanguage,
-    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
-    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
-    ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
-    stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
+    BackupSummaryDto, BlockKind, BookFormat, BookIndexAggregateStatus, BookSummary,
+    CapabilitySupport, Citation, CitationReviewStatus, ClearAllDataStatusCode,
+    ClearAllDataSummaryDto, ContentAnchor, ContentSource, ConversationAnchorKind, ConversationDto,
+    CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
+    IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
+    IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
+    IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
+    IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent,
+    LearningOverview, LearningOverviewActivity, LearningOverviewErrorCode,
+    LearningOverviewErrorDto, LearningOverviewSection, LearningOverviewSource,
+    LearningOverviewSourceSummary, LearningRequest, LearningRequestEvent,
+    LearningRequestEventPayload, LearningRequestSnapshot, LearningRequestStatus, LearningUsage,
+    LocalTextQuality, MaintenanceErrorCode, MaintenanceErrorDto, MaintenanceStatusCode,
+    MaintenanceStatusDto, NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep,
+    PageAnalysisBlockKind, PanelGeometry, ProviderCapability, ProviderCapabilityRegistryDto,
+    ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
+    ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor,
+    RegionLocator, RemoteCleanupStatus, RestoreBackupStatusCode, RestoreBackupSummaryDto,
+    SafeIndexErrorDto, SafeLearningError, StorageCategory, StorageCategoryUsageDto,
+    StorageUsageDto, TeachingInstructionDto, UiLanguage, UnifiedChatRequest, UnifiedMessage,
+    UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis,
+    UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction, ValidationResult,
+    VisionAssetMeta, stable_block_id, stable_index_page_block_id, stable_index_page_id,
+    stable_index_search_chunk_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -380,6 +384,81 @@ fn learning_panel_dtos_are_exact_bounded_and_redacted() {
 }
 
 #[test]
+fn learning_overview_contract_is_source_explicit_content_free_and_debug_redacted() {
+    let book_id = uuid::uuid!("4f9a2c86-0da8-4dd4-a255-39b4cff89c66");
+    let section_id = stable_section_id(book_id, 0);
+    let visible_title = "VISIBLE_SECTION_TITLE_SENTINEL";
+    let sources = LearningOverviewSource::ALL
+        .into_iter()
+        .map(LearningOverviewSourceSummary::empty)
+        .collect::<Vec<_>>();
+    let overview = LearningOverview {
+        book_id,
+        format: BookFormat::Pdf,
+        teaching_instruction_configured: true,
+        section_count: 1,
+        sections: vec![LearningOverviewSection {
+            id: section_id,
+            parent_id: None,
+            ordinal: 0,
+            title: visible_title.to_owned(),
+            local_text_item_count: 0,
+            user_note_count: 0,
+            completed_conversation_count: 0,
+            completed_exchange_count: 0,
+        }],
+        sources,
+        activity: LearningOverviewActivity {
+            user_note_count: 0,
+            completed_conversation_count: 0,
+            completed_exchange_count: 0,
+            citation_count: 0,
+        },
+    };
+    let value = serde_json::to_value(&overview).unwrap();
+    assert_eq!(value["bookId"], serde_json::json!(book_id));
+    assert_eq!(value["sections"][0]["title"], visible_title);
+    assert_eq!(
+        value["sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|source| source["source"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "local_text",
+            "ai_transcribed",
+            "ai_description",
+            "user_corrected",
+            "user_note",
+            "history_summary",
+        ]
+    );
+    let serialized = value.to_string();
+    for forbidden in [
+        "PRIVATE_TEXTBOOK_BODY_SENTINEL",
+        "PRIVATE_NOTE_BODY_SENTINEL",
+        "PRIVATE_PROMPT_SENTINEL",
+        "PRIVATE_ANSWER_SENTINEL",
+        "PRIVATE_ABSOLUTE_PATH_SENTINEL",
+        "credential",
+        "providerProfile",
+        "attemptId",
+        "requestId",
+        "runId",
+    ] {
+        assert!(!serialized.contains(forbidden));
+    }
+    assert!(!format!("{overview:?}").contains(visible_title));
+
+    let error = LearningOverviewErrorDto::new(LearningOverviewErrorCode::DataInvalid);
+    assert_eq!(
+        serde_json::to_value(error).unwrap(),
+        serde_json::json!({ "code": "LEARNING_OVERVIEW_DATA_INVALID" })
+    );
+}
+
+#[test]
 fn panel_geometry_rejects_non_finite_and_out_of_range_values() {
     assert_eq!(
         serde_json::to_value(PanelGeometry::default()).unwrap(),
@@ -523,9 +602,16 @@ fn maintenance_bindings_are_bounded_structural_and_path_free() {
 fn export_bindings() {
     let output_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/generated");
     std::fs::create_dir_all(&output_dir).unwrap();
-    let config = Config::new().with_out_dir(output_dir);
+    let config = Config::new().with_out_dir(output_dir.clone());
 
     BookSummary::export_all(&config).unwrap();
+    LearningOverviewSource::export_all(&config).unwrap();
+    LearningOverviewSourceSummary::export_all(&config).unwrap();
+    LearningOverviewSection::export_all(&config).unwrap();
+    LearningOverviewActivity::export_all(&config).unwrap();
+    LearningOverview::export_all(&config).unwrap();
+    LearningOverviewErrorCode::export_all(&config).unwrap();
+    LearningOverviewErrorDto::export_all(&config).unwrap();
     IndexAggregate::export_all(&config).unwrap();
     BookIndexAggregateStatus::export_all(&config).unwrap();
     NormalizedBookInput::export_all(&config).unwrap();
@@ -607,4 +693,23 @@ fn export_bindings() {
     RestoreBackupSummaryDto::export_all(&config).unwrap();
     ClearAllDataStatusCode::export_all(&config).unwrap();
     ClearAllDataSummaryDto::export_all(&config).unwrap();
+
+    let overview_binding =
+        std::fs::read_to_string(output_dir.join("overview.ts")).expect("overview binding");
+    assert!(overview_binding.contains("history_summary"));
+    assert!(overview_binding.contains("quoteableAsTextbook"));
+    for forbidden in [
+        "PRIVATE_TS_BINDING_SENTINEL",
+        "noteBody",
+        "prompt",
+        "answer",
+        "storedPath",
+        "credential",
+        "providerProfileId",
+        "attemptId",
+        "requestId",
+        "runId",
+    ] {
+        assert!(!overview_binding.contains(forbidden));
+    }
 }
