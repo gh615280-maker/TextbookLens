@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type RefObject,
   type ReactNode,
 } from 'react';
 
@@ -260,6 +261,9 @@ export function SettingsPage({
   const [restartRequired, setRestartRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clearValue, setClearValue] = useState('');
+  const backupTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreTriggerRef = useRef<HTMLButtonElement>(null);
+  const clearTriggerRef = useRef<HTMLButtonElement>(null);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -451,6 +455,7 @@ export function SettingsPage({
         ) : null}
         <div className="button-row">
           <button
+            ref={backupTriggerRef}
             type="button"
             disabled={busy}
             onClick={() => void beginBackup()}
@@ -458,6 +463,7 @@ export function SettingsPage({
             {text.createBackup}
           </button>
           <button
+            ref={restoreTriggerRef}
             type="button"
             disabled={busy}
             onClick={() => void beginRestore()}
@@ -465,6 +471,7 @@ export function SettingsPage({
             {text.restoreBackup}
           </button>
           <button
+            ref={clearTriggerRef}
             className="settings-danger"
             type="button"
             disabled={busy}
@@ -513,6 +520,7 @@ export function SettingsPage({
       {dialog === 'backup' && (
         <Dialog
           title={text.backupTitle}
+          returnFocusRef={backupTriggerRef}
           onClose={() => !busy && setDialog(null)}
         >
           <p>
@@ -543,6 +551,7 @@ export function SettingsPage({
       {dialog === 'restore' && (
         <Dialog
           title={text.restoreTitle}
+          returnFocusRef={restoreTriggerRef}
           onClose={() => !busy && setDialog(null)}
         >
           <p>{text.restoreWarning}</p>
@@ -567,6 +576,7 @@ export function SettingsPage({
       {dialog === 'clear' && (
         <Dialog
           title={text.clearTitle}
+          returnFocusRef={clearTriggerRef}
           onClose={() => !busy && setDialog(null)}
         >
           <p>{text.clearWarning}</p>
@@ -647,10 +657,12 @@ function Storage({
 
 function Dialog({
   title,
+  returnFocusRef,
   onClose,
   children,
 }: {
   title: string;
+  returnFocusRef: RefObject<HTMLElement | null>;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -661,7 +673,8 @@ function Dialog({
     onCloseRef.current = onClose;
   }, [onClose]);
   useEffect(() => {
-    previousFocus.current = document.activeElement as HTMLElement | null;
+    previousFocus.current =
+      returnFocusRef.current ?? (document.activeElement as HTMLElement | null);
     const focusFirstEnabledControl = () =>
       dialogRef.current
         ?.querySelector<HTMLElement>(
@@ -706,7 +719,7 @@ function Dialog({
       window.removeEventListener('keydown', handleKeyDown);
       previousFocus.current?.focus();
     };
-  }, []);
+  }, [returnFocusRef]);
   return (
     <div className="settings-dialog-backdrop">
       <div
