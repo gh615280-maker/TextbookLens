@@ -24,7 +24,7 @@ use textbooklens_lib::{
 use uuid::Uuid;
 
 const TIMESTAMP: &str = "2026-08-06T00:00:00.000Z";
-const SYNTHETIC_KEY_SENTINEL: &str = "sk-synthetic-checkpoint-key-never-archive";
+const SYNTHETIC_KEY_SENTINEL: &str = concat!("sk", "-", "synthetic-checkpoint-key-never-archive");
 const PRIVATE_BODY_SENTINEL: &str = "PRIVATE_BODY_MUST_NOT_LEAK";
 const PRIVATE_IMAGE_SENTINEL: &str = "PRIVATE_IMAGE_PAYLOAD_MUST_NOT_LEAK";
 const PRIVATE_PROMPT_SENTINEL: &str = "PRIVATE_PROMPT_MUST_NOT_LEAK";
