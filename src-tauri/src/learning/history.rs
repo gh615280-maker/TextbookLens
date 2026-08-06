@@ -148,7 +148,7 @@ pub async fn prepare_conversation_followup(
         operation: AiOperation::TextLearning,
         chat_request: prompt.into_chat_request(model_id.clone(), max_output_tokens, None),
         context: Arc::new(LearningRequestContext {
-            target: LearningPersistenceTarget::Followup(FollowupRequestContext {
+            target: LearningPersistenceTarget::SelectionFollowup(FollowupRequestContext {
                 book_id,
                 conversation_id,
                 expected_next_ordinal,

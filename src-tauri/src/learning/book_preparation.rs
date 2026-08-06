@@ -246,6 +246,10 @@ impl PreparedBookLearningRequest {
         self.binding.profile_id
     }
 
+    pub fn provider_kind(&self) -> &ProviderKind {
+        &self.binding.provider_kind
+    }
+
     pub fn model_id(&self) -> &str {
         &self.binding.model_id
     }
@@ -544,10 +548,19 @@ impl BookLearningPreparationService {
         &self,
         preparation_id: Uuid,
     ) -> AppResult<PreparedBookLearningRequest> {
-        let _permit = self
+        let permit = self
             .maintenance_gate
             .try_acquire_normal(ActiveOperationKind::Learning)
             .map_err(AppError::from)?;
+        self.consume_for_execution_with_maintenance_permit(preparation_id, &permit)
+            .await
+    }
+
+    pub(crate) async fn consume_for_execution_with_maintenance_permit(
+        &self,
+        preparation_id: Uuid,
+        _maintenance_permit: &crate::maintenance::gate::NormalOperationPermit,
+    ) -> AppResult<PreparedBookLearningRequest> {
         let binding = self.registry.binding(preparation_id, Instant::now())?;
         self.revalidate_binding(&binding).await?;
         self.registry.consume(preparation_id, Instant::now())

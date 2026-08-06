@@ -43,9 +43,23 @@ pub struct FollowupRequestContext {
     pub question: String,
 }
 
+pub struct NewBookQuestionRequestContext {
+    pub book_id: Uuid,
+    pub question: String,
+}
+
+pub struct BookFollowupRequestContext {
+    pub book_id: Uuid,
+    pub conversation_id: Uuid,
+    pub expected_next_ordinal: u32,
+    pub question: String,
+}
+
 pub enum LearningPersistenceTarget {
     NewSelection(NewSelectionRequestContext),
-    Followup(FollowupRequestContext),
+    SelectionFollowup(FollowupRequestContext),
+    NewBookQuestion(NewBookQuestionRequestContext),
+    BookFollowup(BookFollowupRequestContext),
 }
 
 pub struct LearningRequestContext {
@@ -58,15 +72,19 @@ pub struct LearningRequestContext {
 impl LearningRequestContext {
     pub fn conversation_id(&self) -> Option<Uuid> {
         match &self.target {
-            LearningPersistenceTarget::NewSelection(_) => None,
-            LearningPersistenceTarget::Followup(target) => Some(target.conversation_id),
+            LearningPersistenceTarget::NewSelection(_)
+            | LearningPersistenceTarget::NewBookQuestion(_) => None,
+            LearningPersistenceTarget::SelectionFollowup(target) => Some(target.conversation_id),
+            LearningPersistenceTarget::BookFollowup(target) => Some(target.conversation_id),
         }
     }
 
     pub fn book_id(&self) -> Uuid {
         match &self.target {
             LearningPersistenceTarget::NewSelection(target) => target.book_id,
-            LearningPersistenceTarget::Followup(target) => target.book_id,
+            LearningPersistenceTarget::SelectionFollowup(target) => target.book_id,
+            LearningPersistenceTarget::NewBookQuestion(target) => target.book_id,
+            LearningPersistenceTarget::BookFollowup(target) => target.book_id,
         }
     }
 }
@@ -79,7 +97,9 @@ impl fmt::Debug for LearningRequestContext {
                 "target",
                 &match self.target {
                     LearningPersistenceTarget::NewSelection(_) => "new_selection",
-                    LearningPersistenceTarget::Followup(_) => "followup",
+                    LearningPersistenceTarget::SelectionFollowup(_) => "selection_followup",
+                    LearningPersistenceTarget::NewBookQuestion(_) => "new_book_question",
+                    LearningPersistenceTarget::BookFollowup(_) => "book_followup",
                 },
             )
             .field("book_id", &"<redacted>")
@@ -105,7 +125,9 @@ impl Drop for LearningRequestContext {
                 }
                 zeroize_anchor(&mut target.anchor);
             }
-            LearningPersistenceTarget::Followup(target) => target.question.zeroize(),
+            LearningPersistenceTarget::SelectionFollowup(target) => target.question.zeroize(),
+            LearningPersistenceTarget::NewBookQuestion(target) => target.question.zeroize(),
+            LearningPersistenceTarget::BookFollowup(target) => target.question.zeroize(),
         }
         for citation in &mut self.available_citations {
             citation.id.zeroize();

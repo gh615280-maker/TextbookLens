@@ -84,3 +84,35 @@ fn conversations_history_anchor_validation_rejects_cross_format_and_cross_sectio
         "pdf"
     ));
 }
+
+#[test]
+fn book_followup_reserves_bounded_space_for_the_atomic_message_pair() {
+    let fits = BookHistorySize {
+        message_count: MAX_BOOK_HISTORY_MESSAGES - 2,
+        content_bytes: MAX_BOOK_HISTORY_CONTENT_BYTES - 2,
+        citations_bytes: MAX_BOOK_HISTORY_CITATIONS_BYTES - 2,
+    };
+    assert!(require_book_followup_fits(fits, "q", "a", "[]").is_ok());
+
+    for full in [
+        BookHistorySize {
+            message_count: MAX_BOOK_HISTORY_MESSAGES,
+            ..fits
+        },
+        BookHistorySize {
+            content_bytes: MAX_BOOK_HISTORY_CONTENT_BYTES,
+            ..fits
+        },
+        BookHistorySize {
+            citations_bytes: MAX_BOOK_HISTORY_CITATIONS_BYTES,
+            ..fits
+        },
+    ] {
+        assert_eq!(
+            require_book_followup_fits(full, "q", "a", "[]")
+                .unwrap_err()
+                .code,
+            AppErrorCode::ContextTooLarge
+        );
+    }
+}

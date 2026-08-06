@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use futures_util::stream;
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use textbooklens_lib::{
     ai::{error::AiError, provider::ProviderStream},
     db::Database,
@@ -14,8 +14,9 @@ use textbooklens_lib::{
     learning::{
         orchestrator::LearningOrchestrator,
         registry::{
-            FollowupRequestContext, LearningPersistenceTarget, LearningRequestContext,
-            LearningRequestRegistry, NewSelectionRequestContext,
+            BookFollowupRequestContext, FollowupRequestContext, LearningPersistenceTarget,
+            LearningRequestContext, LearningRequestRegistry, NewBookQuestionRequestContext,
+            NewSelectionRequestContext,
         },
     },
 };
@@ -201,6 +202,148 @@ fn utf8_output_overflow_cancels_provider_and_leaves_database_empty() {
     });
 }
 
+#[test]
+fn book_stream_requires_provider_completed_and_persists_no_marker() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let registry = LearningRequestRegistry::default();
+        let orchestrator = LearningOrchestrator::new(registry.clone(), fixture.pool().clone());
+
+        let incomplete = registry
+            .create(fixture.new_book_context("Incomplete?"))
+            .unwrap();
+        orchestrator
+            .run_stream(
+                incomplete.request_id,
+                provider_stream(vec![
+                    UnifiedStreamEvent::TextDelta {
+                        text: "memory-only partial".to_owned(),
+                    },
+                    UnifiedStreamEvent::Usage {
+                        input_tokens: Some(20),
+                        output_tokens: Some(2),
+                    },
+                ]),
+            )
+            .await;
+        assert_eq!(
+            registry.snapshot(incomplete.request_id).unwrap().status,
+            LearningRequestStatus::Failed
+        );
+        assert_counts(fixture.pool(), (0, 0, 0)).await;
+
+        let completed = registry
+            .create(fixture.new_book_context("Complete?"))
+            .unwrap();
+        orchestrator
+            .run_stream(
+                completed.request_id,
+                provider_stream(vec![
+                    UnifiedStreamEvent::TextDelta {
+                        text: "durable book answer".to_owned(),
+                    },
+                    UnifiedStreamEvent::Completed,
+                    UnifiedStreamEvent::Completed,
+                ]),
+            )
+            .await;
+        let snapshot = registry.snapshot(completed.request_id).unwrap();
+        assert_eq!(snapshot.status, LearningRequestStatus::Completed);
+        assert_eq!(snapshot.text, "durable book answer");
+        assert_counts(fixture.pool(), (1, 2, 0)).await;
+        let shape = sqlx::query(
+            "SELECT scope, section_id, anchor_kind, anchor_json, selected_text FROM conversations WHERE id = ?",
+        )
+        .bind(snapshot.conversation_id.unwrap().to_string())
+        .fetch_one(fixture.pool())
+        .await
+        .unwrap();
+        assert_eq!(shape.get::<String, _>("scope"), "book");
+        for column in ["section_id", "anchor_kind", "anchor_json", "selected_text"] {
+            assert_eq!(shape.get::<Option<String>, _>(column), None);
+        }
+    });
+}
+
+#[test]
+fn book_followup_singleflight_is_per_conversation_and_delete_reservation_is_authoritative() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let registry = LearningRequestRegistry::default();
+        let orchestrator = LearningOrchestrator::new(registry.clone(), fixture.pool().clone());
+        let initial = registry
+            .create(fixture.new_book_context("Initial book question?"))
+            .unwrap();
+        orchestrator
+            .run_stream(
+                initial.request_id,
+                provider_stream(vec![
+                    UnifiedStreamEvent::TextDelta {
+                        text: "initial book answer".to_owned(),
+                    },
+                    UnifiedStreamEvent::Completed,
+                ]),
+            )
+            .await;
+        let conversation_id = registry
+            .snapshot(initial.request_id)
+            .unwrap()
+            .conversation_id
+            .unwrap();
+
+        let followup = registry
+            .create(fixture.book_followup_context(conversation_id, 2, "Book follow-up?"))
+            .unwrap();
+        assert_eq!(
+            registry
+                .create(fixture.book_followup_context(conversation_id, 2, "Duplicate?"))
+                .unwrap_err()
+                .code,
+            AppErrorCode::RequestConflict
+        );
+        let other_book = registry
+            .create(fixture.new_book_context("Independent new book request?"))
+            .unwrap();
+        let selection = registry
+            .create(fixture.new_context("independent selection"))
+            .unwrap();
+        assert_eq!(
+            registry
+                .begin_conversation_deletion(conversation_id)
+                .unwrap_err()
+                .code,
+            AppErrorCode::RequestConflict
+        );
+
+        orchestrator
+            .run_stream(
+                followup.request_id,
+                provider_stream(vec![
+                    UnifiedStreamEvent::TextDelta {
+                        text: "current-model follow-up answer".to_owned(),
+                    },
+                    UnifiedStreamEvent::Completed,
+                ]),
+            )
+            .await;
+        registry.cancel(other_book.request_id).unwrap();
+        registry.cancel(selection.request_id).unwrap();
+        assert_counts(fixture.pool(), (1, 4, 0)).await;
+
+        let deletion = registry
+            .begin_conversation_deletion(conversation_id)
+            .unwrap();
+        assert_eq!(
+            registry
+                .create(fixture.book_followup_context(conversation_id, 4, "Late follow-up?"))
+                .unwrap_err()
+                .code,
+            AppErrorCode::RequestConflict
+        );
+        drop(deletion);
+    });
+}
+
 struct Fixture {
     _temporary: tempfile::TempDir,
     database: Database,
@@ -252,7 +395,7 @@ impl Fixture {
         question: &str,
     ) -> Arc<LearningRequestContext> {
         Arc::new(LearningRequestContext {
-            target: LearningPersistenceTarget::Followup(FollowupRequestContext {
+            target: LearningPersistenceTarget::SelectionFollowup(FollowupRequestContext {
                 book_id: self.book_id,
                 conversation_id,
                 expected_next_ordinal,
@@ -260,6 +403,37 @@ impl Fixture {
             }),
             provider_profile_id: self.profile_id,
             model_id: "captured-followup-model".to_owned(),
+            available_citations: Vec::new(),
+        })
+    }
+
+    fn new_book_context(&self, question: &str) -> Arc<LearningRequestContext> {
+        Arc::new(LearningRequestContext {
+            target: LearningPersistenceTarget::NewBookQuestion(NewBookQuestionRequestContext {
+                book_id: self.book_id,
+                question: question.to_owned(),
+            }),
+            provider_profile_id: self.profile_id,
+            model_id: "captured-book-model".to_owned(),
+            available_citations: Vec::new(),
+        })
+    }
+
+    fn book_followup_context(
+        &self,
+        conversation_id: Uuid,
+        expected_next_ordinal: u32,
+        question: &str,
+    ) -> Arc<LearningRequestContext> {
+        Arc::new(LearningRequestContext {
+            target: LearningPersistenceTarget::BookFollowup(BookFollowupRequestContext {
+                book_id: self.book_id,
+                conversation_id,
+                expected_next_ordinal,
+                question: question.to_owned(),
+            }),
+            provider_profile_id: self.profile_id,
+            model_id: "captured-current-book-model".to_owned(),
             available_citations: Vec::new(),
         })
     }

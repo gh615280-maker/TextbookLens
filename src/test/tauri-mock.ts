@@ -70,6 +70,7 @@ function safeRecordedPayload(
   }
   if (
     command === 'start_learning_request' ||
+    command === 'start_book_learning_request' ||
     command === 'subscribe_learning_request' ||
     command === 'cancel_learning_request'
   ) {
@@ -89,7 +90,9 @@ function safeRecordedPayload(
   }
   if (
     command === 'get_learning_conversation' ||
-    command === 'delete_learning_conversation'
+    command === 'delete_learning_conversation' ||
+    command === 'get_book_learning_conversation' ||
+    command === 'delete_book_learning_conversation'
   ) {
     const args = asRecord(payload);
     return {

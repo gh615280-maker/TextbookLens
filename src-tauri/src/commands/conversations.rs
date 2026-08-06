@@ -5,7 +5,8 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     db::conversations::{
-        ConversationHistoryDto, DeleteSelectionConversation, LearningRepository,
+        BookConversationHistoryDto, ConversationHistoryDto, DeleteBookConversation,
+        DeleteSelectionConversation, LearningRepository, load_book_conversation,
         load_selection_conversation,
     },
     errors::AppError,
@@ -51,6 +52,36 @@ pub async fn delete_learning_conversation(
             book_id,
             conversation_id,
             annotation_id,
+        })
+        .await
+        .map_err(ConversationErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn get_book_learning_conversation(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+    conversation_id: Uuid,
+) -> Result<BookConversationHistoryDto, ConversationErrorDto> {
+    load_book_conversation(state.db.pool(), book_id, conversation_id)
+        .await
+        .map_err(ConversationErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn delete_book_learning_conversation(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+    conversation_id: Uuid,
+) -> Result<(), ConversationErrorDto> {
+    let _deletion_guard = state
+        .learning_requests
+        .begin_conversation_deletion(conversation_id)
+        .map_err(ConversationErrorDto::from)?;
+    LearningRepository::new(state.db.pool().clone())
+        .delete_book_conversation(DeleteBookConversation {
+            book_id,
+            conversation_id,
         })
         .await
         .map_err(ConversationErrorDto::from)

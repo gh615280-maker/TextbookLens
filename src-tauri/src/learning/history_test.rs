@@ -114,7 +114,7 @@ fn history_loads_current_profile_instruction_and_only_bounded_same_conversation_
             prepared.chat_request.messages.last().unwrap().content,
             "What should I study next?"
         );
-        let LearningPersistenceTarget::Followup(target) = &prepared.context.target else {
+        let LearningPersistenceTarget::SelectionFollowup(target) = &prepared.context.target else {
             panic!("followup target");
         };
         assert_eq!(target.book_id, book_id);

@@ -9,24 +9,27 @@ use std::{
 use async_trait::async_trait;
 use chrono::{TimeZone, Utc};
 use parking_lot::Mutex;
+use secrecy::SecretString;
 use sqlx::SqlitePool;
+use tokio::sync::{Semaphore, oneshot};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    ai::registry::ProviderCapabilityRegistry,
-    credentials::MemoryCredentialStore,
+    ai::{registry::ProviderCapabilityRegistry, runtime::ProviderRuntime},
+    credentials::{CredentialStore, MemoryCredentialStore},
     db::{
         Database,
         corrections::{SaveIndexCorrection, correction_value_sha256, save_index_correction},
         indexing::{CreateIndexRun, create_index_run},
+        providers,
     },
     domain::{
         ActiveOperationKind, BookFormat, ContentSource as DurableContentSource, DocumentLocator,
-        IndexCorrectionValueKind, IndexPageBlockKind, IndexQualityReason, MaintenanceStatusCode,
-        NormalizedRect, PrepareBookLearningRequestMetadata, ProviderOperationConsent,
-        ProviderOperationConsentCategory, ProviderOperationConsentDecision, UnifiedRole,
-        stable_section_id,
+        IndexCorrectionValueKind, IndexPageBlockKind, IndexQualityReason, LearningRequestStatus,
+        MaintenanceStatusCode, NormalizedRect, PrepareBookLearningRequestMetadata,
+        ProviderOperationConsent, ProviderOperationConsentCategory,
+        ProviderOperationConsentDecision, UnifiedRole, stable_section_id,
     },
     errors::{AppError, AppErrorCode, AppResult},
     indexing::{
@@ -38,6 +41,7 @@ use crate::{
 };
 
 use super::*;
+use crate::learning::{orchestrator::LearningOrchestrator, registry::LearningRequestRegistry};
 
 const FIXTURE_TIME: &str = "2026-08-06T00:00:00.000Z";
 const QUESTION: &str = "How does orbital flux determine the synthetic example?";
@@ -155,6 +159,258 @@ fn new_book_questions_are_deterministic_private_and_local_for_all_formats() {
         }
 
         assert_eq!(before, protected_counts(fixture.pool()).await);
+        assert_eq!(
+            fixture.gate.status().code,
+            MaintenanceStatusCode::MaintenanceAvailable
+        );
+    });
+}
+
+#[test]
+fn consumed_book_request_registers_before_provider_load_failure_and_persists_nothing() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let book = seed_book(fixture.pool(), BookFormat::Pdf, "provider-load-failure").await;
+        let summary = fixture
+            .service
+            .prepare(new_metadata(book.book_id, QUESTION))
+            .await
+            .unwrap();
+        let prepared = fixture
+            .service
+            .consume_for_execution(summary.preparation_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            fixture
+                .service
+                .consume_for_execution(summary.preparation_id)
+                .await
+                .unwrap_err()
+                .code,
+            AppErrorCode::RequestConflict,
+            "opaque preparation is consumed exactly once"
+        );
+
+        let registry = LearningRequestRegistry::with_maintenance_gate(fixture.gate.clone());
+        let orchestrator = LearningOrchestrator::new(registry.clone(), fixture.pool().clone());
+        let runtime_store = Arc::new(MissingRuntimeCredentialStore {
+            gate: fixture.gate.clone(),
+            saw_learning_lease: AtomicBool::new(false),
+        });
+        let runtime = ProviderRuntime::new(
+            runtime_store.clone(),
+            ProviderCapabilityRegistry::load_embedded().unwrap(),
+        );
+        let permit = registry.acquire_maintenance_permit().unwrap();
+        let snapshot = orchestrator
+            .start_prepared_book_with_maintenance_permit(&runtime, prepared, permit)
+            .await
+            .unwrap();
+        assert_eq!(snapshot.status, LearningRequestStatus::Failed);
+        assert_eq!(snapshot.conversation_id, None);
+        assert!(snapshot.safe_error.is_some());
+        assert!(runtime_store.saw_learning_lease.load(Ordering::SeqCst));
+        assert_eq!(
+            registry.snapshot(snapshot.request_id).unwrap().status,
+            LearningRequestStatus::Failed
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM conversations")
+                .fetch_one(fixture.pool())
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM messages")
+                .fetch_one(fixture.pool())
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM annotations")
+                .fetch_one(fixture.pool())
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            fixture.gate.status().code,
+            MaintenanceStatusCode::MaintenanceAvailable
+        );
+    });
+}
+
+#[test]
+fn command_boundary_permit_allows_consume_to_finish_ahead_of_queued_maintenance() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let book = seed_book(fixture.pool(), BookFormat::Pdf, "queued-maintenance").await;
+        let summary = fixture
+            .service
+            .prepare(new_metadata(book.book_id, QUESTION))
+            .await
+            .unwrap();
+        let command_permit = fixture
+            .gate
+            .try_acquire_normal(ActiveOperationKind::Learning)
+            .unwrap();
+        let queued_gate = fixture.gate.clone();
+        let queued = tokio::spawn(async move {
+            let _exclusive = queued_gate.acquire_maintenance().await.unwrap();
+        });
+        for _ in 0..100 {
+            if fixture.gate.status().code == MaintenanceStatusCode::MaintenanceWaiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            fixture.gate.status().code,
+            MaintenanceStatusCode::MaintenanceWaiting
+        );
+
+        let prepared = fixture
+            .service
+            .consume_for_execution_with_maintenance_permit(summary.preparation_id, &command_permit)
+            .await
+            .unwrap();
+        assert_eq!(prepared.book_id(), book.book_id);
+        drop(prepared);
+        drop(command_permit);
+        queued.await.unwrap();
+        assert_eq!(
+            fixture.gate.status().code,
+            MaintenanceStatusCode::MaintenanceAvailable
+        );
+    });
+}
+
+#[test]
+fn provider_load_continuation_keeps_maintenance_lease_after_registry_shutdown() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let book = seed_book(fixture.pool(), BookFormat::Pdf, "shutdown-provider-load").await;
+        let summary = fixture
+            .service
+            .prepare(new_metadata(book.book_id, QUESTION))
+            .await
+            .unwrap();
+        let prepared = fixture
+            .service
+            .consume_for_execution(summary.preparation_id)
+            .await
+            .unwrap();
+
+        let registry = LearningRequestRegistry::with_maintenance_gate(fixture.gate.clone());
+        let orchestrator = LearningOrchestrator::new(registry.clone(), fixture.pool().clone());
+        let (reached_sender, reached_receiver) = oneshot::channel();
+        let runtime_store = Arc::new(BlockingRuntimeCredentialStore {
+            reached: Mutex::new(Some(reached_sender)),
+            release: Semaphore::new(0),
+        });
+        let runtime = ProviderRuntime::new(
+            runtime_store.clone(),
+            ProviderCapabilityRegistry::load_embedded().unwrap(),
+        );
+        let permit = registry.acquire_maintenance_permit().unwrap();
+        let start = tokio::spawn(async move {
+            orchestrator
+                .start_prepared_book_with_maintenance_permit(&runtime, prepared, permit)
+                .await
+        });
+        reached_receiver.await.unwrap();
+        registry.shutdown();
+
+        let error = fixture.gate.try_acquire_maintenance().unwrap_err();
+        assert!(matches!(
+            error,
+            crate::maintenance::gate::GateAcquireError::Busy(_)
+        ));
+        runtime_store.release.add_permits(1);
+        assert_eq!(
+            start.await.unwrap().unwrap_err().code,
+            AppErrorCode::NotFound
+        );
+        let exclusive = fixture.gate.try_acquire_maintenance().unwrap();
+        drop(exclusive);
+        assert_eq!(
+            fixture.gate.status().code,
+            MaintenanceStatusCode::MaintenanceAvailable
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM conversations")
+                .fetch_one(fixture.pool())
+                .await
+                .unwrap(),
+            0
+        );
+    });
+}
+
+#[test]
+fn book_execution_rejects_provider_model_drift_after_consume_without_persistence() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let book = seed_book(fixture.pool(), BookFormat::Pdf, "provider-drift").await;
+        let summary = fixture
+            .service
+            .prepare(new_metadata(book.book_id, QUESTION))
+            .await
+            .unwrap();
+        let prepared = fixture
+            .service
+            .consume_for_execution(summary.preparation_id)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "UPDATE provider_profiles SET provider_kind = 'gemini', model_id = 'gemini-3.6-flash', updated_at = '2026-08-06T00:04:00.000Z' WHERE id = ?",
+        )
+        .bind(fixture.profile_id.to_string())
+        .execute(fixture.pool())
+        .await
+        .unwrap();
+        let credentials = Arc::new(MemoryCredentialStore::new());
+        credentials
+            .set(
+                &providers::credential_key(fixture.profile_id),
+                SecretString::from("synthetic-not-a-real-key"),
+            )
+            .await
+            .unwrap();
+        let runtime = ProviderRuntime::new(
+            credentials,
+            ProviderCapabilityRegistry::load_embedded().unwrap(),
+        );
+        let registry = LearningRequestRegistry::with_maintenance_gate(fixture.gate.clone());
+        let orchestrator = LearningOrchestrator::new(registry.clone(), fixture.pool().clone());
+        let permit = registry.acquire_maintenance_permit().unwrap();
+        let snapshot = orchestrator
+            .start_prepared_book_with_maintenance_permit(&runtime, prepared, permit)
+            .await
+            .unwrap();
+        assert_eq!(snapshot.status, LearningRequestStatus::Failed);
+        assert_eq!(
+            snapshot.safe_error.unwrap().code,
+            AppError::new(AppErrorCode::RequestConflict).stable_code()
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM conversations")
+                .fetch_one(fixture.pool())
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM messages")
+                .fetch_one(fixture.pool())
+                .await
+                .unwrap(),
+            0
+        );
         assert_eq!(
             fixture.gate.status().code,
             MaintenanceStatusCode::MaintenanceAvailable
@@ -965,6 +1221,75 @@ struct CountingBookSensitiveAccess {
     saw_learning_lease: AtomicBool,
     mutate_teaching: AtomicBool,
     consents: Mutex<Vec<ProviderOperationConsent>>,
+}
+
+struct MissingRuntimeCredentialStore {
+    gate: MaintenanceGate,
+    saw_learning_lease: AtomicBool,
+}
+
+struct BlockingRuntimeCredentialStore {
+    reached: Mutex<Option<oneshot::Sender<()>>>,
+    release: Semaphore,
+}
+
+#[async_trait]
+impl CredentialStore for BlockingRuntimeCredentialStore {
+    async fn set(&self, _key: &str, _value: SecretString) -> AppResult<()> {
+        Err(AppError::credential_store(
+            "synthetic runtime store is read-only",
+        ))
+    }
+
+    async fn get(&self, _key: &str) -> AppResult<SecretString> {
+        if let Some(reached) = self.reached.lock().take() {
+            let _ = reached.send(());
+        }
+        self.release
+            .acquire()
+            .await
+            .map_err(|_| AppError::credential_store("synthetic runtime store closed"))?
+            .forget();
+        Ok(SecretString::from("synthetic-not-a-real-key"))
+    }
+
+    async fn delete(&self, _key: &str) -> AppResult<()> {
+        Err(AppError::credential_store(
+            "synthetic runtime store is read-only",
+        ))
+    }
+}
+
+#[async_trait]
+impl CredentialStore for MissingRuntimeCredentialStore {
+    async fn set(&self, _key: &str, _value: SecretString) -> AppResult<()> {
+        Err(AppError::credential_store(
+            "synthetic runtime store is read-only",
+        ))
+    }
+
+    async fn get(&self, _key: &str) -> AppResult<SecretString> {
+        if self
+            .gate
+            .status()
+            .active_operations
+            .iter()
+            .any(|operation| {
+                operation.kind == ActiveOperationKind::Learning && operation.count >= 1
+            })
+        {
+            self.saw_learning_lease.store(true, Ordering::SeqCst);
+        }
+        Err(AppError::credential_store(
+            "synthetic runtime credential is missing",
+        ))
+    }
+
+    async fn delete(&self, _key: &str) -> AppResult<()> {
+        Err(AppError::credential_store(
+            "synthetic runtime store is read-only",
+        ))
+    }
 }
 
 impl CountingBookSensitiveAccess {

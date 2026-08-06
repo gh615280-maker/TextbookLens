@@ -2,7 +2,8 @@ use std::{collections::BTreeMap, fmt};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Serialize;
-use sqlx::{Row, Sqlite, SqlitePool, Transaction};
+use sqlx::{Row, Sqlite, SqlitePool, Transaction, sqlite::SqliteRow};
+use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
@@ -21,11 +22,13 @@ pub const MAX_LEARNING_CITATIONS: usize = 256;
 pub const MAX_LEARNING_CITATIONS_JSON_BYTES: usize = 1024 * 1024;
 pub const MAX_LEARNING_MODEL_ID_CODE_POINTS: usize = 256;
 
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(export_to = "conversation.ts")]
 pub struct ConversationMessageDto {
     pub id: Uuid,
     pub ordinal: u32,
+    #[ts(type = "\"user\" | \"assistant\"")]
     pub role: &'static str,
     pub action: LearningAction,
     pub content: String,
@@ -63,6 +66,27 @@ pub(crate) async fn load_conversation_messages(
     .bind(conversation_id.to_string())
     .fetch_all(pool)
     .await?;
+    parse_conversation_message_rows(rows, book_id)
+}
+
+pub(crate) async fn load_conversation_messages_in_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    book_id: Uuid,
+    conversation_id: Uuid,
+) -> AppResult<Vec<ConversationMessageDto>> {
+    let rows = sqlx::query(
+        "SELECT id, ordinal, role, action, content, provider_id, model_id, citations_json, created_at FROM messages WHERE conversation_id = ? ORDER BY ordinal",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_all(&mut **transaction)
+    .await?;
+    parse_conversation_message_rows(rows, book_id)
+}
+
+fn parse_conversation_message_rows(
+    rows: Vec<SqliteRow>,
+    book_id: Uuid,
+) -> AppResult<Vec<ConversationMessageDto>> {
     if rows.len() < 2 || !rows.len().is_multiple_of(2) {
         return Err(database_error());
     }
@@ -101,6 +125,16 @@ pub(crate) async fn load_conversation_messages(
                     serde_json::from_str(&citations_json).map_err(|_| database_error())?;
                 if citations.len() > MAX_LEARNING_CITATIONS
                     || citations.iter().any(|citation| citation.book_id != book_id)
+                {
+                    return Err(database_error());
+                }
+                let cited_ids =
+                    extract_model_citation_ids(&content).map_err(|_| database_error())?;
+                if cited_ids.len() != citations.len()
+                    || citations
+                        .iter()
+                        .zip(cited_ids.iter())
+                        .any(|(citation, cited_id)| citation.id != *cited_id)
                 {
                     return Err(database_error());
                 }
@@ -161,7 +195,11 @@ fn parse_action(value: &str) -> AppResult<LearningAction> {
 }
 
 fn parse_uuid(value: &str) -> AppResult<Uuid> {
-    Uuid::parse_str(value).map_err(|_| database_error())
+    let parsed = Uuid::parse_str(value).map_err(|_| database_error())?;
+    if parsed.to_string() != value {
+        return Err(database_error());
+    }
+    Ok(parsed)
 }
 
 #[derive(Clone)]

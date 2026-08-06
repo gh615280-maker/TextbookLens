@@ -24,7 +24,7 @@ use crate::{
 use super::{
     super::registry::{
         LEARNING_REQUEST_TERMINAL_TTL, LearningPersistenceTarget, LearningRequestContext,
-        LearningRequestRegistry, NewSelectionRequestContext,
+        LearningRequestRegistry, NewBookQuestionRequestContext, NewSelectionRequestContext,
     },
     BoxLearningTask, LearningOrchestrator, LearningTaskSpawner,
 };
@@ -196,6 +196,48 @@ async fn orchestrator_stop_at_precommit_barrier_wins_and_rolls_back() {
 }
 
 #[tokio::test]
+async fn book_orchestrator_stop_after_transaction_begins_but_before_authorizer_leaves_zero_rows() {
+    let fixture = Fixture::new().await;
+    let registry = LearningRequestRegistry::default();
+    let (reached_sender, reached_receiver) = oneshot::channel();
+    let (release_sender, release_receiver) = oneshot::channel();
+    let repository = LearningRepository::with_fault_injector(
+        fixture.pool().clone(),
+        Arc::new(CommitBarrier {
+            reached: Mutex::new(Some(reached_sender)),
+            release: Mutex::new(Some(release_receiver)),
+        }),
+    );
+    let orchestrator =
+        LearningOrchestrator::with_repository(registry.clone(), fixture.pool().clone(), repository);
+    let created = registry.create(fixture.book_context()).unwrap();
+    let request_id = created.request_id;
+    let task = tokio::spawn(async move {
+        orchestrator
+            .run_stream(
+                request_id,
+                provider_stream(vec![
+                    UnifiedStreamEvent::TextDelta {
+                        text: "provider completed book output".to_owned(),
+                    },
+                    UnifiedStreamEvent::Completed,
+                ]),
+            )
+            .await;
+    });
+    reached_receiver.await.unwrap();
+    registry.cancel(request_id).unwrap();
+    release_sender.send(()).unwrap();
+    task.await.unwrap();
+
+    assert_eq!(
+        registry.snapshot(request_id).unwrap().status,
+        LearningRequestStatus::Cancelled
+    );
+    assert_counts(fixture.pool(), (0, 0, 0)).await;
+}
+
+#[tokio::test]
 async fn orchestrator_spawn_failure_is_safe_terminal_without_marker_or_history() {
     let fixture = Fixture::new().await;
     let registry = LearningRequestRegistry::default();
@@ -295,6 +337,18 @@ impl Fixture {
             }),
             provider_profile_id: self.profile_id,
             model_id: "captured-model".to_owned(),
+            available_citations: Vec::new(),
+        })
+    }
+
+    fn book_context(&self) -> Arc<LearningRequestContext> {
+        Arc::new(LearningRequestContext {
+            target: LearningPersistenceTarget::NewBookQuestion(NewBookQuestionRequestContext {
+                book_id: self.book_id,
+                question: "Ask the whole textbook.".to_owned(),
+            }),
+            provider_profile_id: self.profile_id,
+            model_id: "captured-book-model".to_owned(),
             available_citations: Vec::new(),
         })
     }

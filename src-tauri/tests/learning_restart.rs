@@ -227,7 +227,7 @@ fn restart_followup_captures_current_profile_preserves_history_and_delete_is_ato
         .unwrap();
         assert_eq!(prepared.context.provider_profile_id, ids.current_profile);
         assert_eq!(prepared.context.model_id, "gemini-3.6-flash");
-        let LearningPersistenceTarget::Followup(target) = &prepared.context.target else {
+        let LearningPersistenceTarget::SelectionFollowup(target) = &prepared.context.target else {
             panic!("expected follow-up persistence target");
         };
         assert_eq!(target.book_id, ids.book);

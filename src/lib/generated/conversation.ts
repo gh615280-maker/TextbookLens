@@ -2,6 +2,8 @@
 import type { ContentAnchor, DocumentLocator } from "./document";
 import type { ContentSource } from "./provenance";
 
+export type BookConversationHistoryDto = { id: string, bookId: string, scope: "book", status: "completed", messages: Array<ConversationMessageDto>, createdAt: string, updatedAt: string, };
+
 export type Citation = { id: string, label: string, bookId: string, sectionId: string | null, locator: DocumentLocator, source: ContentSource, reviewStatus: CitationReviewStatus, quoteable: boolean, };
 
 export type CitationReviewStatus = "not_required" | "indexed" | "needs_review" | "user_corrected";
@@ -9,6 +11,8 @@ export type CitationReviewStatus = "not_required" | "indexed" | "needs_review" |
 export type ConversationAnchorKind = "text" | "region";
 
 export type ConversationDto = { id: string, bookId: string, sectionId: string | null, scope: ConversationScope, anchorKind: ConversationAnchorKind | null, anchor: ContentAnchor | null, selectedText: string | null, createdAt: string, updatedAt: string, };
+
+export type ConversationMessageDto = { id: string, ordinal: number, role: "user" | "assistant", action: LearningAction, content: string, providerId: string | null, modelId: string | null, citations: Array<Citation>, createdAt: string, };
 
 export type ConversationScope = "selection" | "book";
 

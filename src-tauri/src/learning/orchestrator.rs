@@ -12,7 +12,10 @@ use crate::{
     },
     db::{
         conversations::LearningCommitAuthorizer,
-        conversations::{FollowupCompletion, LearningRepository, NewSelectionCompletion},
+        conversations::{
+            BookFollowupCompletion, FollowupCompletion, LearningRepository,
+            NewBookQuestionCompletion, NewSelectionCompletion,
+        },
         messages::CompletedAssistantMessage,
     },
     domain::{
@@ -24,11 +27,12 @@ use crate::{
 };
 
 use super::{
+    book_preparation::PreparedBookLearningRequest,
     history::PreparedFollowupExecution,
     preparation::{LearningAction as PreparationAction, PreparedLearningRequest},
     registry::{
-        LearningPersistenceTarget, LearningRequestContext, LearningRequestRegistry,
-        NewSelectionRequestContext,
+        BookFollowupRequestContext, LearningPersistenceTarget, LearningRequestContext,
+        LearningRequestRegistry, NewBookQuestionRequestContext, NewSelectionRequestContext,
     },
 };
 
@@ -177,6 +181,79 @@ impl LearningOrchestrator {
         )
     }
 
+    pub async fn start_prepared_book(
+        &self,
+        runtime: &ProviderRuntime,
+        prepared: PreparedBookLearningRequest,
+    ) -> AppResult<LearningRequestSnapshot> {
+        let maintenance_permit = self.registry.acquire_maintenance_permit()?;
+        self.start_prepared_book_with_maintenance_permit(runtime, prepared, maintenance_permit)
+            .await
+    }
+
+    pub(crate) async fn start_prepared_book_with_maintenance_permit(
+        &self,
+        runtime: &ProviderRuntime,
+        prepared: PreparedBookLearningRequest,
+        maintenance_permit: NormalOperationPermit,
+    ) -> AppResult<LearningRequestSnapshot> {
+        let question = prepared.current_question()?.to_owned();
+        let book_id = prepared.book_id();
+        let target = match (prepared.conversation_id(), prepared.expected_next_ordinal()) {
+            (None, None) => {
+                LearningPersistenceTarget::NewBookQuestion(NewBookQuestionRequestContext {
+                    book_id,
+                    question,
+                })
+            }
+            (Some(conversation_id), Some(expected_next_ordinal)) => {
+                LearningPersistenceTarget::BookFollowup(BookFollowupRequestContext {
+                    book_id,
+                    conversation_id,
+                    expected_next_ordinal,
+                    question,
+                })
+            }
+            _ => return Err(AppError::new(AppErrorCode::RequestConflict)),
+        };
+        let profile_id = prepared.provider_profile_id();
+        let provider_kind = prepared.provider_kind().clone();
+        let model_id = prepared.model_id().to_owned();
+        let request = LearningProviderRequest::Text(prepared.chat_request());
+        let context = Arc::new(LearningRequestContext {
+            target,
+            provider_profile_id: profile_id,
+            model_id: model_id.clone(),
+            available_citations: prepared.packed_context().citations.clone(),
+        });
+        let snapshot = self
+            .registry
+            .create_with_maintenance_permit(context, maintenance_permit)?;
+        let request_id = snapshot.request_id;
+        let _provider_load_lease = self.registry.operation_permit(request_id)?;
+
+        let loaded = match runtime
+            .load(&self.pool, profile_id, AiOperation::TextLearning)
+            .await
+        {
+            Ok(loaded) => loaded,
+            Err(error) => return self.fail_registered_start(request_id, &error),
+        };
+        if loaded.profile().id != profile_id
+            || loaded.profile().kind != provider_kind
+            || loaded.provider_kind() != provider_kind
+            || loaded.profile().model_id != model_id
+        {
+            return self
+                .fail_registered_start(request_id, &AppError::new(AppErrorCode::RequestConflict));
+        }
+        if self.registry.cancellation_token(request_id)?.is_cancelled() {
+            self.registry.release_maintenance_permit(request_id);
+            return self.registry.snapshot(request_id);
+        }
+        self.start_registered_loaded(snapshot, loaded, request, &TokioLearningTaskSpawner)
+    }
+
     pub async fn start_followup(
         &self,
         runtime: &ProviderRuntime,
@@ -225,6 +302,16 @@ impl LearningOrchestrator {
         let snapshot = self
             .registry
             .create_with_maintenance_permit(context, maintenance_permit)?;
+        self.start_registered_loaded(snapshot, loaded, request, spawner)
+    }
+
+    fn start_registered_loaded(
+        &self,
+        snapshot: LearningRequestSnapshot,
+        loaded: LoadedProvider,
+        request: LearningProviderRequest,
+        spawner: &dyn LearningTaskSpawner,
+    ) -> AppResult<LearningRequestSnapshot> {
         let request_id = snapshot.request_id;
         let operation_lease = self.registry.operation_permit(request_id)?;
         let orchestrator = self.clone();
@@ -240,6 +327,16 @@ impl LearningOrchestrator {
                 .await;
         });
         self.spawn_registered(snapshot, task, spawner)
+    }
+
+    fn fail_registered_start(
+        &self,
+        request_id: Uuid,
+        error: &AppError,
+    ) -> AppResult<LearningRequestSnapshot> {
+        self.registry.fail(request_id, error)?;
+        self.registry.release_maintenance_permit(request_id);
+        self.registry.snapshot(request_id)
     }
 
     fn spawn_registered(
@@ -369,10 +466,36 @@ impl LearningOrchestrator {
                 )
                 .await
                 .map(|result| result.conversation_id),
-            LearningPersistenceTarget::Followup(target) => self
+            LearningPersistenceTarget::SelectionFollowup(target) => self
                 .repository
                 .persist_followup_authorized(
                     FollowupCompletion {
+                        book_id: target.book_id,
+                        conversation_id: target.conversation_id,
+                        expected_next_ordinal: target.expected_next_ordinal,
+                        question: target.question.clone(),
+                        assistant,
+                    },
+                    &commit_authorizer,
+                )
+                .await
+                .map(|()| target.conversation_id),
+            LearningPersistenceTarget::NewBookQuestion(target) => self
+                .repository
+                .persist_new_book_question_authorized(
+                    NewBookQuestionCompletion {
+                        book_id: target.book_id,
+                        question: target.question.clone(),
+                        assistant,
+                    },
+                    &commit_authorizer,
+                )
+                .await
+                .map(|result| result.conversation_id),
+            LearningPersistenceTarget::BookFollowup(target) => self
+                .repository
+                .persist_book_followup_authorized(
+                    BookFollowupCompletion {
                         book_id: target.book_id,
                         conversation_id: target.conversation_id,
                         expected_next_ordinal: target.expected_next_ordinal,

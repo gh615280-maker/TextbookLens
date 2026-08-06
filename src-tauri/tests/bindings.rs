@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 
+use textbooklens_lib::db::{
+    conversations::BookConversationHistoryDto, messages::ConversationMessageDto,
+};
 use textbooklens_lib::domain::{
     ActiveOperationKind, ActiveOperationSummaryDto, AiOperation, AnnotationDto, AppSettingsDto,
     BackupSummaryDto, BlockKind, BookFormat, BookIndexAggregateStatus,
@@ -696,6 +699,8 @@ fn export_bindings() {
     ContentAnchor::export_all(&config).unwrap();
     AnnotationDto::export_all(&config).unwrap();
     ConversationDto::export_all(&config).unwrap();
+    ConversationMessageDto::export_all(&config).unwrap();
+    BookConversationHistoryDto::export_all(&config).unwrap();
     ConversationAnchorKind::export_all(&config).unwrap();
     CitationReviewStatus::export_all(&config).unwrap();
     Citation::export_all(&config).unwrap();

@@ -423,7 +423,7 @@ fn synthetic_learning_context() -> Arc<LearningRequestContext> {
 
 fn synthetic_followup_context() -> Arc<LearningRequestContext> {
     Arc::new(LearningRequestContext {
-        target: LearningPersistenceTarget::Followup(FollowupRequestContext {
+        target: LearningPersistenceTarget::SelectionFollowup(FollowupRequestContext {
             book_id: uuid::Uuid::new_v4(),
             conversation_id: uuid::Uuid::new_v4(),
             expected_next_ordinal: 2,

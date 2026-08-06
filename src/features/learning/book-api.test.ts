@@ -156,7 +156,7 @@ describe('TauriBookLearningPreparationApi', () => {
     });
   });
 
-  it('reduces IPC failures to one stable code and exposes no execution method', async () => {
+  it('reduces IPC failures to one stable code', async () => {
     installTauriMock(() => {
       throw {
         code: 'CONTEXT_TOO_LARGE',
@@ -168,9 +168,58 @@ describe('TauriBookLearningPreparationApi', () => {
     await expect(
       api.prepare({ kind: 'new', bookId: BOOK_ID, question: QUESTION }),
     ).rejects.toEqual({ code: 'CONTEXT_TOO_LARGE' });
-    expect(
-      Object.getOwnPropertyNames(Object.getPrototypeOf(api)).sort(),
-    ).toEqual(['authorize', 'constructor', 'discard', 'prepare']);
+  });
+
+  it('starts only from an opaque preparation ID and validates the safe snapshot', async () => {
+    const calls = installTauriMock((command) => {
+      expect(command).toBe('start_book_learning_request');
+      return {
+        requestId: '44444444-4444-4444-8444-444444444444',
+        conversationId: null,
+        status: 'preparing',
+        text: '',
+        usage: null,
+        safeError: null,
+        lastSeq: 1,
+      };
+    });
+    const api = new TauriBookLearningPreparationApi();
+    await expect(api.start(PREPARATION_ID)).resolves.toMatchObject({
+      status: 'preparing',
+      conversationId: null,
+    });
+    expect(calls).toEqual([
+      {
+        command: 'start_book_learning_request',
+        payload: { preparationId: PREPARATION_ID },
+      },
+    ]);
+    await expect(api.start('not-a-uuid')).rejects.toEqual({
+      code: 'INVALID_INPUT',
+    });
+  });
+
+  it('reduces start failures and malformed snapshots to stable safe codes', async () => {
+    const api = new TauriBookLearningPreparationApi();
+    installTauriMock(() => {
+      throw { code: 'REQUEST_CONFLICT', detail: 'private internal detail' };
+    });
+    await expect(api.start(PREPARATION_ID)).rejects.toEqual({
+      code: 'REQUEST_CONFLICT',
+    });
+
+    installTauriMock(() => ({
+      requestId: '44444444-4444-4444-8444-444444444444',
+      conversationId: null,
+      status: 'completed',
+      text: 'inconsistent completed snapshot',
+      usage: null,
+      safeError: null,
+      lastSeq: 2,
+    }));
+    await expect(api.start(PREPARATION_ID)).rejects.toEqual({
+      code: 'DATABASE_ERROR',
+    });
   });
 });
 

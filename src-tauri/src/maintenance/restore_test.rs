@@ -14,9 +14,12 @@ use tempfile::TempDir;
 use super::*;
 use crate::{
     credentials::MemoryCredentialStore,
-    db::Database,
+    db::{Database, conversations::load_book_conversation},
     maintenance::{archive::BackupService, storage::prepare_app_data_paths},
 };
+
+const BOOK_QUESTION_SENTINEL: &str = "ARCHIVED_BOOK_QUESTION_SENTINEL";
+const BOOK_ANSWER_SENTINEL: &str = "ARCHIVED_BOOK_ANSWER_SENTINEL";
 
 struct RestoreFixture {
     temporary: TempDir,
@@ -25,6 +28,7 @@ struct RestoreFixture {
     gate: MaintenanceGate,
     archive: PathBuf,
     book_id: Uuid,
+    conversation_id: Uuid,
 }
 
 impl RestoreFixture {
@@ -45,6 +49,7 @@ impl RestoreFixture {
         };
         let database = Database::open(&paths.database).unwrap();
         let book_id = uuid::uuid!("86c2f6dd-d617-4e32-9d2c-789f4a4eae42");
+        let conversation_id = uuid::uuid!("db2805eb-9f7c-442b-ab13-499d77b13896");
         let book = paths.books.join(book_id.to_string());
         fs::create_dir_all(book.join("derived")).unwrap();
         let source = b"%PDF-1.7\nRESTORE_SOURCE_SENTINEL\n%%EOF";
@@ -68,6 +73,27 @@ impl RestoreFixture {
                 .execute(database.pool())
                 .await
                 .unwrap();
+            sqlx::query("INSERT INTO conversations (id, book_id, scope, created_at, updated_at) VALUES (?, ?, 'book', '2026-08-06T00:00:00.000Z', '2026-08-06T00:00:00.000Z')")
+                .bind(conversation_id.to_string())
+                .bind(book_id.to_string())
+                .execute(database.pool())
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO messages (id, conversation_id, ordinal, role, action, content, created_at) VALUES (?, ?, 0, 'user', 'ask', ?, '2026-08-06T00:00:00.000Z')")
+                .bind(Uuid::new_v4().to_string())
+                .bind(conversation_id.to_string())
+                .bind(BOOK_QUESTION_SENTINEL)
+                .execute(database.pool())
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO messages (id, conversation_id, ordinal, role, action, content, provider_id, model_id, citations_json, created_at) VALUES (?, ?, 1, 'assistant', 'ask', ?, ?, 'archived-book-model', '[]', '2026-08-06T00:00:00.000Z')")
+                .bind(Uuid::new_v4().to_string())
+                .bind(conversation_id.to_string())
+                .bind(BOOK_ANSWER_SENTINEL)
+                .bind(Uuid::new_v4().to_string())
+                .execute(database.pool())
+                .await
+                .unwrap();
             sqlx::query("UPDATE app_settings SET ui_language = 'zh-TW' WHERE id = 1")
                 .execute(database.pool())
                 .await
@@ -87,6 +113,7 @@ impl RestoreFixture {
             gate,
             archive,
             book_id,
+            conversation_id,
         }
     }
 
@@ -170,21 +197,31 @@ fn restore_is_preflighted_then_atomically_installed_only_during_restart_recovery
     assert!(recover_pending_restore(&fixture.paths.root).unwrap());
     assert!(!recover_pending_restore(&fixture.paths.root).unwrap());
     let restored = Database::open(&fixture.paths.database).unwrap();
-    let (language, title): (String, String) = tauri::async_runtime::block_on(async {
+    let (language, title, conversation) = tauri::async_runtime::block_on(async {
         (
-            sqlx::query_scalar("SELECT ui_language FROM app_settings WHERE id = 1")
+            sqlx::query_scalar::<_, String>("SELECT ui_language FROM app_settings WHERE id = 1")
                 .fetch_one(restored.pool())
                 .await
                 .unwrap(),
-            sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
+            sqlx::query_scalar::<_, String>("SELECT title FROM books WHERE id = ?")
                 .bind(fixture.book_id.to_string())
                 .fetch_one(restored.pool())
+                .await
+                .unwrap(),
+            load_book_conversation(restored.pool(), fixture.book_id, fixture.conversation_id)
                 .await
                 .unwrap(),
         )
     });
     assert_eq!(language, "zh-TW");
     assert_eq!(title, "ARCHIVED_TITLE_SENTINEL");
+    assert_eq!(conversation.messages.len(), 2);
+    assert_eq!(conversation.messages[0].content, BOOK_QUESTION_SENTINEL);
+    assert_eq!(conversation.messages[1].content, BOOK_ANSWER_SENTINEL);
+    assert_eq!(
+        conversation.messages[1].model_id.as_deref(),
+        Some("archived-book-model")
+    );
     assert!(fixture.temporary.path().join("fixture.tlbackup").exists());
 }
 

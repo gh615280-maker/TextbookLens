@@ -12,9 +12,10 @@ use crate::{
 };
 
 use super::{
-    EventSink, FollowupRequestContext, LEARNING_REQUEST_TERMINAL_TTL, LearningPersistenceTarget,
-    LearningRequestContext, LearningRequestRegistry, MAX_ACTIVE_REQUESTS,
-    MAX_RETAINED_TERMINAL_REQUESTS, NewSelectionRequestContext,
+    BookFollowupRequestContext, EventSink, FollowupRequestContext, LEARNING_REQUEST_TERMINAL_TTL,
+    LearningPersistenceTarget, LearningRequestContext, LearningRequestRegistry,
+    MAX_ACTIVE_REQUESTS, MAX_RETAINED_TERMINAL_REQUESTS, NewBookQuestionRequestContext,
+    NewSelectionRequestContext,
 };
 
 #[test]
@@ -208,6 +209,44 @@ fn conversations_deletion_guard_refuses_active_requests_and_blocks_late_followup
 }
 
 #[test]
+fn book_registry_singleflight_does_not_serialize_new_book_or_selection_requests() {
+    let registry = LearningRequestRegistry::default();
+    let conversation_id = Uuid::new_v4();
+    let active = registry
+        .create(book_followup_context(conversation_id))
+        .unwrap();
+    assert_eq!(
+        registry
+            .create(book_followup_context(conversation_id))
+            .unwrap_err()
+            .code,
+        AppErrorCode::RequestConflict
+    );
+    registry
+        .create(book_followup_context(Uuid::new_v4()))
+        .expect("different book conversation is independent");
+    registry
+        .create(new_book_context())
+        .expect("new book request has no conversation lock");
+    registry
+        .create(new_context())
+        .expect("selection request is independent");
+    registry.cancel(active.request_id).unwrap();
+
+    let deletion = registry
+        .begin_conversation_deletion(conversation_id)
+        .unwrap();
+    assert_eq!(
+        registry
+            .create(book_followup_context(conversation_id))
+            .unwrap_err()
+            .code,
+        AppErrorCode::RequestConflict
+    );
+    drop(deletion);
+}
+
+#[test]
 fn registry_terminal_snapshot_survives_resubscribe_then_is_garbage_collected() {
     let registry = LearningRequestRegistry::default();
     let start = Instant::now();
@@ -322,7 +361,7 @@ fn new_context() -> Arc<LearningRequestContext> {
 
 fn followup_context(conversation_id: Uuid) -> Arc<LearningRequestContext> {
     Arc::new(LearningRequestContext {
-        target: LearningPersistenceTarget::Followup(FollowupRequestContext {
+        target: LearningPersistenceTarget::SelectionFollowup(FollowupRequestContext {
             book_id: Uuid::new_v4(),
             conversation_id,
             expected_next_ordinal: 2,
@@ -330,6 +369,32 @@ fn followup_context(conversation_id: Uuid) -> Arc<LearningRequestContext> {
         }),
         provider_profile_id: Uuid::new_v4(),
         model_id: "model-secret".to_owned(),
+        available_citations: Vec::new(),
+    })
+}
+
+fn new_book_context() -> Arc<LearningRequestContext> {
+    Arc::new(LearningRequestContext {
+        target: LearningPersistenceTarget::NewBookQuestion(NewBookQuestionRequestContext {
+            book_id: Uuid::new_v4(),
+            question: "book question secret".to_owned(),
+        }),
+        provider_profile_id: Uuid::new_v4(),
+        model_id: "book-model-secret".to_owned(),
+        available_citations: Vec::new(),
+    })
+}
+
+fn book_followup_context(conversation_id: Uuid) -> Arc<LearningRequestContext> {
+    Arc::new(LearningRequestContext {
+        target: LearningPersistenceTarget::BookFollowup(BookFollowupRequestContext {
+            book_id: Uuid::new_v4(),
+            conversation_id,
+            expected_next_ordinal: 2,
+            question: "book followup secret".to_owned(),
+        }),
+        provider_profile_id: Uuid::new_v4(),
+        model_id: "book-model-secret".to_owned(),
         available_citations: Vec::new(),
     })
 }

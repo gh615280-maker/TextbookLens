@@ -4,10 +4,14 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
+use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::{
-    domain::{ContentAnchor, DocumentLocator, LearningAction, RegionLocator, SelectionAnchor},
+    domain::{
+        ContentAnchor, ConversationScope, DocumentLocator, LearningAction, RegionLocator,
+        SelectionAnchor,
+    },
     errors::{AppError, AppErrorCode, AppResult},
 };
 
@@ -19,14 +23,18 @@ use super::{
     indexing::database_timestamp,
     messages::{
         CompletedAssistantMessage, ConversationMessageDto, insert_assistant_message,
-        insert_user_message, load_conversation_messages, parse_database_timestamp,
-        validate_assistant, validate_question, validated_used_citations_json,
+        insert_user_message, load_conversation_messages, load_conversation_messages_in_transaction,
+        parse_database_timestamp, validate_assistant, validate_question,
+        validated_used_citations_json,
     },
 };
 
 const MAX_ANCHOR_JSON_BYTES: usize = 128 * 1024;
 const MAX_SELECTED_TEXT_CODE_POINTS: usize = 1_048_576;
 const MAX_SELECTED_TEXT_BYTES: usize = 2 * 1024 * 1024;
+const MAX_BOOK_HISTORY_MESSAGES: i64 = 4_096;
+const MAX_BOOK_HISTORY_CONTENT_BYTES: i64 = 64 * 1024 * 1024;
+const MAX_BOOK_HISTORY_CITATIONS_BYTES: i64 = 16 * 1024 * 1024;
 
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,6 +64,36 @@ impl fmt::Debug for ConversationHistoryDto {
                 "selected_text_bytes",
                 &self.selected_text.as_ref().map(String::len),
             )
+            .field("status", &self.status)
+            .field("message_count", &self.messages.len())
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "conversation.ts")]
+pub struct BookConversationHistoryDto {
+    pub id: Uuid,
+    pub book_id: Uuid,
+    #[ts(type = "\"book\"")]
+    pub scope: ConversationScope,
+    #[ts(type = "\"completed\"")]
+    pub status: &'static str,
+    pub messages: Vec<ConversationMessageDto>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl fmt::Debug for BookConversationHistoryDto {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BookConversationHistoryDto")
+            .field("id", &"<redacted>")
+            .field("book_id", &"<redacted>")
+            .field("scope", &self.scope)
             .field("status", &self.status)
             .field("message_count", &self.messages.len())
             .field("created_at", &self.created_at)
@@ -164,6 +202,57 @@ pub async fn load_selection_conversation(
         section_id,
         anchor,
         selected_text,
+        status: "completed",
+        messages,
+        created_at,
+        updated_at,
+    })
+}
+
+pub async fn load_book_conversation(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    conversation_id: Uuid,
+) -> AppResult<BookConversationHistoryDto> {
+    let rows = sqlx::query(
+        "SELECT c.id, c.book_id, c.section_id, c.anchor_kind, c.anchor_json, c.selected_text, c.created_at, c.updated_at, COUNT(a.id) AS annotation_count FROM conversations c JOIN books b ON b.id = c.book_id AND b.import_status = 'ready' LEFT JOIN annotations a ON a.conversation_id = c.id WHERE c.id = ? AND c.book_id = ? AND c.scope = 'book' GROUP BY c.id ORDER BY c.id",
+    )
+    .bind(conversation_id.to_string())
+    .bind(book_id.to_string())
+    .fetch_all(pool)
+    .await?;
+    if rows.len() != 1 {
+        return Err(AppError::new(if rows.is_empty() {
+            AppErrorCode::NotFound
+        } else {
+            AppErrorCode::DatabaseError
+        }));
+    }
+    let row = &rows[0];
+    let stored_conversation_id = parse_uuid(row.try_get("id")?)?;
+    let stored_book_id = parse_uuid(row.try_get("book_id")?)?;
+    if stored_conversation_id != conversation_id
+        || stored_book_id != book_id
+        || row.try_get::<Option<String>, _>("section_id")?.is_some()
+        || row.try_get::<Option<String>, _>("anchor_kind")?.is_some()
+        || row.try_get::<Option<String>, _>("anchor_json")?.is_some()
+        || row.try_get::<Option<String>, _>("selected_text")?.is_some()
+        || row.try_get::<i64, _>("annotation_count")? != 0
+    {
+        return Err(database_error());
+    }
+    require_bounded_book_history_pool(pool, conversation_id).await?;
+    let created_at = parse_database_timestamp(&row.try_get::<String, _>("created_at")?)?;
+    let updated_at = parse_database_timestamp(&row.try_get::<String, _>("updated_at")?)?;
+    if updated_at < created_at {
+        return Err(database_error());
+    }
+    let messages = load_conversation_messages(pool, book_id, conversation_id).await?;
+    validate_book_message_history(&messages, created_at, updated_at)?;
+    Ok(BookConversationHistoryDto {
+        id: stored_conversation_id,
+        book_id: stored_book_id,
+        scope: ConversationScope::Book,
         status: "completed",
         messages,
         created_at,
@@ -303,10 +392,66 @@ impl fmt::Debug for FollowupCompletion {
     }
 }
 
+#[derive(Clone)]
+pub struct NewBookQuestionCompletion {
+    pub book_id: Uuid,
+    pub question: String,
+    pub assistant: CompletedAssistantMessage,
+}
+
+impl fmt::Debug for NewBookQuestionCompletion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NewBookQuestionCompletion")
+            .field("book_id", &"<redacted>")
+            .field("question_bytes", &self.question.len())
+            .field("assistant", &self.assistant)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+pub struct BookFollowupCompletion {
+    pub book_id: Uuid,
+    pub conversation_id: Uuid,
+    pub expected_next_ordinal: u32,
+    pub question: String,
+    pub assistant: CompletedAssistantMessage,
+}
+
+impl fmt::Debug for BookFollowupCompletion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BookFollowupCompletion")
+            .field("book_id", &"<redacted>")
+            .field("conversation_id", &"<redacted>")
+            .field("expected_next_ordinal", &self.expected_next_ordinal)
+            .field("question_bytes", &self.question.len())
+            .field("assistant", &self.assistant)
+            .finish()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PersistedLearningResult {
     pub conversation_id: Uuid,
     pub annotation_id: Uuid,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct PersistedBookLearningResult {
+    pub conversation_id: Uuid,
+    pub annotation_id: Option<Uuid>,
+}
+
+impl fmt::Debug for PersistedBookLearningResult {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PersistedBookLearningResult")
+            .field("conversation_id", &"<redacted>")
+            .field("annotation_id", &self.annotation_id.map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -314,6 +459,22 @@ pub struct DeleteSelectionConversation {
     pub book_id: Uuid,
     pub conversation_id: Uuid,
     pub annotation_id: Uuid,
+}
+
+#[derive(Clone, Copy)]
+pub struct DeleteBookConversation {
+    pub book_id: Uuid,
+    pub conversation_id: Uuid,
+}
+
+impl fmt::Debug for DeleteBookConversation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DeleteBookConversation")
+            .field("book_id", &"<redacted>")
+            .field("conversation_id", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -324,6 +485,7 @@ pub enum LearningPersistenceStep {
     AssistantMessageInsert,
     AnnotationInsert,
     ConversationUpdate,
+    ConversationDelete,
     AnnotationDelete,
     Commit,
 }
@@ -490,6 +652,87 @@ impl LearningRepository {
         })
     }
 
+    pub async fn persist_new_book_question(
+        &self,
+        input: NewBookQuestionCompletion,
+    ) -> AppResult<PersistedBookLearningResult> {
+        self.persist_new_book_question_authorized(input, &AllowLearningCommit)
+            .await
+    }
+
+    #[doc(hidden)]
+    pub async fn persist_new_book_question_authorized(
+        &self,
+        input: NewBookQuestionCompletion,
+        commit_authorizer: &dyn LearningCommitAuthorizer,
+    ) -> AppResult<PersistedBookLearningResult> {
+        validate_question(&input.question)?;
+        validate_assistant(&input.assistant)?;
+
+        let conversation_id = Uuid::new_v4();
+        let timestamp = database_timestamp(Utc::now());
+        let mut transaction = self.pool.begin().await?;
+        require_ready_book(&mut transaction, input.book_id).await?;
+
+        self.checkpoint(LearningPersistenceStep::ConversationInsert)
+            .await?;
+        let inserted = sqlx::query(
+            "INSERT INTO conversations (id, book_id, scope, created_at, updated_at) VALUES (?, ?, 'book', ?, ?)",
+        )
+        .bind(conversation_id.to_string())
+        .bind(input.book_id.to_string())
+        .bind(&timestamp)
+        .bind(&timestamp)
+        .execute(&mut *transaction)
+        .await?;
+        if inserted.rows_affected() != 1 {
+            return Err(database_error());
+        }
+
+        let citations_json = validated_used_citations_json(
+            &mut transaction,
+            input.book_id,
+            &input.assistant.answer,
+            &input.assistant.available_citations,
+        )
+        .await?;
+
+        self.checkpoint(LearningPersistenceStep::UserMessageInsert)
+            .await?;
+        insert_user_message(
+            &mut transaction,
+            Uuid::new_v4(),
+            conversation_id,
+            0,
+            LearningAction::Ask,
+            &input.question,
+            &timestamp,
+        )
+        .await?;
+
+        self.checkpoint(LearningPersistenceStep::AssistantMessageInsert)
+            .await?;
+        insert_assistant_message(
+            &mut transaction,
+            Uuid::new_v4(),
+            conversation_id,
+            1,
+            LearningAction::Ask,
+            &input.assistant,
+            &citations_json,
+            &timestamp,
+        )
+        .await?;
+
+        self.checkpoint(LearningPersistenceStep::Commit).await?;
+        commit_authorizer.authorize_commit()?;
+        transaction.commit().await?;
+        Ok(PersistedBookLearningResult {
+            conversation_id,
+            annotation_id: None,
+        })
+    }
+
     pub async fn persist_followup(&self, input: FollowupCompletion) -> AppResult<()> {
         self.persist_followup_authorized(input, &AllowLearningCommit)
             .await
@@ -583,6 +826,124 @@ impl LearningRepository {
         Ok(())
     }
 
+    pub async fn persist_book_followup(&self, input: BookFollowupCompletion) -> AppResult<()> {
+        self.persist_book_followup_authorized(input, &AllowLearningCommit)
+            .await
+    }
+
+    #[doc(hidden)]
+    pub async fn persist_book_followup_authorized(
+        &self,
+        input: BookFollowupCompletion,
+        commit_authorizer: &dyn LearningCommitAuthorizer,
+    ) -> AppResult<()> {
+        validate_question(&input.question)?;
+        validate_assistant(&input.assistant)?;
+        if input.expected_next_ordinal < 2 || !input.expected_next_ordinal.is_multiple_of(2) {
+            return Err(invalid_input());
+        }
+
+        let timestamp = database_timestamp(Utc::now());
+        let mut transaction = self.pool.begin().await?;
+        self.checkpoint(LearningPersistenceStep::ConversationLock)
+            .await?;
+        let locked = sqlx::query(
+            "UPDATE conversations SET updated_at = updated_at WHERE id = ? AND book_id = ? AND scope = 'book' AND section_id IS NULL AND anchor_kind IS NULL AND anchor_json IS NULL AND selected_text IS NULL",
+        )
+        .bind(input.conversation_id.to_string())
+        .bind(input.book_id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+        if locked.rows_affected() != 1 {
+            return Err(AppError::new(AppErrorCode::NotFound));
+        }
+        require_ready_book(&mut transaction, input.book_id).await?;
+        require_no_conversation_annotation(&mut transaction, input.conversation_id).await?;
+        let history_size =
+            require_bounded_book_history_transaction(&mut transaction, input.conversation_id)
+                .await?;
+        let history = load_conversation_messages_in_transaction(
+            &mut transaction,
+            input.book_id,
+            input.conversation_id,
+        )
+        .await?;
+        let (created_at, previous_updated_at) = load_book_conversation_timestamps(
+            &mut transaction,
+            input.book_id,
+            input.conversation_id,
+        )
+        .await?;
+        validate_book_message_history(&history, created_at, previous_updated_at)?;
+        if parse_database_timestamp(&timestamp)? < previous_updated_at {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        }
+        let next_ordinal = u32::try_from(history.len()).map_err(|_| database_error())?;
+        if next_ordinal != input.expected_next_ordinal {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        }
+        let assistant_ordinal = next_ordinal.checked_add(1).ok_or_else(invalid_input)?;
+        let citations_json = validated_used_citations_json(
+            &mut transaction,
+            input.book_id,
+            &input.assistant.answer,
+            &input.assistant.available_citations,
+        )
+        .await?;
+        require_book_followup_fits(
+            history_size,
+            &input.question,
+            &input.assistant.answer,
+            &citations_json,
+        )?;
+
+        self.checkpoint(LearningPersistenceStep::UserMessageInsert)
+            .await?;
+        insert_user_message(
+            &mut transaction,
+            Uuid::new_v4(),
+            input.conversation_id,
+            next_ordinal,
+            LearningAction::Continue,
+            &input.question,
+            &timestamp,
+        )
+        .await?;
+
+        self.checkpoint(LearningPersistenceStep::AssistantMessageInsert)
+            .await?;
+        insert_assistant_message(
+            &mut transaction,
+            Uuid::new_v4(),
+            input.conversation_id,
+            assistant_ordinal,
+            LearningAction::Continue,
+            &input.assistant,
+            &citations_json,
+            &timestamp,
+        )
+        .await?;
+
+        self.checkpoint(LearningPersistenceStep::ConversationUpdate)
+            .await?;
+        let updated = sqlx::query(
+            "UPDATE conversations SET updated_at = ? WHERE id = ? AND book_id = ? AND scope = 'book'",
+        )
+        .bind(&timestamp)
+        .bind(input.conversation_id.to_string())
+        .bind(input.book_id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+        if updated.rows_affected() != 1 {
+            return Err(database_error());
+        }
+
+        self.checkpoint(LearningPersistenceStep::Commit).await?;
+        commit_authorizer.authorize_commit()?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
     pub async fn delete_selection_conversation(
         &self,
         input: DeleteSelectionConversation,
@@ -641,6 +1002,52 @@ impl LearningRepository {
         Ok(())
     }
 
+    pub async fn delete_book_conversation(&self, input: DeleteBookConversation) -> AppResult<()> {
+        let mut transaction = self.pool.begin().await?;
+        self.checkpoint(LearningPersistenceStep::ConversationLock)
+            .await?;
+        let locked = sqlx::query(
+            "UPDATE conversations SET updated_at = updated_at WHERE id = ? AND book_id = ? AND scope = 'book' AND section_id IS NULL AND anchor_kind IS NULL AND anchor_json IS NULL AND selected_text IS NULL",
+        )
+        .bind(input.conversation_id.to_string())
+        .bind(input.book_id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+        if locked.rows_affected() != 1 {
+            return Err(AppError::new(AppErrorCode::NotFound));
+        }
+        require_ready_book(&mut transaction, input.book_id).await?;
+        require_no_conversation_annotation(&mut transaction, input.conversation_id).await?;
+
+        self.checkpoint(LearningPersistenceStep::ConversationDelete)
+            .await?;
+        let deleted = sqlx::query(
+            "DELETE FROM conversations WHERE id = ? AND book_id = ? AND scope = 'book'",
+        )
+        .bind(input.conversation_id.to_string())
+        .bind(input.book_id.to_string())
+        .execute(&mut *transaction)
+        .await?;
+        if deleted.rows_affected() != 1 {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        }
+        let remaining: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM conversations WHERE id = ?) OR EXISTS(SELECT 1 FROM messages WHERE conversation_id = ?) OR EXISTS(SELECT 1 FROM annotations WHERE conversation_id = ?)",
+        )
+        .bind(input.conversation_id.to_string())
+        .bind(input.conversation_id.to_string())
+        .bind(input.conversation_id.to_string())
+        .fetch_one(&mut *transaction)
+        .await?;
+        if remaining {
+            return Err(database_error());
+        }
+
+        self.checkpoint(LearningPersistenceStep::Commit).await?;
+        transaction.commit().await?;
+        Ok(())
+    }
+
     async fn checkpoint(&self, step: LearningPersistenceStep) -> AppResult<()> {
         self.fault_injector.checkpoint(step).await
     }
@@ -683,10 +1090,166 @@ fn validate_new_selection(input: &NewSelectionCompletion) -> AppResult<()> {
     Ok(())
 }
 
-async fn require_ready_book_and_section(
+fn validate_book_message_history(
+    messages: &[ConversationMessageDto],
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+) -> AppResult<()> {
+    validate_book_message_actions(messages)?;
+    if messages
+        .first()
+        .is_none_or(|message| message.created_at < created_at)
+        || messages
+            .last()
+            .is_none_or(|message| message.created_at > updated_at)
+        || messages
+            .windows(2)
+            .any(|pair| pair[0].created_at > pair[1].created_at)
+    {
+        return Err(database_error());
+    }
+    Ok(())
+}
+
+fn validate_book_message_actions(messages: &[ConversationMessageDto]) -> AppResult<()> {
+    if messages.len() < 2 || !messages.len().is_multiple_of(2) {
+        return Err(database_error());
+    }
+    for (index, message) in messages.iter().enumerate() {
+        let expected = if index < 2 {
+            LearningAction::Ask
+        } else {
+            LearningAction::Continue
+        };
+        if message.action != expected {
+            return Err(database_error());
+        }
+    }
+    Ok(())
+}
+
+async fn require_bounded_book_history_pool(
+    pool: &SqlitePool,
+    conversation_id: Uuid,
+) -> AppResult<()> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS message_count, COALESCE(SUM(length(CAST(content AS BLOB))), 0) AS content_bytes, COALESCE(SUM(length(CAST(citations_json AS BLOB))), 0) AS citations_bytes FROM messages WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_one(pool)
+    .await?;
+    validate_book_history_bounds(&row).map(|_| ())
+}
+
+async fn require_bounded_book_history_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    conversation_id: Uuid,
+) -> AppResult<BookHistorySize> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS message_count, COALESCE(SUM(length(CAST(content AS BLOB))), 0) AS content_bytes, COALESCE(SUM(length(CAST(citations_json AS BLOB))), 0) AS citations_bytes FROM messages WHERE conversation_id = ?",
+    )
+    .bind(conversation_id.to_string())
+    .fetch_one(&mut **transaction)
+    .await?;
+    validate_book_history_bounds(&row)
+}
+
+#[derive(Clone, Copy)]
+struct BookHistorySize {
+    message_count: i64,
+    content_bytes: i64,
+    citations_bytes: i64,
+}
+
+fn validate_book_history_bounds(row: &sqlx::sqlite::SqliteRow) -> AppResult<BookHistorySize> {
+    let message_count: i64 = row.try_get("message_count")?;
+    let content_bytes: i64 = row.try_get("content_bytes")?;
+    let citations_bytes: i64 = row.try_get("citations_bytes")?;
+    if message_count < 2
+        || message_count % 2 != 0
+        || message_count > MAX_BOOK_HISTORY_MESSAGES
+        || !(0..=MAX_BOOK_HISTORY_CONTENT_BYTES).contains(&content_bytes)
+        || !(0..=MAX_BOOK_HISTORY_CITATIONS_BYTES).contains(&citations_bytes)
+    {
+        return Err(database_error());
+    }
+    Ok(BookHistorySize {
+        message_count,
+        content_bytes,
+        citations_bytes,
+    })
+}
+
+fn require_book_followup_fits(
+    history: BookHistorySize,
+    question: &str,
+    answer: &str,
+    citations_json: &str,
+) -> AppResult<()> {
+    let added_content = question
+        .len()
+        .checked_add(answer.len())
+        .and_then(|bytes| i64::try_from(bytes).ok())
+        .ok_or_else(|| AppError::new(AppErrorCode::ContextTooLarge))?;
+    let added_citations = i64::try_from(citations_json.len())
+        .map_err(|_| AppError::new(AppErrorCode::ContextTooLarge))?;
+    if history
+        .message_count
+        .checked_add(2)
+        .is_none_or(|count| count > MAX_BOOK_HISTORY_MESSAGES)
+        || history
+            .content_bytes
+            .checked_add(added_content)
+            .is_none_or(|bytes| bytes > MAX_BOOK_HISTORY_CONTENT_BYTES)
+        || history
+            .citations_bytes
+            .checked_add(added_citations)
+            .is_none_or(|bytes| bytes > MAX_BOOK_HISTORY_CITATIONS_BYTES)
+    {
+        return Err(AppError::new(AppErrorCode::ContextTooLarge));
+    }
+    Ok(())
+}
+
+async fn load_book_conversation_timestamps(
     transaction: &mut Transaction<'_, Sqlite>,
     book_id: Uuid,
-    section_id: Uuid,
+    conversation_id: Uuid,
+) -> AppResult<(DateTime<Utc>, DateTime<Utc>)> {
+    let row = sqlx::query(
+        "SELECT created_at, updated_at FROM conversations WHERE id = ? AND book_id = ? AND scope = 'book'",
+    )
+    .bind(conversation_id.to_string())
+    .bind(book_id.to_string())
+    .fetch_optional(&mut **transaction)
+    .await?
+    .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    let created_at = parse_database_timestamp(&row.try_get::<String, _>("created_at")?)?;
+    let updated_at = parse_database_timestamp(&row.try_get::<String, _>("updated_at")?)?;
+    if updated_at < created_at {
+        return Err(database_error());
+    }
+    Ok((created_at, updated_at))
+}
+
+async fn require_no_conversation_annotation(
+    transaction: &mut Transaction<'_, Sqlite>,
+    conversation_id: Uuid,
+) -> AppResult<()> {
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM annotations WHERE conversation_id = ?")
+            .bind(conversation_id.to_string())
+            .fetch_one(&mut **transaction)
+            .await?;
+    if count != 0 {
+        return Err(database_error());
+    }
+    Ok(())
+}
+
+async fn require_ready_book(
+    transaction: &mut Transaction<'_, Sqlite>,
+    book_id: Uuid,
 ) -> AppResult<()> {
     let status = sqlx::query_scalar::<_, String>("SELECT import_status FROM books WHERE id = ?")
         .bind(book_id.to_string())
@@ -696,6 +1259,15 @@ async fn require_ready_book_and_section(
     if status != "ready" {
         return Err(AppError::new(AppErrorCode::BookNotReady));
     }
+    Ok(())
+}
+
+async fn require_ready_book_and_section(
+    transaction: &mut Transaction<'_, Sqlite>,
+    book_id: Uuid,
+    section_id: Uuid,
+) -> AppResult<()> {
+    require_ready_book(transaction, book_id).await?;
     let section_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sections WHERE id = ? AND book_id = ?)")
             .bind(section_id.to_string())
@@ -751,7 +1323,11 @@ fn contains_disallowed_control(value: &str) -> bool {
 }
 
 fn parse_uuid(value: &str) -> AppResult<Uuid> {
-    Uuid::parse_str(value).map_err(|_| database_error())
+    let parsed = Uuid::parse_str(value).map_err(|_| database_error())?;
+    if parsed.to_string() != value {
+        return Err(database_error());
+    }
+    Ok(parsed)
 }
 
 fn invalid_input() -> AppError {

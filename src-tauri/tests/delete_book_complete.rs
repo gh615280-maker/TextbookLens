@@ -870,6 +870,7 @@ async fn seed_full_book(
     let block_id = Uuid::new_v4();
     let chunk_id = Uuid::new_v4();
     let conversation_id = Uuid::new_v4();
+    let book_conversation_id = Uuid::new_v4();
     let note_id = Uuid::new_v4();
     let annotation_id = Uuid::new_v4();
     let run_id = Uuid::new_v4();
@@ -984,6 +985,37 @@ async fn seed_full_book(
     .bind(section_id.to_string())
     .bind(conversation_id.to_string())
     .bind(TIMESTAMP)
+    .bind(TIMESTAMP)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO conversations (id, book_id, scope, created_at, updated_at) VALUES (?, ?, 'book', ?, ?)",
+    )
+    .bind(book_conversation_id.to_string())
+    .bind(book_id.to_string())
+    .bind(TIMESTAMP)
+    .bind(TIMESTAMP)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO messages (id, conversation_id, ordinal, role, action, content, created_at) VALUES (?, ?, 0, 'user', 'ask', ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(book_conversation_id.to_string())
+    .bind(format!("{label} book question"))
+    .bind(TIMESTAMP)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO messages (id, conversation_id, ordinal, role, action, content, provider_id, model_id, citations_json, created_at) VALUES (?, ?, 1, 'assistant', 'ask', ?, ?, 'synthetic-book-model', '[]', ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(book_conversation_id.to_string())
+    .bind(format!("{label} book answer"))
+    .bind(profile_id.to_string())
     .bind(TIMESTAMP)
     .execute(pool)
     .await

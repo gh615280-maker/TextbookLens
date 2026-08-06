@@ -5,6 +5,8 @@ import type {
   BookLearningPreparationSummary,
   PrepareBookLearningRequestMetadata,
 } from '../../lib/generated/book_learning';
+import type { LearningRequestSnapshot } from '../../lib/generated/panel';
+import { parseRequestSnapshot } from './api';
 import {
   LEARNING_AUTHORIZATION_DECISIONS,
   LEARNING_ERROR_CODES,
@@ -94,6 +96,7 @@ export interface BookLearningPreparationApi {
     decision: LearningAuthorizationDecision,
   ): Promise<void>;
   discard(preparationId: string): Promise<void>;
+  start(preparationId: string): Promise<LearningRequestSnapshot>;
 }
 
 export class TauriBookLearningPreparationApi implements BookLearningPreparationApi {
@@ -162,6 +165,28 @@ export class TauriBookLearningPreparationApi implements BookLearningPreparationA
       });
     } catch (error) {
       throw invocationError(error);
+    }
+  }
+
+  async start(preparationId: string): Promise<LearningRequestSnapshot> {
+    let id: string;
+    try {
+      id = uuidSchema.parse(preparationId);
+    } catch {
+      throw learningError('INVALID_INPUT');
+    }
+    let response: unknown;
+    try {
+      response = await invoke<unknown>('start_book_learning_request', {
+        preparationId: id,
+      });
+    } catch (error) {
+      throw invocationError(error);
+    }
+    try {
+      return parseRequestSnapshot(response);
+    } catch {
+      throw learningError('DATABASE_ERROR');
     }
   }
 }

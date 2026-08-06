@@ -614,7 +614,7 @@ const learningRequestEventSchema = z
   })
   .strict();
 
-function parseRequestSnapshot(value: unknown): LearningRequestSnapshot {
+export function parseRequestSnapshot(value: unknown): LearningRequestSnapshot {
   return learningRequestSnapshotSchema.parse(value) as LearningRequestSnapshot;
 }
 

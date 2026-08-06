@@ -179,6 +179,25 @@ pub async fn start_learning_request(
 }
 
 #[tauri::command]
+pub async fn start_book_learning_request(
+    state: State<'_, AppState>,
+    preparation_id: Uuid,
+) -> Result<LearningRequestSnapshot, LearningErrorDto> {
+    let maintenance_permit = state
+        .learning_requests
+        .acquire_maintenance_permit()
+        .map_err(LearningErrorDto::from)?;
+    let prepared = book_service(&state)
+        .consume_for_execution_with_maintenance_permit(preparation_id, &maintenance_permit)
+        .await
+        .map_err(LearningErrorDto::from)?;
+    orchestrator(&state)
+        .start_prepared_book_with_maintenance_permit(&runtime(&state), prepared, maintenance_permit)
+        .await
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
 pub fn subscribe_learning_request(
     state: State<'_, AppState>,
     request_id: Uuid,

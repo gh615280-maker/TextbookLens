@@ -183,6 +183,47 @@ const conversation = z
     });
   });
 
+const bookConversation = z
+  .object({
+    id: uuid,
+    bookId: uuid,
+    scope: z.literal('book'),
+    status: z.literal('completed'),
+    messages: z.array(message).min(2).max(4096),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.messages.length % 2 !== 0 || value.updatedAt < value.createdAt) {
+      context.addIssue({
+        code: 'custom',
+        message: 'invalid book conversation shape',
+      });
+    }
+    value.messages.forEach((item, index) => {
+      const assistant = index % 2 === 1;
+      const expectedAction = index < 2 ? 'ask' : 'continue';
+      if (
+        item.ordinal !== index ||
+        item.role !== (assistant ? 'assistant' : 'user') ||
+        item.action !== expectedAction ||
+        (assistant && (!item.providerId || !item.modelId)) ||
+        (!assistant &&
+          (item.providerId || item.modelId || item.citations.length > 0)) ||
+        item.citations.some((entry) => entry.bookId !== value.bookId) ||
+        item.createdAt < value.createdAt ||
+        item.createdAt > value.updatedAt ||
+        (index > 0 && item.createdAt < value.messages[index - 1]!.createdAt)
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'invalid book message sequence',
+        });
+      }
+    });
+  });
+
 export interface ConversationMessage {
   readonly id: string;
   readonly ordinal: number;
@@ -206,6 +247,45 @@ export interface ConversationHistory {
   readonly messages: readonly ConversationMessage[];
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export interface BookConversationHistory {
+  readonly id: string;
+  readonly bookId: string;
+  readonly scope: 'book';
+  readonly status: 'completed';
+  readonly messages: readonly ConversationMessage[];
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface BookConversationApi {
+  getBook(
+    bookId: string,
+    conversationId: string,
+  ): Promise<BookConversationHistory>;
+  deleteBook(bookId: string, conversationId: string): Promise<void>;
+}
+
+export class TauriBookConversationApi implements BookConversationApi {
+  async getBook(
+    bookId: string,
+    conversationId: string,
+  ): Promise<BookConversationHistory> {
+    return parseBookConversation(
+      await invoke('get_book_learning_conversation', {
+        bookId: uuid.parse(bookId),
+        conversationId: uuid.parse(conversationId),
+      }),
+    );
+  }
+
+  async deleteBook(bookId: string, conversationId: string): Promise<void> {
+    await invoke('delete_book_learning_conversation', {
+      bookId: uuid.parse(bookId),
+      conversationId: uuid.parse(conversationId),
+    });
+  }
 }
 
 export interface ConversationApi {
@@ -241,6 +321,18 @@ export class TauriConversationApi implements ConversationApi {
       annotationId: uuid.parse(annotationId),
     });
   }
+}
+
+function parseBookConversation(value: unknown): BookConversationHistory {
+  return deepFreezeBookConversation(
+    bookConversation.parse(value) as BookConversationHistory,
+  );
+}
+
+function deepFreezeBookConversation(
+  value: BookConversationHistory,
+): BookConversationHistory {
+  return deepFreeze(value);
 }
 
 export interface ConversationPanelSnapshot {
