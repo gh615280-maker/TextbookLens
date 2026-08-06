@@ -9,8 +9,8 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     db::teaching,
-    domain::{TeachingInstructionDto, UpdateTeachingInstruction},
-    errors::{AppErrorDto, AppResult},
+    domain::{ActiveOperationKind, TeachingInstructionDto, UpdateTeachingInstruction},
+    errors::{AppError, AppErrorDto, AppResult},
     learning::teaching_test::{
         TeachingTestEvent, TeachingTestRequest, event_for_result, run_teaching_test,
     },
@@ -53,6 +53,10 @@ pub async fn start_teaching_test(
     app: tauri::AppHandle,
     request: TeachingTestRequest,
 ) -> Result<(), AppErrorDto> {
+    let maintenance_permit = state
+        .maintenance_gate
+        .try_acquire_normal(ActiveOperationKind::Learning)
+        .map_err(|error| AppErrorDto::from(AppError::new(error.as_app_error_code())))?;
     let cancellation = replace_session_request(request.session_id, request.request_id);
     let pool = state.db.pool().clone();
     let runtime = crate::ai::runtime::ProviderRuntime::new(
@@ -60,6 +64,7 @@ pub async fn start_teaching_test(
         state.provider_capabilities.clone(),
     );
     tauri::async_runtime::spawn(async move {
+        let _maintenance_permit = maintenance_permit;
         let request_id = request.request_id;
         let result = run_teaching_test(&pool, &runtime, request, cancellation.clone(), |event| {
             emit_teaching_test_event(&app, event);

@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 
 use tauri::{AppHandle, Manager, Runtime};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -11,6 +11,7 @@ use crate::{
     errors::AppResult,
     indexing::{coordinator::IndexOperationRegistry, state::IndexCancellationRegistry},
     learning::{preparation::PreparationRegistry, registry::LearningRequestRegistry},
+    maintenance::{gate::MaintenanceGate, storage::prepare_app_data_paths},
 };
 
 #[derive(Clone, Debug)]
@@ -28,18 +29,14 @@ impl AppPaths {
             .path()
             .app_data_dir()
             .map_err(crate::errors::AppError::local_io)?;
-        let books = root.join("books");
-        let cache = root.join("cache");
-        let logs = root.join("logs");
-        for directory in [&root, &books, &cache, &logs] {
-            fs::create_dir_all(directory)?;
-        }
+        let prepared = prepare_app_data_paths(&root)
+            .map_err(|_| crate::errors::AppError::new(crate::errors::AppErrorCode::LocalIoError))?;
         Ok(Self {
-            database: root.join("library.sqlite3"),
-            root,
-            books,
-            cache,
-            logs,
+            database: prepared.database,
+            root: prepared.root,
+            books: prepared.books,
+            cache: prepared.cache,
+            logs: prepared.logs,
         })
     }
 
@@ -51,6 +48,7 @@ impl AppPaths {
 pub struct AppState {
     pub db: Database,
     pub paths: AppPaths,
+    pub maintenance_gate: MaintenanceGate,
     pub import_cancellations: ImportCancellationRegistry,
     pub indexing_cancellations: IndexCancellationRegistry,
     pub indexing_operations: IndexOperationRegistry,
@@ -69,14 +67,18 @@ impl AppState {
         credential_store: Arc<dyn CredentialStore>,
         provider_capabilities: ProviderCapabilityRegistry,
     ) -> Self {
+        let maintenance_gate = MaintenanceGate::default();
         Self {
             db,
             paths,
+            maintenance_gate: maintenance_gate.clone(),
             import_cancellations: ImportCancellationRegistry::default(),
             indexing_cancellations: IndexCancellationRegistry::default(),
-            indexing_operations: IndexOperationRegistry::default(),
+            indexing_operations: IndexOperationRegistry::with_maintenance_gate(
+                maintenance_gate.clone(),
+            ),
             learning_preparations: PreparationRegistry::default(),
-            learning_requests: LearningRequestRegistry::default(),
+            learning_requests: LearningRequestRegistry::with_maintenance_gate(maintenance_gate),
             log_guard,
             credential_store,
             provider_capabilities,
@@ -86,6 +88,7 @@ impl AppState {
 
 impl Drop for AppState {
     fn drop(&mut self) {
+        self.maintenance_gate.shutdown();
         self.learning_requests.shutdown();
     }
 }

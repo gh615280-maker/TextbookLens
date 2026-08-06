@@ -1,24 +1,27 @@
 use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
-    AiOperation, AnnotationDto, AppSettingsDto, BlockKind, BookIndexAggregateStatus, BookSummary,
-    CapabilitySupport, Citation, CitationReviewStatus, ContentAnchor, ContentSource,
-    ConversationAnchorKind, ConversationDto, CredentialStatus, DocumentLocator, ImageLimits,
-    ImageMime, IndexAggregate, IndexAggregateStatus, IndexCorrectionConflictState,
-    IndexCorrectionReviewDto, IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind,
-    IndexPageBlockReviewDto, IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto,
-    IndexQualityReason, IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto,
-    LearningEvent, LearningRequest, LearningRequestEvent, LearningRequestEventPayload,
-    LearningRequestSnapshot, LearningRequestStatus, LearningUsage, LocalTextQuality,
-    NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind,
-    PanelGeometry, ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
+    ActiveOperationKind, ActiveOperationSummaryDto, AiOperation, AnnotationDto, AppSettingsDto,
+    BlockKind, BookIndexAggregateStatus, BookSummary, CapabilitySupport, Citation,
+    CitationReviewStatus, ContentAnchor, ContentSource, ConversationAnchorKind, ConversationDto,
+    CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
+    IndexAggregateStatus, IndexCorrectionConflictState, IndexCorrectionReviewDto,
+    IndexCorrectionValueKind, IndexFailureCode, IndexPageBlockKind, IndexPageBlockReviewDto,
+    IndexPageReviewDto, IndexPageStatus, IndexPageStatusCountsDto, IndexQualityReason,
+    IndexReviewReason, IndexRunAggregateDto, IndexRunStatus, IndexTableCellDto, LearningEvent,
+    LearningRequest, LearningRequestEvent, LearningRequestEventPayload, LearningRequestSnapshot,
+    LearningRequestStatus, LearningUsage, LocalTextQuality, MaintenanceErrorCode,
+    MaintenanceErrorDto, MaintenanceStatusCode, MaintenanceStatusDto, NormalizedBookInput,
+    NormalizedRect, OnboardingStateDto, OnboardingStep, PageAnalysisBlockKind, PanelGeometry,
+    ProviderCapability, ProviderCapabilityRegistryDto, ProviderModelCapability,
     ProviderOperationConsent, ProviderOperationConsentCategory, ProviderOperationConsentDecision,
     ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor, RegionLocator, RemoteCleanupStatus,
-    SafeIndexErrorDto, SafeLearningError, TeachingInstructionDto, UiLanguage, UnifiedChatRequest,
-    UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
-    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
-    ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
-    stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
+    SafeIndexErrorDto, SafeLearningError, StorageCategory, StorageCategoryUsageDto,
+    StorageUsageDto, TeachingInstructionDto, UiLanguage, UnifiedChatRequest, UnifiedMessage,
+    UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis,
+    UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction, ValidationResult,
+    VisionAssetMeta, stable_block_id, stable_index_page_block_id, stable_index_page_id,
+    stable_index_search_chunk_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -400,6 +403,64 @@ fn panel_geometry_rejects_non_finite_and_out_of_range_values() {
 }
 
 #[test]
+fn maintenance_bindings_are_bounded_structural_and_path_free() {
+    let status = MaintenanceStatusDto {
+        code: MaintenanceStatusCode::MaintenanceWaiting,
+        active_operations: vec![ActiveOperationSummaryDto {
+            kind: ActiveOperationKind::Indexing,
+            count: 2,
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(&status).unwrap(),
+        serde_json::json!({
+            "code": "MAINTENANCE_WAITING",
+            "activeOperations": [{ "kind": "indexing", "count": 2 }]
+        })
+    );
+    let error = MaintenanceErrorDto {
+        code: MaintenanceErrorCode::StorageEntryUnsafe,
+        active_operations: status.active_operations,
+    };
+    let serialized = serde_json::to_string(&error).unwrap();
+    for forbidden in [
+        "path",
+        "title",
+        "content",
+        "requestOutput",
+        "providerPayload",
+        "profileId",
+        "internalUuid",
+        "image",
+        "credential",
+    ] {
+        assert!(
+            !serialized
+                .to_ascii_lowercase()
+                .contains(&forbidden.to_ascii_lowercase())
+        );
+    }
+
+    let usage = StorageUsageDto {
+        total_bytes: 3,
+        total_file_count: 1,
+        categories: vec![StorageCategoryUsageDto {
+            category: StorageCategory::Database,
+            bytes: 3,
+            file_count: 1,
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(usage).unwrap(),
+        serde_json::json!({
+            "totalBytes": 3,
+            "totalFileCount": 1,
+            "categories": [{ "category": "database", "bytes": 3, "fileCount": 1 }]
+        })
+    );
+}
+
+#[test]
 fn export_bindings() {
     let output_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/generated");
     std::fs::create_dir_all(&output_dir).unwrap();
@@ -473,4 +534,13 @@ fn export_bindings() {
     UiLanguage::export_all(&config).unwrap();
     TeachingInstructionDto::export_all(&config).unwrap();
     UpdateTeachingInstruction::export_all(&config).unwrap();
+    ActiveOperationKind::export_all(&config).unwrap();
+    ActiveOperationSummaryDto::export_all(&config).unwrap();
+    MaintenanceStatusCode::export_all(&config).unwrap();
+    MaintenanceStatusDto::export_all(&config).unwrap();
+    MaintenanceErrorCode::export_all(&config).unwrap();
+    MaintenanceErrorDto::export_all(&config).unwrap();
+    StorageCategory::export_all(&config).unwrap();
+    StorageCategoryUsageDto::export_all(&config).unwrap();
+    StorageUsageDto::export_all(&config).unwrap();
 }

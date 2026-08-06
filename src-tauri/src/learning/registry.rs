@@ -17,6 +17,7 @@ use crate::{
         SafeLearningError,
     },
     errors::{AppError, AppErrorCode, AppResult},
+    maintenance::gate::{MaintenanceGate, NormalOperationPermit},
 };
 
 pub const LEARNING_REQUEST_TERMINAL_TTL: Duration = Duration::from_secs(10 * 60);
@@ -120,6 +121,7 @@ pub struct LearningRequestRegistry {
 
 struct RegistryInner {
     state: Mutex<RegistryState>,
+    maintenance_gate: MaintenanceGate,
 }
 
 #[derive(Default)]
@@ -167,6 +169,7 @@ struct RegistryEntry {
     commit_started: bool,
     commit_irrevocable: bool,
     subscribers: Vec<Subscriber>,
+    maintenance_permit: Option<Arc<NormalOperationPermit>>,
 }
 
 impl Drop for RegistryEntry {
@@ -184,9 +187,16 @@ struct Subscriber {
 
 impl Default for LearningRequestRegistry {
     fn default() -> Self {
+        Self::with_maintenance_gate(MaintenanceGate::default())
+    }
+}
+
+impl LearningRequestRegistry {
+    pub fn with_maintenance_gate(maintenance_gate: MaintenanceGate) -> Self {
         Self {
             inner: Arc::new(RegistryInner {
                 state: Mutex::new(RegistryState::default()),
+                maintenance_gate,
             }),
         }
     }
@@ -227,14 +237,17 @@ impl LearningRequestRegistry {
         &self,
         context: Arc<LearningRequestContext>,
     ) -> AppResult<LearningRequestSnapshot> {
-        self.create_at(context, Instant::now())
+        let maintenance_permit = self.acquire_maintenance_permit()?;
+        self.create_at(context, Instant::now(), maintenance_permit)
     }
 
     fn create_at(
         &self,
         context: Arc<LearningRequestContext>,
         now: Instant,
+        maintenance_permit: NormalOperationPermit,
     ) -> AppResult<LearningRequestSnapshot> {
+        let maintenance_permit = Arc::new(maintenance_permit);
         let mut state = self.inner.state.lock();
         gc_locked(&mut state, now);
         let active_request_count = state
@@ -265,6 +278,7 @@ impl LearningRequestRegistry {
             commit_started: false,
             commit_irrevocable: false,
             subscribers: Vec::new(),
+            maintenance_permit: Some(maintenance_permit),
         };
         if let Some(conversation_id) = entry.context.conversation_id() {
             state
@@ -274,6 +288,34 @@ impl LearningRequestRegistry {
         let snapshot = snapshot(request_id, &entry)?;
         state.entries.insert(request_id, entry);
         Ok(snapshot)
+    }
+
+    pub(crate) fn acquire_maintenance_permit(&self) -> AppResult<NormalOperationPermit> {
+        self.inner
+            .maintenance_gate
+            .try_acquire_normal(crate::domain::ActiveOperationKind::Learning)
+            .map_err(|error| AppError::new(error.as_app_error_code()))
+    }
+
+    pub(crate) fn create_with_maintenance_permit(
+        &self,
+        context: Arc<LearningRequestContext>,
+        maintenance_permit: NormalOperationPermit,
+    ) -> AppResult<LearningRequestSnapshot> {
+        self.create_at(context, Instant::now(), maintenance_permit)
+    }
+
+    pub(crate) fn operation_permit(
+        &self,
+        request_id: Uuid,
+    ) -> AppResult<Arc<NormalOperationPermit>> {
+        self.inner
+            .state
+            .lock()
+            .entries
+            .get(&request_id)
+            .and_then(|entry| entry.maintenance_permit.clone())
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))
     }
 
     pub fn subscribe(
@@ -527,6 +569,12 @@ impl LearningRequestRegistry {
         state.deleting_conversations.clear();
     }
 
+    pub(crate) fn release_maintenance_permit(&self, request_id: Uuid) {
+        if let Some(entry) = self.inner.state.lock().entries.get_mut(&request_id) {
+            entry.maintenance_permit = None;
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn gc_at(&self, now: Instant) {
         gc_locked(&mut self.inner.state.lock(), now);
@@ -538,7 +586,8 @@ impl LearningRequestRegistry {
         context: Arc<LearningRequestContext>,
         now: Instant,
     ) -> AppResult<LearningRequestSnapshot> {
-        self.create_at(context, now)
+        let maintenance_permit = self.acquire_maintenance_permit()?;
+        self.create_at(context, now, maintenance_permit)
     }
 }
 
@@ -566,6 +615,7 @@ fn terminal(
     entry.conversation_id = conversation_id;
     entry.safe_error = safe_error;
     entry.terminal_at = Some(now);
+    entry.maintenance_permit = None;
     emit(request_id, entry, payload)?;
     entry.subscribers.clear();
     Ok(())

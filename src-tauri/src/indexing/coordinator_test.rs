@@ -25,12 +25,14 @@ use crate::{
     credentials::{CredentialStore, MemoryCredentialStore},
     db::Database,
     domain::{
-        IndexPageStatus, IndexQualityReason, PageAnalysisBlockKind, ProviderKind,
-        ProviderPageAnalysis, RemoteCleanupHandle, StructuredAnalysisOutcome,
-        StructuredPageRequest, UntrustedNormalizedRect, UntrustedPageAnalysis, UntrustedPageBlock,
+        ActiveOperationKind, ActiveOperationSummaryDto, IndexPageStatus, IndexQualityReason,
+        MaintenanceStatusCode, PageAnalysisBlockKind, ProviderKind, ProviderPageAnalysis,
+        RemoteCleanupHandle, StructuredAnalysisOutcome, StructuredPageRequest,
+        UntrustedNormalizedRect, UntrustedPageAnalysis, UntrustedPageBlock,
     },
     errors::{AppError, AppErrorCode, AppResult},
     indexing::state::IndexCancellationRegistry,
+    maintenance::gate::{GateAcquireError, MaintenanceGate},
 };
 
 #[derive(Default)]
@@ -159,6 +161,47 @@ fn operation_token_is_fresh_exact_and_replay_safe() {
         service.resume_run(run_id).await.unwrap();
         let replay = service.create_run(fresh, request).await.unwrap_err();
         assert_eq!(replay.code, AppErrorCode::RequestConflict);
+    });
+}
+
+#[test]
+fn index_run_holds_maintenance_permit_until_cancelled_terminal_state() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let gate = MaintenanceGate::default();
+        let operations = IndexOperationRegistry::with_maintenance_gate(gate.clone());
+        let service =
+            fixture.service_with_operations(Arc::new(FakeExecutor::default()), operations.clone());
+        let request = fixture.request(None);
+        let token = service.confirm_operation(request.clone()).await.unwrap();
+        let run_id = service.create_run(token, request).await.unwrap();
+
+        assert_eq!(
+            gate.status().active_operations,
+            vec![ActiveOperationSummaryDto {
+                kind: ActiveOperationKind::Indexing,
+                count: 1,
+            }]
+        );
+        assert!(matches!(
+            gate.try_acquire_maintenance(),
+            Err(GateAcquireError::Busy(_))
+        ));
+
+        let in_flight_lease = operations.maintenance_permit(run_id).unwrap();
+        service.cancel_run(run_id).await.unwrap();
+        assert_eq!(
+            gate.status().active_operations,
+            vec![ActiveOperationSummaryDto {
+                kind: ActiveOperationKind::Indexing,
+                count: 1,
+            }]
+        );
+        drop(in_flight_lease);
+        assert_eq!(
+            gate.status().code,
+            MaintenanceStatusCode::MaintenanceAvailable
+        );
     });
 }
 
@@ -906,11 +949,19 @@ impl Fixture {
     }
 
     fn service(&self, executor: Arc<dyn AnalysisExecutor>) -> IndexCoordinatorService {
+        self.service_with_operations(executor, IndexOperationRegistry::default())
+    }
+
+    fn service_with_operations(
+        &self,
+        executor: Arc<dyn AnalysisExecutor>,
+        operations: IndexOperationRegistry,
+    ) -> IndexCoordinatorService {
         let store: Arc<dyn CredentialStore> = self.store.clone();
         IndexCoordinatorService::new(
             self.database.pool().clone(),
             self.paths.clone(),
-            IndexOperationRegistry::default(),
+            operations,
             IndexCancellationRegistry::default(),
             ProviderCapabilityRegistry::load_embedded().unwrap(),
             store,

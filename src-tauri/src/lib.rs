@@ -19,6 +19,7 @@ pub mod errors;
 pub mod indexing;
 pub mod learning;
 pub mod logging;
+pub mod maintenance;
 pub mod retrieval;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -122,6 +123,9 @@ pub fn run() {
             commands::learning::get_learning_request_snapshot,
             commands::learning::cancel_learning_request,
             commands::learning::start_conversation_followup,
+            commands::maintenance::get_maintenance_status,
+            commands::maintenance::get_storage_usage,
+            commands::maintenance::open_app_data_directory,
             commands::settings::get_app_settings,
             commands::settings::initialize_ui_language,
             commands::settings::update_ui_language,

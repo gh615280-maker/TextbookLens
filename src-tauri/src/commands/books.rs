@@ -6,10 +6,11 @@ use crate::{
 };
 
 fn service(state: &AppState) -> ImportService {
-    ImportService::with_cancellations(
+    ImportService::with_maintenance_gate(
         state.db.pool().clone(),
         state.paths.clone(),
         state.import_cancellations.clone(),
+        state.maintenance_gate.clone(),
     )
 }
 

@@ -115,12 +115,16 @@ pub async fn start_learning_request(
     state: State<'_, AppState>,
     preparation_id: Uuid,
 ) -> Result<LearningRequestSnapshot, LearningErrorDto> {
+    let maintenance_permit = state
+        .learning_requests
+        .acquire_maintenance_permit()
+        .map_err(LearningErrorDto::from)?;
     let prepared = service(&state)
         .consume_for_execution(preparation_id)
         .await
         .map_err(LearningErrorDto::from)?;
     orchestrator(&state)
-        .start_prepared(&runtime(&state), prepared)
+        .start_prepared_with_maintenance_permit(&runtime(&state), prepared, maintenance_permit)
         .await
         .map_err(LearningErrorDto::from)
 }
@@ -168,6 +172,10 @@ pub async fn start_conversation_followup(
     conversation_id: Uuid,
     question: String,
 ) -> Result<LearningRequestSnapshot, LearningErrorDto> {
+    let maintenance_permit = state
+        .learning_requests
+        .acquire_maintenance_permit()
+        .map_err(LearningErrorDto::from)?;
     let prepared = prepare_conversation_followup(
         state.db.pool(),
         &state.provider_capabilities,
@@ -177,7 +185,7 @@ pub async fn start_conversation_followup(
     .await
     .map_err(LearningErrorDto::from)?;
     orchestrator(&state)
-        .start_followup(&runtime(&state), prepared)
+        .start_followup_with_maintenance_permit(&runtime(&state), prepared, maintenance_permit)
         .await
         .map_err(LearningErrorDto::from)
 }

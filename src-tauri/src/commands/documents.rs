@@ -29,10 +29,11 @@ pub enum DerivedTextName {
 }
 
 fn service(state: &AppState) -> ImportService {
-    ImportService::with_cancellations(
+    ImportService::with_maintenance_gate(
         state.db.pool().clone(),
         state.paths.clone(),
         state.import_cancellations.clone(),
+        state.maintenance_gate.clone(),
     )
 }
 
@@ -124,7 +125,7 @@ pub async fn write_derived_text(
     if content.is_empty() {
         return Err(AppError::new(AppErrorCode::InvalidInput).into());
     }
-    ensure_import_not_cancelled(&state, book_id)?;
+    let _operation_lease = ensure_import_not_cancelled(&state, book_id)?;
     crate::book_repository::require_parsing(state.db.pool(), book_id)
         .await
         .map_err(AppErrorDto::from)?;
@@ -224,10 +225,17 @@ pub async fn search_book(
         .map_err(AppErrorDto::from)
 }
 
-fn ensure_import_not_cancelled(state: &AppState, book_id: Uuid) -> Result<(), AppErrorDto> {
+fn ensure_import_not_cancelled(
+    state: &AppState,
+    book_id: Uuid,
+) -> Result<Arc<crate::maintenance::gate::NormalOperationPermit>, AppErrorDto> {
+    let operation_lease = state
+        .import_cancellations
+        .operation_permit(book_id)
+        .ok_or_else(|| AppErrorDto::from(AppError::new(AppErrorCode::RequestConflict)))?;
     if state.import_cancellations.is_cancelled(book_id) {
         Err(AppError::new(AppErrorCode::ImportCancelled).into())
     } else {
-        Ok(())
+        Ok(operation_lease)
     }
 }

@@ -14,10 +14,11 @@ use crate::{
 pub async fn get_onboarding_state(
     state: State<'_, AppState>,
 ) -> Result<OnboardingStateDto, AppErrorDto> {
-    let books = ImportService::with_cancellations(
+    let books = ImportService::with_maintenance_gate(
         state.db.pool().clone(),
         state.paths.clone(),
         state.import_cancellations.clone(),
+        state.maintenance_gate.clone(),
     )
     .list_books()
     .await

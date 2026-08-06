@@ -10,8 +10,9 @@ use textbooklens_lib::{
         ImportService, ImportStage, ParsedBookMetadata,
     },
     documents::storage::{copy_source, noop_progress, validate_source},
-    domain::{BookIndexAggregateStatus, ImportErrorStage, ImportStatus},
+    domain::{ActiveOperationKind, BookIndexAggregateStatus, ImportErrorStage, ImportStatus},
     errors::AppErrorCode,
+    maintenance::gate::MaintenanceGate,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -863,10 +864,17 @@ async fn source_partial_is_create_new_and_never_overwrites_residue() {
 #[test]
 fn retry_old_cleanup_cannot_remove_or_cancel_the_new_attempt_token() {
     let registry = ImportCancellationRegistry::default();
+    let maintenance_gate = MaintenanceGate::default();
     let book_id = uuid::Uuid::new_v4();
     let old_token = CancellationToken::new();
     let new_token = CancellationToken::new();
-    let old_attempt = registry.register(book_id, old_token.clone());
+    let old_attempt = registry.register_with_permit(
+        book_id,
+        old_token.clone(),
+        maintenance_gate
+            .try_acquire_normal(ActiveOperationKind::Import)
+            .unwrap(),
+    );
     let cleanup_registry = registry.clone();
     let cleanup_barrier = Arc::new(std::sync::Barrier::new(2));
     let cleanup_started = cleanup_barrier.clone();
@@ -874,7 +882,13 @@ fn retry_old_cleanup_cannot_remove_or_cancel_the_new_attempt_token() {
         cleanup_started.wait();
         cleanup_registry.remove_if_owner(book_id, old_attempt)
     });
-    let _new_attempt = registry.register(book_id, new_token.clone());
+    let _new_attempt = registry.register_with_permit(
+        book_id,
+        new_token.clone(),
+        maintenance_gate
+            .try_acquire_normal(ActiveOperationKind::Import)
+            .unwrap(),
+    );
 
     cleanup_barrier.wait();
     assert!(!cleanup.join().unwrap());

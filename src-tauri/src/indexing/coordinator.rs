@@ -42,6 +42,7 @@ use crate::{
         remote_cleanup, state,
         validator::{RequestedPageValidation, validate_batch},
     },
+    maintenance::gate::{MaintenanceGate, NormalOperationPermit},
 };
 
 pub const INDEX_RENDER_VERSION: &str = "pdfjs-render-v1";
@@ -96,6 +97,7 @@ struct OperationBinding {
 struct OperationState {
     pending: HashMap<Uuid, PendingOperation>,
     authorized_runs: HashMap<Uuid, OperationBinding>,
+    maintenance_permits: HashMap<Uuid, Arc<NormalOperationPermit>>,
     active_claims: HashMap<(Uuid, Uuid, Uuid), CancellationToken>,
     retry_results: HashMap<(Uuid, String), Uuid>,
 }
@@ -110,10 +112,17 @@ pub struct IndexOperationRegistry {
     state: Arc<Mutex<OperationState>>,
     provider_slots: Arc<Semaphore>,
     retry_locks: Arc<Vec<AsyncMutex<()>>>,
+    maintenance_gate: MaintenanceGate,
 }
 
 impl Default for IndexOperationRegistry {
     fn default() -> Self {
+        Self::with_maintenance_gate(MaintenanceGate::default())
+    }
+}
+
+impl IndexOperationRegistry {
+    pub fn with_maintenance_gate(maintenance_gate: MaintenanceGate) -> Self {
         Self {
             state: Arc::new(Mutex::new(OperationState::default())),
             provider_slots: Arc::new(Semaphore::new(MAX_COORDINATOR_BATCH_PAGES)),
@@ -122,6 +131,7 @@ impl Default for IndexOperationRegistry {
                     .map(|_| AsyncMutex::new(()))
                     .collect(),
             ),
+            maintenance_gate,
         }
     }
 }
@@ -174,11 +184,21 @@ impl IndexOperationRegistry {
         Ok(actual)
     }
 
-    fn authorize(&self, run_id: Uuid, binding: OperationBinding) -> AppResult<()> {
+    fn authorize(
+        &self,
+        run_id: Uuid,
+        binding: OperationBinding,
+        maintenance_permit: Option<Arc<NormalOperationPermit>>,
+    ) -> AppResult<()> {
         let mut state = self.state.lock();
         if !state.authorized_runs.contains_key(&run_id)
             && state.authorized_runs.len() >= MAX_AUTHORIZED_RUNS
         {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        }
+        if let Some(maintenance_permit) = maintenance_permit {
+            state.maintenance_permits.insert(run_id, maintenance_permit);
+        } else if !state.maintenance_permits.contains_key(&run_id) {
             return Err(AppError::new(AppErrorCode::RequestConflict));
         }
         state.authorized_runs.insert(run_id, binding);
@@ -189,20 +209,56 @@ impl IndexOperationRegistry {
         self.state.lock().authorized_runs.get(&run_id).cloned()
     }
 
-    fn authorized_run_ids(&self) -> Vec<Uuid> {
-        let mut ids = self
-            .state
-            .lock()
+    fn authorized_runs_with_permits(&self) -> Vec<(Uuid, Arc<NormalOperationPermit>)> {
+        let state = self.state.lock();
+        let mut runs = state
             .authorized_runs
             .keys()
-            .copied()
+            .filter_map(|run_id| {
+                state
+                    .maintenance_permits
+                    .get(run_id)
+                    .map(|permit| (*run_id, permit.clone()))
+            })
             .collect::<Vec<_>>();
-        ids.sort_unstable();
-        ids
+        runs.sort_unstable_by_key(|(run_id, _)| *run_id);
+        runs
     }
 
     pub fn revoke_run(&self, run_id: Uuid) {
         self.state.lock().authorized_runs.remove(&run_id);
+    }
+
+    pub(crate) fn maintenance_permit(&self, run_id: Uuid) -> Option<Arc<NormalOperationPermit>> {
+        self.state.lock().maintenance_permits.get(&run_id).cloned()
+    }
+
+    fn continuation_permit_for_unknown_run(&self) -> AppResult<Arc<NormalOperationPermit>> {
+        if let Some(permit) = self
+            .state
+            .lock()
+            .maintenance_permits
+            .values()
+            .next()
+            .cloned()
+        {
+            Ok(permit)
+        } else {
+            self.acquire_maintenance_permit()
+        }
+    }
+
+    fn acquire_maintenance_permit(&self) -> AppResult<Arc<NormalOperationPermit>> {
+        self.maintenance_gate
+            .try_acquire_normal(crate::domain::ActiveOperationKind::Indexing)
+            .map(Arc::new)
+            .map_err(|error| AppError::new(error.as_app_error_code()))
+    }
+
+    fn finish_run(&self, run_id: Uuid) {
+        let mut state = self.state.lock();
+        state.authorized_runs.remove(&run_id);
+        state.maintenance_permits.remove(&run_id);
     }
 
     fn register_claim(&self, run_id: Uuid, page_id: Uuid, attempt_id: Uuid) -> AppResult<()> {
@@ -232,6 +288,26 @@ impl IndexOperationRegistry {
             .get(&(run_id, page_id, attempt_id))
             .cloned()
             .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))
+    }
+
+    fn run_and_permit_for_claim(
+        &self,
+        page_id: Uuid,
+        attempt_id: Uuid,
+    ) -> Option<(Uuid, Arc<NormalOperationPermit>)> {
+        let state = self.state.lock();
+        state
+            .active_claims
+            .keys()
+            .find_map(|(run_id, candidate_page_id, candidate_attempt_id)| {
+                if *candidate_page_id != page_id || *candidate_attempt_id != attempt_id {
+                    return None;
+                }
+                state
+                    .maintenance_permits
+                    .get(run_id)
+                    .map(|permit| (*run_id, permit.clone()))
+            })
     }
 
     fn finish_claim(&self, run_id: Uuid, page_id: Uuid, attempt_id: Uuid) {
@@ -586,6 +662,7 @@ impl IndexCoordinatorService {
         operation_token: Uuid,
         request: ConfirmIndexOperationRequest,
     ) -> AppResult<Uuid> {
+        let maintenance_permit = self.operations.acquire_maintenance_permit()?;
         if request.run_id.is_some() {
             return Err(AppError::new(AppErrorCode::InvalidInput));
         }
@@ -620,7 +697,10 @@ impl IndexCoordinatorService {
                 return Err(error);
             }
         }
-        if let Err(error) = self.operations.authorize(run_id, binding) {
+        if let Err(error) = self
+            .operations
+            .authorize(run_id, binding, Some(maintenance_permit))
+        {
             let _ = sqlx::query("DELETE FROM index_runs WHERE id = ?")
                 .bind(run_id.to_string())
                 .execute(&self.pool)
@@ -636,16 +716,29 @@ impl IndexCoordinatorService {
         operation_token: Uuid,
         request: ConfirmIndexOperationRequest,
     ) -> AppResult<()> {
+        let existing_permit = self.operations.maintenance_permit(run_id);
+        let new_permit = if existing_permit.is_some() {
+            None
+        } else {
+            Some(self.operations.acquire_maintenance_permit()?)
+        };
+        let _operation_lease = existing_permit
+            .or_else(|| new_permit.clone())
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
         if request.run_id != Some(run_id) {
             return Err(AppError::new(AppErrorCode::InvalidInput));
         }
         let current = validated_binding(&self.pool, &self.capabilities, request).await?;
         assert_run_matches_binding(&self.pool, run_id, &current).await?;
         let binding = self.operations.consume(operation_token, &current)?;
-        self.operations.authorize(run_id, binding)
+        self.operations.authorize(run_id, binding, new_permit)
     }
 
     pub async fn claim_render_batch(&self) -> AppResult<RenderClaimBatchDto> {
+        let runs = self.operations.authorized_runs_with_permits();
+        if runs.is_empty() {
+            return Ok(RenderClaimBatchDto { claims: Vec::new() });
+        }
         let active: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM index_pages WHERE status IN ('rendering', 'sending')",
         )
@@ -657,7 +750,7 @@ impl IndexCoordinatorService {
         let available = usize::try_from(MAX_ACTIVE_RENDER_OR_SEND_PAGES - active)
             .map_err(|_| database_error())?;
 
-        for run_id in self.operations.authorized_run_ids() {
+        for (run_id, _operation_lease) in runs {
             let binding = match recheck_authorization(
                 &self.pool,
                 &self.capabilities,
@@ -731,8 +824,15 @@ impl IndexCoordinatorService {
     }
 
     pub async fn read_claimed_source(&self, page_id: Uuid, attempt_id: Uuid) -> AppResult<Vec<u8>> {
+        let (run_id, _operation_lease) = self
+            .operations
+            .run_and_permit_for_claim(page_id, attempt_id)
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
         let page =
             load_page_attempt(&self.pool, page_id, attempt_id, IndexPageStatus::Rendering).await?;
+        if page.run_id != run_id {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        }
         let binding = recheck_authorization(
             &self.pool,
             &self.capabilities,
@@ -756,6 +856,10 @@ impl IndexCoordinatorService {
         &self,
         submissions: Vec<RenderedPageSubmission>,
     ) -> AppResult<ReceivedAnalysis> {
+        let _operation_lease = submissions
+            .first()
+            .and_then(|submission| self.operations.maintenance_permit(submission.run_id))
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
         submit_with_executor(self, submissions, self.executor.clone()).await
     }
 
@@ -764,8 +868,15 @@ impl IndexCoordinatorService {
         page_id: Uuid,
         attempt_id: Uuid,
     ) -> AppResult<IndexingEventDto> {
+        let (run_id, _operation_lease) = self
+            .operations
+            .run_and_permit_for_claim(page_id, attempt_id)
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
         let page =
             load_page_attempt(&self.pool, page_id, attempt_id, IndexPageStatus::Rendering).await?;
+        if page.run_id != run_id {
+            return Err(AppError::new(AppErrorCode::RequestConflict));
+        }
         let claim = self
             .operations
             .claim_token(page.run_id, page_id, attempt_id)?;
@@ -777,7 +888,7 @@ impl IndexCoordinatorService {
             self.operations
                 .finish_claim(page.run_id, page_id, attempt_id);
             remove_scratch(&self.paths.indexing_scratch(), page_id, attempt_id);
-            finalize_cancel_if_possible(&self.pool, page.run_id).await;
+            finalize_cancel_if_possible(&self.pool, &self.operations, page.run_id).await;
             return Ok(IndexingEventDto {
                 run_id: page.run_id,
                 page_id,
@@ -805,6 +916,11 @@ impl IndexCoordinatorService {
     }
 
     pub async fn pause_run(&self, run_id: Uuid) -> AppResult<()> {
+        let _operation_lease = if let Some(permit) = self.operations.maintenance_permit(run_id) {
+            permit
+        } else {
+            self.operations.acquire_maintenance_permit()?
+        };
         let status = load_run_status(&self.pool, run_id).await?;
         match status {
             crate::domain::IndexRunStatus::Paused => Ok(()),
@@ -826,6 +942,10 @@ impl IndexCoordinatorService {
     }
 
     pub async fn resume_run(&self, run_id: Uuid) -> AppResult<()> {
+        let _operation_lease = self
+            .operations
+            .maintenance_permit(run_id)
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
         let status = load_run_status(&self.pool, run_id).await?;
         match status {
             crate::domain::IndexRunStatus::Running => Ok(()),
@@ -847,6 +967,11 @@ impl IndexCoordinatorService {
     }
 
     pub async fn cancel_run(&self, run_id: Uuid) -> AppResult<()> {
+        let _operation_lease = if let Some(permit) = self.operations.maintenance_permit(run_id) {
+            permit
+        } else {
+            self.operations.acquire_maintenance_permit()?
+        };
         let status = load_run_status(&self.pool, run_id).await?;
         match status {
             crate::domain::IndexRunStatus::Cancelling
@@ -856,7 +981,7 @@ impl IndexCoordinatorService {
                 match state::cancel_run(&self.pool, &self.cancellations, run_id, status).await {
                     Ok(_) => {
                         self.operations.revoke_run(run_id);
-                        finalize_cancel_if_possible(&self.pool, run_id).await;
+                        finalize_cancel_if_possible(&self.pool, &self.operations, run_id).await;
                         Ok(())
                     }
                     Err(error)
@@ -868,7 +993,7 @@ impl IndexCoordinatorService {
                             ) =>
                     {
                         self.operations.revoke_run(run_id);
-                        finalize_cancel_if_possible(&self.pool, run_id).await;
+                        finalize_cancel_if_possible(&self.pool, &self.operations, run_id).await;
                         Ok(())
                     }
                     Err(error) => Err(error),
@@ -881,6 +1006,7 @@ impl IndexCoordinatorService {
     }
 
     pub async fn retry_page(&self, page_id: Uuid, expected_updated_at: &str) -> AppResult<Uuid> {
+        let _operation_lease = self.operations.continuation_permit_for_unknown_run()?;
         validate_retry_version(expected_updated_at)?;
         let _retry_guard = self.operations.retry_lock(page_id).lock().await;
         let row = sqlx::query(
@@ -891,6 +1017,10 @@ impl IndexCoordinatorService {
         .await?
         .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
         let run_id = parse_uuid(&row.try_get::<String, _>("run_id")?)?;
+        let _run_lease = self
+            .operations
+            .maintenance_permit(run_id)
+            .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
         let current_attempt = parse_uuid(&row.try_get::<String, _>("attempt_id")?)?;
         let status = IndexPageStatus::from_database(&row.try_get::<String, _>("status")?)
             .ok_or_else(database_error)?;
@@ -997,7 +1127,7 @@ async fn submit_with_executor(
                 safe_error_code: None,
             });
         }
-        finalize_cancel_if_possible(&service.pool, first_run_id).await;
+        finalize_cancel_if_possible(&service.pool, &service.operations, first_run_id).await;
         return Ok(ReceivedAnalysis {
             analysis: None,
             events,
@@ -1555,7 +1685,7 @@ async fn validate_and_commit_received(
                 }
             }
             finish_received_claims(service, &active).await;
-            finalize_terminal_run(&service.pool, run_id).await;
+            finalize_terminal_run(&service.pool, &service.operations, run_id).await;
             return Ok(ReceivedAnalysis {
                 analysis: None,
                 events,
@@ -1659,7 +1789,7 @@ async fn validate_and_commit_received(
     }
 
     finish_received_claims(service, &active).await;
-    finalize_terminal_run(&service.pool, run_id).await;
+    finalize_terminal_run(&service.pool, &service.operations, run_id).await;
     Ok(ReceivedAnalysis {
         analysis: None,
         events,
@@ -1677,9 +1807,17 @@ async fn finish_received_claims(
     }
 }
 
-async fn finalize_terminal_run(pool: &SqlitePool, run_id: Uuid) {
-    if let Ok(status) = load_run_status(pool, run_id).await {
-        let _ = state::finalize_run_if_terminal(pool, run_id, status).await;
+async fn finalize_terminal_run(
+    pool: &SqlitePool,
+    operations: &IndexOperationRegistry,
+    run_id: Uuid,
+) {
+    if let Ok(status) = load_run_status(pool, run_id).await
+        && state::finalize_run_if_terminal(pool, run_id, status)
+            .await
+            .is_ok()
+    {
+        operations.finish_run(run_id);
     }
 }
 
@@ -1841,7 +1979,7 @@ async fn finish_interrupted_rendering_batch(
         );
     }
     if let Some(run_id) = run_id {
-        finalize_cancel_if_possible(&service.pool, run_id).await;
+        finalize_cancel_if_possible(&service.pool, &service.operations, run_id).await;
     }
     Ok(ReceivedAnalysis {
         analysis: None,
@@ -1867,7 +2005,7 @@ async fn finish_cancelled_batch(
         });
     }
     if let Some(run_id) = run_id {
-        finalize_cancel_if_possible(&service.pool, run_id).await;
+        finalize_cancel_if_possible(&service.pool, &service.operations, run_id).await;
     }
     Ok(ReceivedAnalysis {
         analysis: None,
@@ -1955,14 +2093,17 @@ async fn page_attempt_status(
     IndexPageStatus::from_database(&status).ok_or_else(database_error)
 }
 
-async fn finalize_cancel_if_possible(pool: &SqlitePool, run_id: Uuid) {
-    if load_run_status(pool, run_id).await.ok() == Some(crate::domain::IndexRunStatus::Cancelling) {
-        let _ = state::finalize_run_if_terminal(
-            pool,
-            run_id,
-            crate::domain::IndexRunStatus::Cancelling,
-        )
-        .await;
+async fn finalize_cancel_if_possible(
+    pool: &SqlitePool,
+    operations: &IndexOperationRegistry,
+    run_id: Uuid,
+) {
+    if load_run_status(pool, run_id).await.ok() == Some(crate::domain::IndexRunStatus::Cancelling)
+        && state::finalize_run_if_terminal(pool, run_id, crate::domain::IndexRunStatus::Cancelling)
+            .await
+            .is_ok()
+    {
+        operations.finish_run(run_id);
     }
 }
 

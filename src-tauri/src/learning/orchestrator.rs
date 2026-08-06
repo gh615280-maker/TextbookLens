@@ -20,6 +20,7 @@ use crate::{
         UnifiedChatRequest, UnifiedStreamEvent, UnifiedVisionRequest, VisionAsset, VisionAssetMeta,
     },
     errors::{AppError, AppErrorCode, AppResult},
+    maintenance::gate::NormalOperationPermit,
 };
 
 use super::{
@@ -95,6 +96,17 @@ impl LearningOrchestrator {
         runtime: &ProviderRuntime,
         prepared: PreparedLearningRequest,
     ) -> AppResult<LearningRequestSnapshot> {
+        let maintenance_permit = self.registry.acquire_maintenance_permit()?;
+        self.start_prepared_with_maintenance_permit(runtime, prepared, maintenance_permit)
+            .await
+    }
+
+    pub(crate) async fn start_prepared_with_maintenance_permit(
+        &self,
+        runtime: &ProviderRuntime,
+        prepared: PreparedLearningRequest,
+        maintenance_permit: NormalOperationPermit,
+    ) -> AppResult<LearningRequestSnapshot> {
         let operation = if prepared.requires_vision() {
             AiOperation::VisionLearning
         } else {
@@ -156,13 +168,30 @@ impl LearningOrchestrator {
             model_id,
             available_citations: prepared.packed_context().citations.clone(),
         });
-        self.start_loaded(loaded, request, context, &TokioLearningTaskSpawner)
+        self.start_loaded(
+            loaded,
+            request,
+            context,
+            maintenance_permit,
+            &TokioLearningTaskSpawner,
+        )
     }
 
     pub async fn start_followup(
         &self,
         runtime: &ProviderRuntime,
         prepared: PreparedFollowupExecution,
+    ) -> AppResult<LearningRequestSnapshot> {
+        let maintenance_permit = self.registry.acquire_maintenance_permit()?;
+        self.start_followup_with_maintenance_permit(runtime, prepared, maintenance_permit)
+            .await
+    }
+
+    pub(crate) async fn start_followup_with_maintenance_permit(
+        &self,
+        runtime: &ProviderRuntime,
+        prepared: PreparedFollowupExecution,
+        maintenance_permit: NormalOperationPermit,
     ) -> AppResult<LearningRequestSnapshot> {
         let loaded = runtime
             .load(
@@ -180,6 +209,7 @@ impl LearningOrchestrator {
             loaded,
             LearningProviderRequest::Text(prepared.chat_request),
             prepared.context,
+            maintenance_permit,
             &TokioLearningTaskSpawner,
         )
     }
@@ -189,12 +219,22 @@ impl LearningOrchestrator {
         loaded: LoadedProvider,
         request: LearningProviderRequest,
         context: Arc<LearningRequestContext>,
+        maintenance_permit: NormalOperationPermit,
         spawner: &dyn LearningTaskSpawner,
     ) -> AppResult<LearningRequestSnapshot> {
-        let snapshot = self.registry.create(context)?;
+        let snapshot = self
+            .registry
+            .create_with_maintenance_permit(context, maintenance_permit)?;
         let request_id = snapshot.request_id;
+        let operation_lease = self.registry.operation_permit(request_id)?;
         let orchestrator = self.clone();
+        let maintenance_guard = LearningTaskMaintenanceGuard {
+            registry: orchestrator.registry.clone(),
+            request_id,
+        };
         let task = Box::pin(async move {
+            let _maintenance_guard = maintenance_guard;
+            let _operation_lease = operation_lease;
             orchestrator
                 .run_loaded_provider(request_id, loaded, request)
                 .await;
@@ -352,6 +392,17 @@ impl LearningOrchestrator {
                 let _ = self.registry.fail(request_id, &error);
             }
         }
+    }
+}
+
+struct LearningTaskMaintenanceGuard {
+    registry: LearningRequestRegistry,
+    request_id: Uuid,
+}
+
+impl Drop for LearningTaskMaintenanceGuard {
+    fn drop(&mut self) {
+        self.registry.release_maintenance_permit(self.request_id);
     }
 }
 
