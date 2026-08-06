@@ -66,6 +66,7 @@ export function ReaderPage() {
   const hintCompletionInFlight = useRef(false);
   const learningProfileRef = useRef<LearningProfile | null>(null);
   const sectionsRef = useRef<ReaderSection[]>([]);
+  const messageRef = useRef(message);
   const noteLabels = {
     input: message('notes.input'),
     save: message('notes.save'),
@@ -88,6 +89,9 @@ export function ReaderPage() {
   useEffect(() => {
     sectionsRef.current = sections;
   }, [sections]);
+  useEffect(() => {
+    messageRef.current = message;
+  }, [message]);
   const activateMarker = useCallback(
     (marker: AnnotationMarker) => {
       if (!bookId) return;
@@ -95,7 +99,7 @@ export function ReaderPage() {
         void noteApi
           .get(bookId, marker.id)
           .then(setEditingNote)
-          .catch(() => setPanelContent(message('notes.error')));
+          .catch(() => setPanelContent(messageRef.current('notes.error')));
         return;
       }
       const owner = conversationOwnerRef.current;
@@ -107,7 +111,7 @@ export function ReaderPage() {
         .open(bookId, marker.conversationId, marker.id, owner)
         .catch(() => setPanelContent('Unable to load this conversation.'));
     },
-    [bookId, message, noteApi],
+    [bookId, noteApi],
   );
   useEffect(() => {
     if (!bookId) return;

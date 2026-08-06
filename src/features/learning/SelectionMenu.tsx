@@ -348,9 +348,7 @@ export function SelectionMenu({
 }
 
 function selectionLabel(snapshot: Readonly<LearningSelectionSnapshot>): string {
-  const text = snapshot.selectedText?.trim();
-  if (!text) return 'Selected region';
-  return [...text].slice(0, 240).join('');
+  return snapshot.origin === 'region' ? 'Selected region' : 'Selected text';
 }
 
 async function setNoPrompt(
