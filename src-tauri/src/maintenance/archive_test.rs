@@ -287,28 +287,39 @@ fn invalid_and_existing_destinations_fail_closed_without_exposing_paths() {
 }
 
 #[test]
-fn injected_failure_cleans_temporary_output_and_releases_exclusive_lease() {
-    let fixture = BackupFixture::new();
-    let destination = fixture.destination("faulted.tlbackup");
-    let fault = Arc::new(FailAt(BackupBoundary::HeaderWritten));
+fn every_backup_fault_boundary_cleans_output_and_releases_the_exclusive_lease() {
+    for boundary in [
+        BackupBoundary::DatabaseSnapshotReady,
+        BackupBoundary::SourcesValidated,
+        BackupBoundary::HeaderWritten,
+        BackupBoundary::EntriesWritten,
+        BackupBoundary::ArchiveSynced,
+        BackupBoundary::ArchiveVerified,
+        BackupBoundary::BeforePublish,
+    ] {
+        let fixture = BackupFixture::new();
+        let destination = fixture.destination("faulted.tlbackup");
+        let fault = Arc::new(FailAt(boundary));
 
-    let error = tauri::async_runtime::block_on(
-        fixture
-            .service_with_fault(fault)
-            .create_backup(destination.clone()),
-    )
-    .expect_err("injected failure");
+        let error = tauri::async_runtime::block_on(
+            fixture
+                .service_with_fault(fault)
+                .create_backup(destination.clone()),
+        )
+        .expect_err("injected failure");
 
-    assert_eq!(
-        archive_error_code(error),
-        MaintenanceErrorCode::BackupWriteFailed
-    );
-    assert!(!destination.exists());
-    assert_no_temporary_archives(fixture.temporary.path());
-    assert_eq!(
-        fixture.gate.status().code,
-        MaintenanceStatusCode::MaintenanceAvailable
-    );
+        assert_eq!(
+            archive_error_code(error),
+            MaintenanceErrorCode::BackupWriteFailed,
+            "wrong error at {boundary:?}"
+        );
+        assert!(!destination.exists(), "published output at {boundary:?}");
+        assert_no_temporary_archives(fixture.temporary.path());
+        assert_eq!(
+            fixture.gate.status().code,
+            MaintenanceStatusCode::MaintenanceAvailable
+        );
+    }
 }
 
 #[test]
@@ -513,6 +524,38 @@ fn manifest_contract_is_strict_bounded_and_traversal_free() {
     manifest.total_bytes += 1;
     assert!(validate_manifest(&manifest, HEADER_BYTES + 5).is_err());
 
+    let mut duplicate = BackupManifest {
+        format: FORMAT_IDENTIFIER.to_owned(),
+        version: BACKUP_FORMAT_VERSION,
+        entry_count: 3,
+        total_bytes: 6,
+        entries: vec![
+            BackupManifestEntry {
+                path: "library.sqlite3".to_owned(),
+                offset: HEADER_BYTES,
+                size: 4,
+                sha256: "0".repeat(64),
+            },
+            BackupManifestEntry {
+                path: format!("books/{book_id}/derived/document.html"),
+                offset: HEADER_BYTES + 4,
+                size: 1,
+                sha256: "a".repeat(64),
+            },
+            BackupManifestEntry {
+                path: format!("books/{book_id}/derived/document.html"),
+                offset: HEADER_BYTES + 5,
+                size: 1,
+                sha256: "b".repeat(64),
+            },
+        ],
+    };
+    assert!(validate_manifest(&duplicate, HEADER_BYTES + 6).is_err());
+    duplicate.entries[2].path = format!("books/{book_id}/original.pdf");
+    duplicate.entries[2].size = MAX_ENTRY_BYTES + 1;
+    duplicate.total_bytes = 5 + MAX_ENTRY_BYTES + 1;
+    assert!(validate_manifest(&duplicate, HEADER_BYTES + duplicate.total_bytes).is_err());
+
     let unknown_field = br#"{
         "format":"textbooklens-local-backup",
         "version":1,
@@ -525,7 +568,7 @@ fn manifest_contract_is_strict_bounded_and_traversal_free() {
 }
 
 #[test]
-fn verifier_rejects_payload_corruption_footer_corruption_and_truncation() {
+fn verifier_rejects_header_payload_footer_manifest_tail_and_truncation_corruption() {
     let fixture = BackupFixture::new();
     let valid = fixture.destination("valid.tlbackup");
     tauri::async_runtime::block_on(fixture.service().create_backup(valid.clone())).unwrap();
@@ -547,6 +590,32 @@ fn verifier_rejects_payload_corruption_footer_corruption_and_truncation() {
     let truncated = fixture.destination("truncated.tlbackup");
     fs::write(&truncated, &bytes[..bytes.len() - 1]).unwrap();
     assert_verification_failure(&truncated);
+
+    let mut header = bytes.clone();
+    header[8..12].copy_from_slice(&(BACKUP_FORMAT_VERSION + 1).to_le_bytes());
+    let incompatible = fixture.destination("incompatible-version.tlbackup");
+    fs::write(&incompatible, header).unwrap();
+    assert_verification_failure(&incompatible);
+
+    let mut flags = bytes.clone();
+    flags[12..16].copy_from_slice(&1_u32.to_le_bytes());
+    let unsupported_flags = fixture.destination("unsupported-flags.tlbackup");
+    fs::write(&unsupported_flags, flags).unwrap();
+    assert_verification_failure(&unsupported_flags);
+
+    let mut manifest_length = bytes.clone();
+    let footer_start = manifest_length.len() - usize::try_from(FOOTER_BYTES).unwrap();
+    manifest_length[footer_start + 8..footer_start + 16]
+        .copy_from_slice(&(MAX_MANIFEST_BYTES + 1).to_le_bytes());
+    let oversized_manifest = fixture.destination("oversized-manifest.tlbackup");
+    fs::write(&oversized_manifest, manifest_length).unwrap();
+    assert_verification_failure(&oversized_manifest);
+
+    let mut tailed = bytes;
+    tailed.extend_from_slice(b"FORBIDDEN_TRAILING_SENTINEL");
+    let trailing = fixture.destination("trailing-data.tlbackup");
+    fs::write(&trailing, tailed).unwrap();
+    assert_verification_failure(&trailing);
 }
 
 #[cfg(windows)]

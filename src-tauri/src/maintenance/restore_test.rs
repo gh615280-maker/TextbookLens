@@ -256,8 +256,10 @@ fn scheduling_faults_leave_no_orphan_or_a_recoverable_durable_intent() {
         tauri::async_runtime::block_on(fixture.database.pool().close());
         if boundary == RestoreBoundary::IntentWritten {
             assert!(recover_pending_restore(&fixture.paths.root).unwrap());
+            assert!(!recover_pending_restore(&fixture.paths.root).unwrap());
             assert_restored(&fixture);
         } else {
+            assert!(!recover_pending_restore(&fixture.paths.root).unwrap());
             assert!(!recover_pending_restore(&fixture.paths.root).unwrap());
             let current = Database::open(&fixture.paths.database).unwrap();
             assert_eq!(current_language(current.pool()), "en");

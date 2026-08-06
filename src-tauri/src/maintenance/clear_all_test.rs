@@ -102,9 +102,16 @@ impl ClearFixture {
         };
         let database = Database::open(&paths.database).unwrap();
         let profile_id = uuid::uuid!("0b101dcb-47af-4e1d-9aa3-36472bf148a6");
+        let remote_resource_id = uuid::uuid!("0b101dcb-47af-4e1d-9aa3-36472bf148a7");
         tauri::async_runtime::block_on(async {
             sqlx::query("INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, is_active, created_at, updated_at, validated_at) VALUES (?, 'openai', 'Fixture', 'fixture-model', 4096, 1, '2026-08-06T00:00:00.000Z', '2026-08-06T00:00:00.000Z', '2026-08-06T00:00:00.000Z')")
                 .bind(profile_id.to_string())
+                .execute(database.pool())
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO provider_remote_resources (id, provider_kind, encrypted_reference, cleanup_status, created_at, updated_at) VALUES (?, 'openai', ?, 'pending', '2026-08-06T00:00:00.000Z', '2026-08-06T00:00:00.000Z')")
+                .bind(remote_resource_id.to_string())
+                .bind(format!("enc:v1:keyring:{remote_resource_id}"))
                 .execute(database.pool())
                 .await
                 .unwrap();
@@ -118,6 +125,7 @@ impl ClearFixture {
         fs::write(&original_source, b"ORIGINAL_SOURCE_SENTINEL").unwrap();
         let credentials = Arc::new(FakeCredentialStore::default());
         credentials.insert(credential_key(profile_id));
+        credentials.insert(format!("textbooklens/remote-resource/{remote_resource_id}"));
         Self {
             temporary,
             paths,
@@ -301,6 +309,14 @@ fn credential_and_intent_faults_are_durable_and_restart_retryable() {
             ))
             .unwrap(),
             ClearStartupOutcome::Cleared
+        );
+        assert_eq!(
+            tauri::async_runtime::block_on(recover_pending_clear(
+                &fixture.paths.root,
+                fixture.credentials.as_ref(),
+            ))
+            .unwrap(),
+            ClearStartupOutcome::NoPending
         );
         assert!(!fixture.paths.database.exists());
         assert!(fixture.credentials.is_empty());
