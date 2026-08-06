@@ -125,7 +125,8 @@ impl From<BackupError> for MaintenanceErrorDto {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BackupBoundary {
+#[doc(hidden)]
+pub enum BackupBoundary {
     DatabaseSnapshotReady,
     SourcesValidated,
     HeaderWritten,
@@ -136,9 +137,11 @@ enum BackupBoundary {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct BackupInjectedFailure;
+#[doc(hidden)]
+pub struct BackupInjectedFailure;
 
-trait BackupFaultInjector: Send + Sync {
+#[doc(hidden)]
+pub trait BackupFaultInjector: Send + Sync {
     fn checkpoint(&self, boundary: BackupBoundary) -> Result<(), BackupInjectedFailure>;
 }
 
@@ -169,8 +172,8 @@ impl BackupService {
         }
     }
 
-    #[cfg(test)]
-    fn with_fault_injector(
+    #[doc(hidden)]
+    pub fn with_fault_injector(
         pool: SqlitePool,
         paths: AppPaths,
         gate: MaintenanceGate,

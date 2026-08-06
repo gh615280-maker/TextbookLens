@@ -37,8 +37,8 @@ use textbooklens_lib::{
         coordinator::IndexOperationRegistry,
         recovery::{recover_interrupted_pages, scratch_path},
         remote_cleanup::{
-            RemoteResourceCleaner, safely_dispose_failed_resource, store_remote_handle,
-            sweep_remote_resources,
+            RemoteResourceCleaner, recover_remote_cleanup_on_startup,
+            safely_dispose_failed_resource, store_remote_handle, sweep_remote_resources,
         },
         state,
         validator::{ValidatedBlock, ValidatedPage},
@@ -757,7 +757,17 @@ fn remote_cleanup_retries_after_restart_is_at_most_once_and_never_leaks_secrets(
 
     let database = Database::open(&database_path).unwrap();
     tauri::async_runtime::block_on(async {
-        let startup_retry = sweep_remote_resources(
+        let startup = recover_remote_cleanup_on_startup(database.pool(), vault.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(startup, Default::default());
+        assert_eq!(
+            cleanup_status(database.pool(), retry_resource).await,
+            "failed"
+        );
+        assert_eq!(cleaner.calls.load(Ordering::SeqCst), 1);
+
+        let explicit_retry = sweep_remote_resources(
             database.pool(),
             vault.as_ref(),
             cleaner.as_ref(),
@@ -765,7 +775,7 @@ fn remote_cleanup_retries_after_restart_is_at_most_once_and_never_leaks_secrets(
         )
         .await
         .unwrap();
-        assert_eq!(startup_retry.succeeded, 1);
+        assert_eq!(explicit_retry.succeeded, 1);
         assert_eq!(
             cleanup_status(database.pool(), retry_resource).await,
             "succeeded"
@@ -899,19 +909,20 @@ fn remote_cleanup_retries_after_restart_is_at_most_once_and_never_leaks_secrets(
             )
             .await
             .unwrap();
-        let recovered = sweep_remote_resources(
-            database.pool(),
-            vault.as_ref(),
-            cleaner.as_ref(),
-            CancellationToken::new(),
-        )
-        .await
-        .unwrap();
+        let recovered = recover_remote_cleanup_on_startup(database.pool(), vault.as_ref())
+            .await
+            .unwrap();
         assert_eq!(recovered.recovered_success_markers, 1);
         assert_eq!(cleaner.calls.load(Ordering::SeqCst), 3);
         assert_eq!(
             cleanup_status(database.pool(), marker_resource).await,
             "succeeded"
+        );
+        assert_eq!(
+            recover_remote_cleanup_on_startup(database.pool(), vault.as_ref())
+                .await
+                .unwrap(),
+            Default::default()
         );
 
         let error = AppError::invalid_api_key(CREDENTIAL_SENTINEL, BODY_SENTINEL);

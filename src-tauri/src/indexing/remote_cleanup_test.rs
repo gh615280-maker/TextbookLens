@@ -13,8 +13,8 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::remote_cleanup::{
-    RemoteResourceCleaner, finish_failed_tracking_compensation, safely_dispose_failed_resource,
-    store_remote_handle, sweep_remote_resources,
+    RemoteResourceCleaner, finish_failed_tracking_compensation, recover_remote_cleanup_on_startup,
+    safely_dispose_failed_resource, store_remote_handle, sweep_remote_resources,
 };
 use crate::{
     credentials::CredentialStore,
@@ -161,7 +161,7 @@ fn handle_is_vaulted_and_cleanup_is_claimed_at_most_once() {
 }
 
 #[test]
-fn failed_delete_is_retryable_and_startup_sweep_recovers() {
+fn failed_delete_waits_for_an_explicit_retry_after_local_only_startup_recovery() {
     let fixture = RemoteFixture::new();
     tauri::async_runtime::block_on(async {
         let store = TestStore::default();
@@ -184,7 +184,18 @@ fn failed_delete_is_retryable_and_startup_sweep_recovers() {
         );
         assert_eq!(store.entry_count(), 1);
 
-        let second = sweep_remote_resources(
+        let startup = recover_remote_cleanup_on_startup(fixture.database.pool(), &store)
+            .await
+            .unwrap();
+        assert_eq!(startup, Default::default());
+        assert_eq!(cleaner.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            cleanup_status(fixture.database.pool(), resource_id).await,
+            "failed"
+        );
+        assert_eq!(store.entry_count(), 1);
+
+        let explicit_retry = sweep_remote_resources(
             fixture.database.pool(),
             &store,
             &cleaner,
@@ -192,7 +203,7 @@ fn failed_delete_is_retryable_and_startup_sweep_recovers() {
         )
         .await
         .unwrap();
-        assert_eq!(second.succeeded, 1);
+        assert_eq!(explicit_retry.succeeded, 1);
         assert_eq!(cleaner.calls.load(Ordering::SeqCst), 2);
         assert_eq!(
             cleanup_status(fixture.database.pool(), resource_id).await,
@@ -233,20 +244,19 @@ fn startup_marker_recovery_never_repeats_a_completed_provider_delete() {
             )
             .await
             .unwrap();
-        let cleaner = FakeCleaner::default();
-        let summary = sweep_remote_resources(
-            fixture.database.pool(),
-            &store,
-            &cleaner,
-            CancellationToken::new(),
-        )
-        .await
-        .unwrap();
+        let summary = recover_remote_cleanup_on_startup(fixture.database.pool(), &store)
+            .await
+            .unwrap();
         assert_eq!(summary.recovered_success_markers, 1);
-        assert_eq!(cleaner.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
             cleanup_status(fixture.database.pool(), resource_id).await,
             "succeeded"
+        );
+        assert_eq!(
+            recover_remote_cleanup_on_startup(fixture.database.pool(), &store)
+                .await
+                .unwrap(),
+            Default::default()
         );
     });
 }

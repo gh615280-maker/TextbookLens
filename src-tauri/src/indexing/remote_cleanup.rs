@@ -188,6 +188,16 @@ pub async fn sweep_remote_resources(
     Ok(summary)
 }
 
+/// Reconciles only a provider deletion that completed before the process
+/// stopped but whose local success update did not. Startup must never turn a
+/// durable pending/failed cleanup row into an implicit provider retry.
+pub async fn recover_remote_cleanup_on_startup(
+    pool: &SqlitePool,
+    credential_store: &dyn CredentialStore,
+) -> AppResult<RemoteCleanupSummary> {
+    recover_success_markers(pool, credential_store).await
+}
+
 /// Retries only the detached opaque cleanup records returned by one local
 /// textbook deletion. The identifiers are never serialized or logged, and a
 /// provider failure remains represented by the durable row rather than

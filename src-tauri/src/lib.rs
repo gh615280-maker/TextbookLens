@@ -58,12 +58,12 @@ pub fn run() {
             maintenance::delete_book::recover_pending_deletions(database.pool(), &paths)?;
             db::settings::recover_interrupted_imports(database.pool(), &paths)?;
             indexing::recovery::recover_on_startup(database.pool(), &paths.indexing_scratch())?;
-            let remote_cleaner = indexing::remote_cleanup::RuntimeRemoteResourceCleaner::new(
-                credential_store.clone(),
-                provider_capabilities.clone(),
-            );
-            let remote_cleanup_pool = database.pool().clone();
-            let remote_cleanup_store = credential_store.clone();
+            tauri::async_runtime::block_on(
+                indexing::remote_cleanup::recover_remote_cleanup_on_startup(
+                    database.pool(),
+                    credential_store.as_ref(),
+                ),
+            )?;
             let app_state = app_state::AppState::new(
                 database,
                 paths,
@@ -71,22 +71,7 @@ pub fn run() {
                 credential_store,
                 provider_capabilities,
             );
-            let remote_cleanup_gate = app_state.maintenance_gate.clone();
             app.manage(app_state);
-            tauri::async_runtime::spawn(async move {
-                let Ok(_permit) =
-                    remote_cleanup_gate.try_acquire_normal(domain::ActiveOperationKind::Indexing)
-                else {
-                    return;
-                };
-                let _ = indexing::remote_cleanup::sweep_remote_resources(
-                    &remote_cleanup_pool,
-                    remote_cleanup_store.as_ref(),
-                    &remote_cleaner,
-                    tokio_util::sync::CancellationToken::new(),
-                )
-                .await;
-            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
