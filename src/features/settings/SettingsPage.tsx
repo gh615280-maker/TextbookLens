@@ -662,9 +662,21 @@ function Dialog({
   }, [onClose]);
   useEffect(() => {
     previousFocus.current = document.activeElement as HTMLElement | null;
-    dialogRef.current
-      ?.querySelector<HTMLElement>('button, input, select, textarea')
-      ?.focus();
+    const focusFirstEnabledControl = () =>
+      dialogRef.current
+        ?.querySelector<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+        )
+        ?.focus();
+    focusFirstEnabledControl();
+    const observer = new MutationObserver(focusFirstEnabledControl);
+    if (dialogRef.current) {
+      observer.observe(dialogRef.current, {
+        attributes: true,
+        attributeFilter: ['disabled'],
+        subtree: true,
+      });
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -690,6 +702,7 @@ function Dialog({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
+      observer.disconnect();
       window.removeEventListener('keydown', handleKeyDown);
       previousFocus.current?.focus();
     };

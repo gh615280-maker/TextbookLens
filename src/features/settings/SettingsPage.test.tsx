@@ -123,6 +123,9 @@ describe('SettingsPage', () => {
     const user = userEvent.setup();
     await screen.findByRole('button', { name: 'Create backup' });
     await user.click(screen.getByRole('button', { name: 'Create backup' }));
+    expect(
+      screen.getByRole('dialog').getElementsByTagName('button')[0],
+    ).toHaveFocus();
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'Estimated backup size: 2 KB.',
     );
