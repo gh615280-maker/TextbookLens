@@ -432,10 +432,10 @@ function OverviewContent({
         </dialog>
       ) : null}
       {deleteCandidate ? (
-        <div
+        <dialog
+          open
           aria-labelledby="book-delete-title"
           aria-modal="true"
-          role="dialog"
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.preventDefault();
@@ -466,7 +466,7 @@ function OverviewContent({
           >
             {message('learning.confirm.cancel')}
           </button>
-        </div>
+        </dialog>
       ) : null}
     </section>
   );
