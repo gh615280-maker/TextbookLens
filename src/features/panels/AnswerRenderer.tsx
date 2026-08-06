@@ -46,10 +46,24 @@ export function AnswerRenderer({ answer }: { answer: string }) {
         ]}
         remarkPlugins={[remarkGfm, remarkMath]}
       >
-        {boundFencedCode(answer)}
+        {boundFencedCode(stripHiddenReasoning(answer))}
       </ReactMarkdown>
     </div>
   );
+}
+
+/** Provider reasoning tags are never user-visible, including an unfinished stream block. */
+export function stripHiddenReasoning(answer: string): string {
+  let visible = answer;
+  const complete = /<(think|analysis|reasoning)\b[^>]*>[\s\S]*?<\/\1\s*>/giu;
+  for (;;) {
+    const next = visible.replace(complete, '');
+    if (next === visible) break;
+    visible = next;
+  }
+  return visible
+    .replace(/<(?:think|analysis|reasoning)\b[^>]*>[\s\S]*$/iu, '')
+    .replace(/<\/?(?:think|analysis|reasoning)\b[^>]*>/giu, '');
 }
 
 /** HTTPS and mailto are the only external protocols accepted by the panel. */

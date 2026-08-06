@@ -1,7 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { AnswerRenderer, safeMarkdownUrl } from './AnswerRenderer';
+import {
+  AnswerRenderer,
+  safeMarkdownUrl,
+  stripHiddenReasoning,
+} from './AnswerRenderer';
 
 describe('AnswerRenderer', () => {
   it('keeps raw HTML and unsafe links inert while retaining safe HTTPS and mailto links', () => {
@@ -76,5 +80,25 @@ describe('AnswerRenderer', () => {
       8_300,
     );
     vi.unstubAllGlobals();
+  });
+
+  it('removes complete and partial provider reasoning blocks before Markdown parsing', () => {
+    const { rerender } = render(
+      <AnswerRenderer
+        answer={
+          'Visible before. <think>private chain</think> Visible after. <analysis>nested <reasoning>private</reasoning></analysis>'
+        }
+      />,
+    );
+    expect(screen.getByText(/Visible before/)).toHaveTextContent(
+      'Visible before. Visible after.',
+    );
+    expect(screen.queryByText(/private/)).not.toBeInTheDocument();
+    rerender(
+      <AnswerRenderer answer="Durable prefix. <think>streaming private" />,
+    );
+    expect(screen.getByText('Durable prefix.')).toBeVisible();
+    expect(screen.queryByText(/streaming private/)).not.toBeInTheDocument();
+    expect(stripHiddenReasoning('safe </think> tail')).toBe('safe  tail');
   });
 });
