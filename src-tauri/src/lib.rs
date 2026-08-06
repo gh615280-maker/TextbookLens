@@ -99,6 +99,7 @@ pub fn run() {
             commands::conversations::get_learning_conversation,
             commands::conversations::delete_learning_conversation,
             commands::conversations::get_book_learning_conversation,
+            commands::conversations::list_book_learning_conversation_summaries,
             commands::conversations::delete_book_learning_conversation,
             commands::credentials::validate_and_save_provider_profile,
             commands::credentials::replace_provider_profile_credential,

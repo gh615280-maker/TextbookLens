@@ -11,6 +11,7 @@ import {
 } from 'react';
 
 import { TauriLearningApi, type LearningRequestApi } from './api';
+import { TauriBookLearningPreparationApi } from './book-api';
 import {
   LearningRequestStore,
   type LearningRequestPresentation,
@@ -30,6 +31,11 @@ interface LearningRequestContextValue {
     presentation: Readonly<LearningRequestPresentation>,
   ): Promise<void>;
   cancel(requestId: string): Promise<void>;
+  startBook(
+    preparationId: string,
+    presentation: Readonly<LearningRequestPresentation>,
+    targetConversationId?: string,
+  ): Promise<void>;
 }
 
 const LearningRequestContext =
@@ -58,6 +64,7 @@ export function LearningRequestProvider({
     [suppliedStore],
   );
   const [controller] = useState(() => new LearningRequestController());
+  const [bookApi] = useState(() => new TauriBookLearningPreparationApi());
 
   useEffect(() => {
     controller.activate();
@@ -85,8 +92,21 @@ export function LearningRequestProvider({
           presentation,
         ),
       cancel: (requestId: string) => api.cancel(requestId),
+      startBook: (
+        preparationId: string,
+        presentation: Readonly<LearningRequestPresentation>,
+        targetConversationId?: string,
+      ) =>
+        controller.startBook(
+          api,
+          bookApi,
+          store,
+          preparationId,
+          presentation,
+          targetConversationId,
+        ),
     });
-  }, [api, controller, store]);
+  }, [api, bookApi, controller, store]);
 
   return (
     <LearningRequestContext.Provider value={value}>
@@ -142,6 +162,24 @@ class LearningRequestController {
     this.subscribe(api, store, started);
   }
 
+  async startBook(
+    api: LearningRequestApi,
+    bookApi: Pick<TauriBookLearningPreparationApi, 'start'>,
+    store: LearningRequestStore,
+    preparationId: string,
+    presentation: Readonly<LearningRequestPresentation>,
+    targetConversationId?: string,
+  ) {
+    const started = await bookApi.start(preparationId);
+    if (!this.active) return;
+    store.applySnapshot(started);
+    if (targetConversationId) {
+      store.setTargetConversation(started.requestId, targetConversationId);
+    }
+    store.setPresentation(started.requestId, presentation);
+    this.subscribe(api, store, started);
+  }
+
   private subscribe(
     api: LearningRequestApi,
     store: LearningRequestStore,
@@ -180,13 +218,14 @@ export function useLearningRequestSnapshot(): LearningRequestStoreSnapshot {
 
 export function useLearningRequestActions(): Pick<
   LearningRequestContextValue,
-  'startFollowup' | 'cancel'
+  'startFollowup' | 'cancel' | 'startBook'
 > | null {
   const context = useContext(LearningRequestContext);
   return context
     ? Object.freeze({
         startFollowup: context.startFollowup,
         cancel: context.cancel,
+        startBook: context.startBook,
       })
     : null;
 }

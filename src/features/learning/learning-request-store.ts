@@ -23,6 +23,8 @@ export interface LearningRequestPresentation {
   readonly selectionLabel: string;
   readonly provider: string;
   readonly model: string;
+  /** Present only for textbook-level requests; it never contains question/context. */
+  readonly bookId?: string;
 }
 
 export interface LearningRequestStoreSnapshot {

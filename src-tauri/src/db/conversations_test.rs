@@ -116,3 +116,17 @@ fn book_followup_reserves_bounded_space_for_the_atomic_message_pair() {
         );
     }
 }
+
+#[test]
+fn book_history_summary_preview_is_bounded_and_redacts_invalid_input() {
+    let value = "q".repeat(MAX_BOOK_QUESTION_PREVIEW_CODE_POINTS + 1);
+    let preview = truncate_question_preview(&value);
+    assert_eq!(
+        preview.chars().count(),
+        MAX_BOOK_QUESTION_PREVIEW_CODE_POINTS + 1
+    );
+    assert!(preview.ends_with('…'));
+    assert!(question_is_safe_preview("synthetic safe question"));
+    assert!(!question_is_safe_preview("\u{0000}"));
+    assert!(!question_is_safe_preview("   "));
+}

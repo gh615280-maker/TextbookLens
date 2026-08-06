@@ -35,6 +35,8 @@ const MAX_SELECTED_TEXT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_BOOK_HISTORY_MESSAGES: i64 = 4_096;
 const MAX_BOOK_HISTORY_CONTENT_BYTES: i64 = 64 * 1024 * 1024;
 const MAX_BOOK_HISTORY_CITATIONS_BYTES: i64 = 16 * 1024 * 1024;
+const MAX_BOOK_CONVERSATION_SUMMARIES: i64 = 200;
+const MAX_BOOK_QUESTION_PREVIEW_CODE_POINTS: usize = 280;
 
 #[derive(Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -85,6 +87,19 @@ pub struct BookConversationHistoryDto {
     pub messages: Vec<ConversationMessageDto>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Deliberately content-minimal overview list item. Full messages require an
+/// explicit, separately validated `load_book_conversation` request.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "conversation.ts")]
+pub struct BookConversationSummaryDto {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub message_count: u32,
+    pub first_question_preview: String,
 }
 
 impl fmt::Debug for BookConversationHistoryDto {
@@ -258,6 +273,69 @@ pub async fn load_book_conversation(
         created_at,
         updated_at,
     })
+}
+
+pub async fn list_book_conversation_summaries(
+    pool: &SqlitePool,
+    book_id: Uuid,
+) -> AppResult<Vec<BookConversationSummaryDto>> {
+    let ready: Option<String> = sqlx::query_scalar("SELECT import_status FROM books WHERE id = ?")
+        .bind(book_id.to_string())
+        .fetch_optional(pool)
+        .await?;
+    match ready.as_deref() {
+        Some("ready") => {}
+        Some(_) => return Err(AppError::new(AppErrorCode::BookNotReady)),
+        None => return Err(AppError::new(AppErrorCode::NotFound)),
+    }
+    let rows = sqlx::query(
+        "SELECT c.id, c.created_at, c.updated_at, COUNT(m.id) AS message_count, m0.content AS first_question FROM conversations c JOIN messages m0 ON m0.conversation_id = c.id AND m0.ordinal = 0 AND m0.role = 'user' AND m0.action = 'ask' JOIN messages m ON m.conversation_id = c.id WHERE c.book_id = ? AND c.scope = 'book' AND c.section_id IS NULL AND c.anchor_kind IS NULL AND c.anchor_json IS NULL AND c.selected_text IS NULL GROUP BY c.id HAVING COUNT(m.id) >= 2 AND COUNT(m.id) % 2 = 0 ORDER BY c.updated_at DESC, c.id ASC LIMIT ?",
+    )
+    .bind(book_id.to_string())
+    .bind(MAX_BOOK_CONVERSATION_SUMMARIES)
+    .fetch_all(pool)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let id = parse_uuid(row.try_get("id")?)?;
+            let created_at = parse_database_timestamp(&row.try_get::<String, _>("created_at")?)?;
+            let updated_at = parse_database_timestamp(&row.try_get::<String, _>("updated_at")?)?;
+            let count: i64 = row.try_get("message_count")?;
+            let question: String = row.try_get("first_question")?;
+            if updated_at < created_at
+                || count < 2
+                || count % 2 != 0
+                || count > MAX_BOOK_HISTORY_MESSAGES
+                || !question_is_safe_preview(&question)
+            {
+                return Err(database_error());
+            }
+            Ok(BookConversationSummaryDto {
+                id,
+                created_at,
+                updated_at,
+                message_count: u32::try_from(count).map_err(|_| database_error())?,
+                first_question_preview: truncate_question_preview(&question),
+            })
+        })
+        .collect()
+}
+
+fn question_is_safe_preview(value: &str) -> bool {
+    !value.trim().is_empty()
+        && value.len() <= MAX_BOOK_HISTORY_CONTENT_BYTES as usize
+        && !contains_disallowed_control(value)
+}
+
+fn truncate_question_preview(value: &str) -> String {
+    let mut preview: String = value
+        .chars()
+        .take(MAX_BOOK_QUESTION_PREVIEW_CODE_POINTS)
+        .collect();
+    if value.chars().count() > MAX_BOOK_QUESTION_PREVIEW_CODE_POINTS {
+        preview.push('\u{2026}');
+    }
+    preview
 }
 
 fn history_anchor_is_structurally_valid(

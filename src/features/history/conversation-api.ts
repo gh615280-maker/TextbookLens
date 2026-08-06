@@ -260,6 +260,7 @@ export interface BookConversationHistory {
 }
 
 export interface BookConversationApi {
+  listBook(bookId: string): Promise<readonly BookConversationSummary[]>;
   getBook(
     bookId: string,
     conversationId: string,
@@ -267,7 +268,44 @@ export interface BookConversationApi {
   deleteBook(bookId: string, conversationId: string): Promise<void>;
 }
 
+export interface BookConversationSummary {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly messageCount: number;
+  readonly firstQuestionPreview: string;
+}
+
+const bookConversationSummary = z
+  .object({
+    id: uuid,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    messageCount: z.number().int().min(2).max(4096),
+    firstQuestionPreview: z.string().min(1).max(281),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.updatedAt >= value.createdAt && value.messageCount % 2 === 0,
+  );
+
 export class TauriBookConversationApi implements BookConversationApi {
+  async listBook(bookId: string): Promise<readonly BookConversationSummary[]> {
+    const result = await invoke<unknown>(
+      'list_book_learning_conversation_summaries',
+      {
+        bookId: uuid.parse(bookId),
+      },
+    );
+    return Object.freeze(
+      z
+        .array(bookConversationSummary)
+        .max(200)
+        .parse(result)
+        .map((value) => Object.freeze({ ...value })),
+    );
+  }
   async getBook(
     bookId: string,
     conversationId: string,

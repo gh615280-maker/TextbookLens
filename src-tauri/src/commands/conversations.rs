@@ -6,8 +6,8 @@ use crate::{
     app_state::AppState,
     db::conversations::{
         BookConversationHistoryDto, ConversationHistoryDto, DeleteBookConversation,
-        DeleteSelectionConversation, LearningRepository, load_book_conversation,
-        load_selection_conversation,
+        DeleteSelectionConversation, LearningRepository, list_book_conversation_summaries,
+        load_book_conversation, load_selection_conversation,
     },
     errors::AppError,
 };
@@ -15,6 +15,16 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ConversationErrorDto {
     code: &'static str,
+}
+
+#[tauri::command]
+pub async fn list_book_learning_conversation_summaries(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+) -> Result<Vec<crate::db::conversations::BookConversationSummaryDto>, ConversationErrorDto> {
+    list_book_conversation_summaries(state.db.pool(), book_id)
+        .await
+        .map_err(ConversationErrorDto::from)
 }
 
 impl From<AppError> for ConversationErrorDto {
