@@ -17,6 +17,7 @@ import {
   addDocxRangeOverlay,
   addDocxRegionOverlay,
   recoverDocxRange,
+  recoverDocxRegionRange,
 } from './docx-markers';
 import {
   captureDocxRegion,
@@ -120,6 +121,15 @@ export class DocxReaderAdapter implements ReaderAdapter {
         if (resolved) {
           addDocxRegionOverlay(this.container, resolved.block, resolved.rect);
           status = 'primary';
+        } else {
+          const recovered = recoverDocxRegionRange(
+            this.container,
+            anchor.region,
+          );
+          if (recovered) {
+            addDocxRangeOverlay(this.container, recovered);
+            status = 'fallback';
+          }
         }
       }
       if (status === 'unresolved') this.events.onFailure(anchorNotFound());

@@ -155,7 +155,10 @@ describe('EpubReaderAdapter', () => {
     const primaryText = sectionDocument.querySelector('p')!.firstChild!;
     primaryRange.setStart(primaryText, 7);
     primaryRange.setEnd(primaryText, 13);
-    const getRange = vi.fn(async () => primaryRange);
+    const getRange = vi.fn(async (cfi: string) => {
+      void cfi;
+      return primaryRange;
+    });
     const book = {
       open: vi.fn(async () => {}),
       ready: Promise.resolve(),
@@ -197,45 +200,66 @@ describe('EpubReaderAdapter', () => {
     expect(await adapter.showAnnotations([marker])).toEqual([
       { annotationId: 'epub', relocationStatus: 'primary' },
     ]);
-    expect(
-      await adapter.showAnnotations([
-        {
-          id: 'epub-region',
-          kind: 'note',
-          conversationId: null,
-          label: 'View personal note marker',
-          relocationStatus: 'primary',
-          anchor: {
-            kind: 'region',
-            region: {
-              locator: {
-                format: 'epub',
-                sectionId: 'spine-0',
-                cfi: 'epubcfi(/6/4)',
-              },
-              rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
-              contentSha256: await hashEpubRegionElement(
-                sectionDocument.querySelector('p')!,
-              ),
-              textFallback: {
-                exact: 'target',
-                prefix: 'prefix ',
-                suffix: ' suffix',
-              },
-            },
+    const regionMarker = {
+      id: 'epub-region',
+      kind: 'note' as const,
+      conversationId: null,
+      label: 'View personal note marker',
+      relocationStatus: 'primary' as const,
+      anchor: {
+        kind: 'region' as const,
+        region: {
+          locator: {
+            format: 'epub' as const,
+            sectionId: 'spine-0',
+            cfi: 'epubcfi(/6/4)',
+          },
+          rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
+          contentSha256: await hashEpubRegionElement(
+            sectionDocument.querySelector('p')!,
+          ),
+          textFallback: {
+            exact: 'target',
+            prefix: 'prefix ',
+            suffix: ' suffix',
           },
         },
-      ]),
-    ).toEqual([{ annotationId: 'epub-region', relocationStatus: 'primary' }]);
-    getRange.mockRejectedValue(new Error('stale CFI'));
+      },
+    };
+    expect(await adapter.showAnnotations([regionMarker])).toEqual([
+      { annotationId: 'epub-region', relocationStatus: 'primary' },
+    ]);
+    getRange.mockImplementation(async (cfi: string) => {
+      if (cfi === 'epubcfi(/6/4)') throw new Error('stale CFI');
+      return primaryRange;
+    });
     expect(await adapter.showAnnotations([marker])).toEqual([
       { annotationId: 'epub', relocationStatus: 'fallback' },
+    ]);
+    expect(await adapter.showAnnotations([regionMarker])).toEqual([
+      { annotationId: 'epub-region', relocationStatus: 'fallback' },
     ]);
     expect(annotations.remove).toHaveBeenCalledWith(
       'epubcfi(/6/4)',
       'highlight',
     );
     sectionDocument.body.innerHTML = '<p>target target</p>';
+    expect(
+      await adapter.showAnnotations([
+        {
+          ...regionMarker,
+          anchor: {
+            ...regionMarker.anchor,
+            region: {
+              ...regionMarker.anchor.region,
+              textFallback: { exact: 'target', prefix: '', suffix: '' },
+            },
+          },
+        },
+      ]),
+    ).toEqual([
+      { annotationId: 'epub-region', relocationStatus: 'unresolved' },
+    ]);
     expect(
       await adapter.showAnnotations([
         {

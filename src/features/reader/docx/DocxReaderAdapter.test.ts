@@ -69,30 +69,51 @@ describe('DocxReaderAdapter', () => {
     const regionBlock = document.querySelector<HTMLElement>(
       '[data-block-id="actual"]',
     )!;
+    const regionMarker = {
+      id: 'docx-region',
+      kind: 'ai_conversation' as const,
+      conversationId: 'conversation',
+      label: 'View AI conversation marker',
+      relocationStatus: 'primary' as const,
+      anchor: {
+        kind: 'region' as const,
+        region: {
+          locator: { format: 'docx' as const, blockId: 'actual' },
+          rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
+          contentSha256: await hashDocxRegionBlock(regionBlock),
+          textFallback: {
+            exact: 'target',
+            prefix: 'prefix ',
+            suffix: ' suffix',
+          },
+        },
+      },
+    };
+    expect(await adapter.showAnnotations([regionMarker])).toEqual([
+      { annotationId: 'docx-region', relocationStatus: 'primary' },
+    ]);
+    regionBlock.textContent = 'changed prefix target suffix';
+    expect(await adapter.showAnnotations([regionMarker])).toEqual([
+      { annotationId: 'docx-region', relocationStatus: 'fallback' },
+    ]);
+    regionBlock.textContent = 'changed target target';
     expect(
       await adapter.showAnnotations([
         {
-          id: 'docx-region',
-          kind: 'ai_conversation',
-          conversationId: 'conversation',
-          label: 'View AI conversation marker',
-          relocationStatus: 'primary',
+          ...regionMarker,
           anchor: {
-            kind: 'region',
+            ...regionMarker.anchor,
             region: {
-              locator: { format: 'docx', blockId: 'actual' },
-              rect: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
-              contentSha256: await hashDocxRegionBlock(regionBlock),
-              textFallback: {
-                exact: 'target',
-                prefix: 'prefix ',
-                suffix: ' suffix',
-              },
+              ...regionMarker.anchor.region,
+              textFallback: { exact: 'target', prefix: '', suffix: '' },
             },
           },
         },
       ]),
-    ).toEqual([{ annotationId: 'docx-region', relocationStatus: 'primary' }]);
+    ).toEqual([
+      { annotationId: 'docx-region', relocationStatus: 'unresolved' },
+    ]);
+    regionBlock.textContent = 'prefix target suffix';
     expect(
       await adapter.showAnnotations([
         {

@@ -236,19 +236,51 @@ export class PdfReaderAdapter implements ReaderAdapter {
         anchor?.kind === 'region' &&
         anchor.region.locator.format === 'pdf'
       ) {
+        const region = anchor.region;
+        const regionLocator = region.locator as Extract<
+          typeof region.locator,
+          { format: 'pdf' }
+        >;
         const page = this.container.querySelector<HTMLElement>(
-          `[data-page-number="${anchor.region.locator.page}"]`,
+          `[data-page-number="${regionLocator.page}"]`,
         );
-        if (page && (await verifyPdfRegionAnchor(page, anchor.region))) {
+        if (page && (await verifyPdfRegionAnchor(page, region))) {
           addPdfRectOverlay(
             page,
             {
-              page: anchor.region.locator.page,
+              page: regionLocator.page,
               ...page.getBoundingClientRect(),
             },
-            [anchor.region.rect],
+            [region.rect],
           );
           status = 'primary';
+        } else if (
+          page &&
+          region.textFallback &&
+          /^[0-9a-f]{64}$/u.test(region.contentSha256)
+        ) {
+          const recovered = recoverPdfSelection(
+            [page],
+            regionLocator.page,
+            regionLocator.page,
+            region.textFallback,
+          );
+          const recoveredLocator = recovered?.locator;
+          const rects =
+            recoveredLocator?.format === 'pdf'
+              ? recoveredLocator.rectsByPage?.[regionLocator.page]
+              : undefined;
+          if (rects?.length) {
+            addPdfRectOverlay(
+              page,
+              {
+                page: regionLocator.page,
+                ...page.getBoundingClientRect(),
+              },
+              rects,
+            );
+            status = 'fallback';
+          }
         }
       }
       if (status === 'unresolved') this.events.onFailure(anchorNotFound());

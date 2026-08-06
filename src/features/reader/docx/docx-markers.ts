@@ -1,9 +1,11 @@
 import type {
   DocumentLocator,
   NormalizedRect,
+  RegionAnchor,
   TextQuote,
 } from '../../../lib/generated/document';
 import { findTextQuote } from '../anchors/text-quote';
+import { uniqueDocxRegionBlock } from './docx-region-selection';
 import { rangeFromDocxLocator } from './docx-selection';
 
 export function addDocxRangeOverlay(
@@ -83,6 +85,31 @@ export function recoverDocxRange(
   });
 }
 
+export function recoverDocxRegionRange(
+  root: HTMLElement,
+  anchor: RegionAnchor,
+): Range | null {
+  const locator = anchor.locator;
+  if (
+    locator.format !== 'docx' ||
+    !/^[0-9a-f]{64}$/u.test(anchor.contentSha256) ||
+    !anchor.textFallback ||
+    !validRect(anchor.rect)
+  )
+    return null;
+  const block = uniqueDocxRegionBlock(root, locator.blockId);
+  const sectionId = block?.dataset.sectionId;
+  if (!block || !sectionId) return null;
+  const length = [...(block.textContent ?? '')].length;
+  return recoverDocxRange(root, sectionId, anchor.textFallback, {
+    format: 'docx',
+    startBlockId: locator.blockId,
+    startOffset: 0,
+    endBlockId: locator.blockId,
+    endOffset: length,
+  });
+}
+
 export function addDocxRegionOverlay(
   root: HTMLElement,
   block: HTMLElement,
@@ -104,4 +131,19 @@ export function addDocxRegionOverlay(
   overlay.append(marker);
   root.append(overlay);
   return () => overlay.remove();
+}
+
+function validRect(rect: NormalizedRect): boolean {
+  return (
+    Number.isFinite(rect.x) &&
+    Number.isFinite(rect.y) &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height) &&
+    rect.x >= 0 &&
+    rect.y >= 0 &&
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.x + rect.width <= 1 &&
+    rect.y + rect.height <= 1
+  );
 }

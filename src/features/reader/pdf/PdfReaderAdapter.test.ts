@@ -238,10 +238,49 @@ describe('PdfReaderAdapter', () => {
         },
       ]),
     ).toEqual([{ annotationId: 'region-marker', relocationStatus: 'primary' }]);
+    const movedRegion = {
+      id: 'moved-region-marker',
+      kind: 'ai_conversation' as const,
+      conversationId: 'conversation',
+      label: 'View AI conversation marker',
+      relocationStatus: 'primary' as const,
+      anchor: {
+        kind: 'region' as const,
+        region: {
+          locator: { format: 'pdf' as const, page: 1 },
+          rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+          contentSha256: 'f'.repeat(64),
+          textFallback: {
+            exact: 'target',
+            prefix: 'prefix ',
+            suffix: ' suffix',
+          },
+        },
+      },
+    };
+    expect(await adapter.showAnnotations([movedRegion])).toEqual([
+      { annotationId: 'moved-region-marker', relocationStatus: 'fallback' },
+    ]);
     expect(await adapter.showAnnotations([base])).toEqual([
       { annotationId: 'marker', relocationStatus: 'fallback' },
     ]);
     page.textContent = 'target target';
+    expect(
+      await adapter.showAnnotations([
+        {
+          ...movedRegion,
+          anchor: {
+            ...movedRegion.anchor,
+            region: {
+              ...movedRegion.anchor.region,
+              textFallback: { exact: 'target', prefix: '', suffix: '' },
+            },
+          },
+        },
+      ]),
+    ).toEqual([
+      { annotationId: 'moved-region-marker', relocationStatus: 'unresolved' },
+    ]);
     expect(
       await adapter.showAnnotations([
         {
