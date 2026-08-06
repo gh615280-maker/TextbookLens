@@ -1,3 +1,4 @@
+pub mod book_preparation;
 pub mod captures;
 pub mod history;
 pub mod orchestrator;

@@ -1,5 +1,6 @@
 mod annotation;
 mod book;
+mod book_learning;
 mod conversation;
 mod document;
 mod indexing;
@@ -15,6 +16,7 @@ mod vision;
 
 pub use annotation::*;
 pub use book::*;
+pub use book_learning::*;
 pub use conversation::*;
 pub use document::*;
 pub use indexing::*;

@@ -127,6 +127,7 @@ pub async fn prepare_conversation_followup(
             book_id: Some(book_id),
             teaching_instruction: instruction,
             context_segments: Vec::new(),
+            prior_messages: Vec::new(),
             current_question: question.clone(),
             input_budget_tokens: u64::from(budget.usable_input),
         },
@@ -253,7 +254,7 @@ fn retain_recent_history_pairs(
         .collect()
 }
 
-fn strip_historical_citation_ids(value: &str) -> String {
+pub(crate) fn strip_historical_citation_ids(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut result = String::with_capacity(value.len());
     let mut cursor = 0usize;

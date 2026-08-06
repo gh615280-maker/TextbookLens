@@ -89,6 +89,7 @@ where
             updated_at: chrono::Utc::now(),
         },
         context_segments: Vec::new(),
+        prior_messages: Vec::new(),
         current_question: request.question,
         input_budget_tokens: u64::from(loaded.profile().context_window_tokens)
             .min(MAX_TEACHING_TEST_INPUT_TOKENS),

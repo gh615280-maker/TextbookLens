@@ -195,7 +195,14 @@ pub fn pack_context<F>(
 where
     F: FnMut(&[ContextSegment]) -> AppResult<u64>,
 {
-    validate_candidates(book_id, &candidates)?;
+    validate_candidate_values(book_id, &candidates)?;
+    let mandatory_count = candidates
+        .iter()
+        .filter(|candidate| candidate.source_kind.is_mandatory())
+        .count();
+    if mandatory_count != 1 {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
     let original_count = candidates.len();
     let ordered = deduplicate_candidates(candidates);
     let mandatory_count = ordered
@@ -229,14 +236,80 @@ where
     Err(AppError::new(AppErrorCode::ContextTooLarge))
 }
 
-fn validate_candidates(book_id: Uuid, candidates: &[ContextCandidate]) -> AppResult<()> {
-    let mandatory_count = candidates
-        .iter()
-        .filter(|candidate| candidate.source_kind.is_mandatory())
-        .count();
-    if mandatory_count != 1 {
+/// Packs textbook-level context while keeping bounded directory metadata and an explicit
+/// history-summary marker ahead of optional query-ranked retrieval snippets.
+///
+/// Unlike selection packing, textbook-level questions have no selected-text mandatory segment.
+/// Directory and history-summary entries are all-or-error after their independent upstream caps;
+/// optional retrieval entries are removed from lowest relevance first.
+pub fn pack_book_context<F>(
+    book_id: Uuid,
+    budget: InputBudget,
+    candidates: Vec<ContextCandidate>,
+    mut estimate_complete_request: F,
+) -> AppResult<PackedContext>
+where
+    F: FnMut(&[ContextSegment]) -> AppResult<u64>,
+{
+    validate_candidate_values(book_id, &candidates)?;
+    if candidates.iter().any(|candidate| {
+        candidate.source_kind.is_mandatory()
+            || !matches!(
+                candidate.source_kind,
+                ContextSourceKind::TextbookSearch
+                    | ContextSourceKind::HistorySummary
+                    | ContextSourceKind::Directory
+            )
+    }) {
         return Err(AppError::new(AppErrorCode::InvalidInput));
     }
+
+    let original_count = candidates.len();
+    let deduplicated = deduplicate_candidates(candidates);
+    let mut required = deduplicated
+        .iter()
+        .filter(|candidate| {
+            matches!(
+                candidate.source_kind,
+                ContextSourceKind::Directory | ContextSourceKind::HistorySummary
+            )
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    required.sort_by(|left, right| {
+        left.source_kind
+            .packing_order()
+            .cmp(&right.source_kind.packing_order())
+            .then_with(|| left.ordinal.cmp(&right.ordinal))
+            .then_with(|| left.stable_id.cmp(&right.stable_id))
+    });
+    let mut optional = deduplicated
+        .into_iter()
+        .filter(|candidate| candidate.source_kind == ContextSourceKind::TextbookSearch)
+        .collect::<Vec<_>>();
+    optional.sort_by(compare_candidates);
+
+    let (required_segments, _) = finalize_segments(&required)?;
+    budget.require_fits(estimate_complete_request(&required_segments)?)?;
+    for optional_count in (0..=optional.len()).rev() {
+        let mut retained = required.clone();
+        retained.extend(optional[..optional_count].iter().cloned());
+        let (segments, citations) = finalize_segments(&retained)?;
+        let estimated = estimate_complete_request(&segments)?;
+        if let Ok(estimated_input_tokens) = budget.require_fits(estimated) {
+            return Ok(PackedContext {
+                omitted_segment_count: u32::try_from(original_count.saturating_sub(retained.len()))
+                    .map_err(|_| AppError::new(AppErrorCode::ContextTooLarge))?,
+                segments,
+                citations,
+                estimated_input_tokens,
+            });
+        }
+    }
+    Err(AppError::new(AppErrorCode::ContextTooLarge))
+}
+
+fn validate_candidate_values(book_id: Uuid, candidates: &[ContextCandidate]) -> AppResult<()> {
     for candidate in candidates {
         if candidate.book_id != book_id
             || candidate.stable_id.trim().is_empty()
@@ -254,9 +327,24 @@ fn validate_candidates(book_id: Uuid, candidates: &[ContextCandidate]) -> AppRes
         {
             return Err(AppError::new(AppErrorCode::InvalidInput));
         }
+        if candidate.source_kind == ContextSourceKind::Directory
+            && (candidate.source != ContextSource::Directory
+                || candidate.locator.is_some()
+                || candidate.citation_seed.is_some())
+        {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
+        if candidate.source == ContextSource::Directory
+            && candidate.source_kind != ContextSourceKind::Directory
+        {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
         if matches!(
             candidate.source,
-            ContextSource::UserNote | ContextSource::HistorySummary | ContextSource::AiDescription
+            ContextSource::UserNote
+                | ContextSource::HistorySummary
+                | ContextSource::AiDescription
+                | ContextSource::Directory
         ) && candidate.citation_seed.is_some()
         {
             return Err(AppError::new(AppErrorCode::InvalidInput));
@@ -341,6 +429,7 @@ const fn source_order(source: ContextSource) -> u8 {
         ContextSource::AiDescription => 3,
         ContextSource::UserNote => 4,
         ContextSource::HistorySummary => 5,
+        ContextSource::Directory => 6,
     }
 }
 
@@ -845,6 +934,49 @@ fn candidate_from_search_hit(
         source_kind: ContextSourceKind::TextbookSearch,
         source,
         same_section: hit.context_section_id == Some(query.section_id),
+        relevance_micros: hit.relevance_micros,
+        ordinal: hit.context_ordinal,
+        text: hit.context_text,
+        locator_label: label,
+        locator: Some(hit.locator),
+        review_status: hit.provenance.review_status,
+        provenance_key,
+        citation_seed,
+    })
+}
+
+pub(crate) fn book_candidate_from_search_hit(
+    book_id: Uuid,
+    hit: SearchHit,
+) -> AppResult<ContextCandidate> {
+    if hit.context_book_id != book_id {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+    let source = ContextSource::from(hit.provenance.source);
+    let provenance_key = hit.context_section_id.map_or_else(
+        || hit.provenance.stable_scope_key(),
+        |section_id| format!("local-section:{section_id}"),
+    );
+    let label = locator_label(&hit.locator, hit.section_title.as_deref());
+    let citation_seed = if hit.provenance.quoteable {
+        Some(CitationSeed::new(
+            book_id,
+            hit.context_section_id,
+            hit.locator.clone(),
+            label.clone(),
+            hit.provenance.source,
+            hit.provenance.review_status,
+        )?)
+    } else {
+        None
+    };
+    Ok(ContextCandidate {
+        stable_id: hit.context_stable_id,
+        book_id,
+        section_id: hit.context_section_id,
+        source_kind: ContextSourceKind::TextbookSearch,
+        source,
+        same_section: false,
         relevance_micros: hit.relevance_micros,
         ordinal: hit.context_ordinal,
         text: hit.context_text,

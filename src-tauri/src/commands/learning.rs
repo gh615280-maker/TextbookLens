@@ -10,9 +10,13 @@ use uuid::Uuid;
 use crate::{
     ai::runtime::ProviderRuntime,
     app_state::AppState,
-    domain::{LearningRequestEvent, LearningRequestSnapshot},
+    domain::{
+        BookLearningPreparationSummary, LearningRequestEvent, LearningRequestSnapshot,
+        PrepareBookLearningRequestMetadata,
+    },
     errors::{AppError, AppErrorCode},
     learning::{
+        book_preparation::BookLearningPreparationService,
         captures::{OwnedCaptureBytes, RegionCaptureMetadata},
         history::prepare_conversation_followup,
         orchestrator::LearningOrchestrator,
@@ -48,6 +52,16 @@ fn service(state: &AppState) -> LearningPreparationService {
     )
 }
 
+fn book_service(state: &AppState) -> BookLearningPreparationService {
+    BookLearningPreparationService::new(
+        state.db.pool().clone(),
+        state.book_learning_preparations.clone(),
+        state.provider_capabilities.clone(),
+        state.credential_store.clone(),
+        state.maintenance_gate.clone(),
+    )
+}
+
 fn runtime(state: &AppState) -> ProviderRuntime {
     ProviderRuntime::new(
         state.credential_store.clone(),
@@ -68,6 +82,34 @@ pub async fn prepare_learning_request(
         .prepare(metadata)
         .await
         .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn prepare_book_learning_request(
+    state: State<'_, AppState>,
+    metadata: PrepareBookLearningRequestMetadata,
+) -> Result<BookLearningPreparationSummary, LearningErrorDto> {
+    book_service(&state)
+        .prepare(metadata)
+        .await
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn authorize_book_learning_request(
+    state: State<'_, AppState>,
+    preparation_id: Uuid,
+    decision: LearningAuthorizationDecision,
+) -> Result<(), LearningErrorDto> {
+    book_service(&state)
+        .authorize(preparation_id, decision)
+        .await
+        .map_err(LearningErrorDto::from)
+}
+
+#[tauri::command]
+pub fn discard_book_learning_preparation(state: State<'_, AppState>, preparation_id: Uuid) {
+    state.book_learning_preparations.discard(preparation_id);
 }
 
 #[tauri::command]
@@ -104,10 +146,17 @@ pub fn invalidate_learning_preparations(
     state: State<'_, AppState>,
     request: InvalidateLearningPreparations,
 ) -> Result<u32, LearningErrorDto> {
-    state
+    let selection = state
         .learning_preparations
-        .invalidate(request)
-        .map_err(LearningErrorDto::from)
+        .invalidate(request.clone())
+        .map_err(LearningErrorDto::from)?;
+    let book = state
+        .book_learning_preparations
+        .invalidate(&request)
+        .map_err(LearningErrorDto::from)?;
+    selection
+        .checked_add(book)
+        .ok_or_else(|| LearningErrorDto::from(AppError::new(AppErrorCode::RequestConflict)))
 }
 
 #[tauri::command]

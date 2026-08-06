@@ -10,7 +10,10 @@ use crate::{
     documents::import::ImportCancellationRegistry,
     errors::AppResult,
     indexing::{coordinator::IndexOperationRegistry, state::IndexCancellationRegistry},
-    learning::{preparation::PreparationRegistry, registry::LearningRequestRegistry},
+    learning::{
+        book_preparation::BookPreparationRegistry, preparation::PreparationRegistry,
+        registry::LearningRequestRegistry,
+    },
     maintenance::{gate::MaintenanceGate, storage::prepare_app_data_paths},
 };
 
@@ -53,6 +56,7 @@ pub struct AppState {
     pub indexing_cancellations: IndexCancellationRegistry,
     pub indexing_operations: IndexOperationRegistry,
     pub learning_preparations: PreparationRegistry,
+    pub book_learning_preparations: BookPreparationRegistry,
     pub learning_requests: LearningRequestRegistry,
     pub log_guard: WorkerGuard,
     pub credential_store: Arc<dyn CredentialStore>,
@@ -78,6 +82,7 @@ impl AppState {
                 maintenance_gate.clone(),
             ),
             learning_preparations: PreparationRegistry::default(),
+            book_learning_preparations: BookPreparationRegistry::default(),
             learning_requests: LearningRequestRegistry::with_maintenance_gate(maintenance_gate),
             log_guard,
             credential_store,

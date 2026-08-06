@@ -39,6 +39,24 @@ function safeRecordedPayload(
       },
     };
   }
+  if (command === 'prepare_book_learning_request') {
+    const metadata = asRecord(asRecord(payload)?.metadata);
+    return {
+      metadata: {
+        kind: metadata?.kind,
+        hasQuestion: typeof metadata?.question === 'string',
+        hasConversation: typeof metadata?.conversationId === 'string',
+      },
+    };
+  }
+  if (command === 'authorize_book_learning_request') {
+    return { decision: asRecord(payload)?.decision };
+  }
+  if (command === 'discard_book_learning_preparation') {
+    return {
+      hasPreparationId: typeof asRecord(payload)?.preparationId === 'string',
+    };
+  }
   if (command === 'authorize_learning_request') {
     const args = asRecord(payload);
     return { decision: args?.decision };

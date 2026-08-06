@@ -22,7 +22,7 @@ use crate::{
         citations::CitationSeed,
         context::{
             ContextCandidate, ContextSourceKind, HISTORY_PLACEHOLDER, SelectionContextQuery,
-            pack_context, retrieve_selection_context,
+            pack_book_context, pack_context, retrieve_selection_context,
         },
     },
 };
@@ -227,6 +227,70 @@ fn context_ties_are_stable_and_do_not_depend_on_input_order() {
             .collect::<Vec<_>>(),
         ["mandatory", "alpha", "beta"]
     );
+}
+
+#[test]
+fn book_context_keeps_directory_and_history_metadata_then_drops_low_relevance_search() {
+    let book_id = Uuid::new_v4();
+    let mut directory = base_candidate(
+        book_id,
+        ContextSourceKind::Directory,
+        "directory",
+        "Synthetic chapter title",
+    );
+    directory.source = ContextSource::Directory;
+    directory.section_id = None;
+    directory.locator = None;
+    directory.locator_label = "table of contents item 1".to_owned();
+    directory.provenance_key = "directory:0".to_owned();
+    directory.citation_seed = None;
+    let history = ContextCandidate::history_placeholder(book_id, None);
+    let mut high = base_candidate(
+        book_id,
+        ContextSourceKind::TextbookSearch,
+        "high",
+        "high relevance",
+    );
+    high.relevance_micros = 900_000;
+    high.provenance_key = "high".to_owned();
+    let mut low = base_candidate(
+        book_id,
+        ContextSourceKind::TextbookSearch,
+        "low",
+        &"low relevance ".repeat(200),
+    );
+    low.relevance_micros = 1;
+    low.provenance_key = "low".to_owned();
+    let required_and_high = estimate(&[
+        segment_for_estimate(&history, 0),
+        segment_for_estimate(&directory, 0),
+        segment_for_estimate(&high, 1),
+    ]);
+
+    let packed = pack_book_context(
+        book_id,
+        test_budget(u32::try_from(required_and_high).unwrap()),
+        vec![low, directory, high, history],
+        |segments| Ok(estimate(segments)),
+    )
+    .unwrap();
+    assert_eq!(
+        packed
+            .segments
+            .iter()
+            .map(|segment| segment.stable_id.as_str())
+            .collect::<Vec<_>>(),
+        ["same-conversation-history-placeholder", "directory", "high"]
+    );
+    assert_eq!(packed.omitted_segment_count, 1);
+    assert_eq!(packed.citations.len(), 1);
+    let directory = packed
+        .segments
+        .iter()
+        .find(|segment| segment.source == ContextSource::Directory)
+        .unwrap();
+    assert!(directory.citation.is_none());
+    assert_eq!(directory.locator_label, "table of contents item 1");
 }
 
 #[test]

@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use textbooklens_lib::domain::{
     ActiveOperationKind, ActiveOperationSummaryDto, AiOperation, AnnotationDto, AppSettingsDto,
-    BackupSummaryDto, BlockKind, BookFormat, BookIndexAggregateStatus, BookSummary,
+    BackupSummaryDto, BlockKind, BookFormat, BookIndexAggregateStatus,
+    BookLearningPreparationRiskFlag, BookLearningPreparationSummary, BookSummary,
     CapabilitySupport, Citation, CitationReviewStatus, ClearAllDataStatusCode,
     ClearAllDataSummaryDto, ContentAnchor, ContentSource, ConversationAnchorKind, ConversationDto,
     CredentialStatus, DocumentLocator, ImageLimits, ImageMime, IndexAggregate,
@@ -16,16 +17,16 @@ use textbooklens_lib::domain::{
     LearningRequestEventPayload, LearningRequestSnapshot, LearningRequestStatus, LearningUsage,
     LocalTextQuality, MaintenanceErrorCode, MaintenanceErrorDto, MaintenanceStatusCode,
     MaintenanceStatusDto, NormalizedBookInput, NormalizedRect, OnboardingStateDto, OnboardingStep,
-    PageAnalysisBlockKind, PanelGeometry, ProviderCapability, ProviderCapabilityRegistryDto,
-    ProviderModelCapability, ProviderOperationConsent, ProviderOperationConsentCategory,
-    ProviderOperationConsentDecision, ProviderPageAnalysis, ProviderProfileSummary, RegionAnchor,
-    RegionLocator, RemoteCleanupStatus, RestoreBackupStatusCode, RestoreBackupSummaryDto,
-    SafeIndexErrorDto, SafeLearningError, StorageCategory, StorageCategoryUsageDto,
-    StorageUsageDto, TeachingInstructionDto, UiLanguage, UnifiedChatRequest, UnifiedMessage,
-    UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect, UntrustedPageAnalysis,
-    UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction, ValidationResult,
-    VisionAssetMeta, stable_block_id, stable_index_page_block_id, stable_index_page_id,
-    stable_index_search_chunk_id, stable_section_id,
+    PageAnalysisBlockKind, PanelGeometry, PrepareBookLearningRequestMetadata, ProviderCapability,
+    ProviderCapabilityRegistryDto, ProviderModelCapability, ProviderOperationConsent,
+    ProviderOperationConsentCategory, ProviderOperationConsentDecision, ProviderPageAnalysis,
+    ProviderProfileSummary, RegionAnchor, RegionLocator, RemoteCleanupStatus,
+    RestoreBackupStatusCode, RestoreBackupSummaryDto, SafeIndexErrorDto, SafeLearningError,
+    StorageCategory, StorageCategoryUsageDto, StorageUsageDto, TeachingInstructionDto, UiLanguage,
+    UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent, UntrustedNormalizedRect,
+    UntrustedPageAnalysis, UntrustedPageBlock, UntrustedTableCell, UpdateTeachingInstruction,
+    ValidationResult, VisionAssetMeta, stable_block_id, stable_index_page_block_id,
+    stable_index_page_id, stable_index_search_chunk_id, stable_section_id,
 };
 use ts_rs::{Config, TS};
 
@@ -599,12 +600,89 @@ fn maintenance_bindings_are_bounded_structural_and_path_free() {
 }
 
 #[test]
+fn book_learning_bindings_accept_only_question_routing_and_return_content_free_summaries() {
+    let book_id = uuid::Uuid::new_v4();
+    let conversation_id = uuid::Uuid::new_v4();
+    let parsed: PrepareBookLearningRequestMetadata = serde_json::from_value(serde_json::json!({
+        "kind": "continue",
+        "bookId": book_id,
+        "conversationId": conversation_id,
+        "question": "Synthetic bounded question?"
+    }))
+    .unwrap();
+    assert_eq!(parsed.book_id(), book_id);
+    assert_eq!(parsed.conversation_id(), Some(conversation_id));
+    let debug = format!("{parsed:?}");
+    assert!(!debug.contains("Synthetic bounded question?"));
+    assert!(!debug.contains(&book_id.to_string()));
+    assert!(!debug.contains(&conversation_id.to_string()));
+    for forbidden in [
+        "toc",
+        "retrievalSnippets",
+        "history",
+        "teachingInstruction",
+        "providerProfileId",
+        "modelId",
+        "prompt",
+        "citations",
+        "bookContent",
+    ] {
+        let mut value = serde_json::json!({
+            "kind": "new",
+            "bookId": book_id,
+            "question": "Synthetic bounded question?"
+        });
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert(forbidden.to_owned(), serde_json::json!("PRIVATE_SENTINEL"));
+        assert!(serde_json::from_value::<PrepareBookLearningRequestMetadata>(value).is_err());
+    }
+
+    let summary = BookLearningPreparationSummary {
+        preparation_id: uuid::Uuid::new_v4(),
+        provider_display_name: "Provider".to_owned(),
+        profile_display_name: "Profile".to_owned(),
+        model_display_name: "Model".to_owned(),
+        estimated_input_tokens: 900,
+        source_count: 5,
+        citation_count: 2,
+        omitted_source_count: 1,
+        risk_flags: vec![BookLearningPreparationRiskFlag::CostRisk],
+        requires_blocking_confirmation: true,
+        expires_at: chrono::DateTime::parse_from_rfc3339("2026-08-06T00:05:00.000Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc),
+    };
+    let serialized = serde_json::to_string(&summary).unwrap();
+    for forbidden in [
+        "PRIVATE_SENTINEL",
+        "question",
+        "title",
+        "snippet",
+        "history",
+        "prompt",
+        "locator",
+        "bookId",
+        "conversationId",
+        "providerProfileId",
+        "modelId",
+        "path",
+    ] {
+        assert!(!serialized.contains(forbidden));
+    }
+}
+
+#[test]
 fn export_bindings() {
     let output_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/generated");
     std::fs::create_dir_all(&output_dir).unwrap();
     let config = Config::new().with_out_dir(output_dir.clone());
 
     BookSummary::export_all(&config).unwrap();
+    PrepareBookLearningRequestMetadata::export_all(&config).unwrap();
+    BookLearningPreparationRiskFlag::export_all(&config).unwrap();
+    BookLearningPreparationSummary::export_all(&config).unwrap();
     LearningOverviewSource::export_all(&config).unwrap();
     LearningOverviewSourceSummary::export_all(&config).unwrap();
     LearningOverviewSection::export_all(&config).unwrap();

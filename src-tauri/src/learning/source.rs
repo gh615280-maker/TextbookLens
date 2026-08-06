@@ -14,6 +14,8 @@ pub enum ContextSource {
     UserCorrected,
     UserNote,
     HistorySummary,
+    /// Structural table-of-contents metadata, never verbatim textbook evidence.
+    Directory,
 }
 
 impl ContextSource {
@@ -25,6 +27,7 @@ impl ContextSource {
             Self::UserCorrected => "textbook_source_label_user_correction",
             Self::UserNote => "user_note_not_textbook_source",
             Self::HistorySummary => "history_summary_not_textbook_source",
+            Self::Directory => "table_of_contents_metadata_not_textbook_source",
         }
     }
 
@@ -41,7 +44,7 @@ impl ContextSource {
             Self::AiTranscribed => Some(ContentSource::AiTranscribed),
             Self::AiDescription => Some(ContentSource::AiDescription),
             Self::UserCorrected => Some(ContentSource::UserCorrected),
-            Self::UserNote | Self::HistorySummary => None,
+            Self::UserNote | Self::HistorySummary | Self::Directory => None,
         }
     }
 }

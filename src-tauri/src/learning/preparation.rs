@@ -472,6 +472,7 @@ impl LearningPreparationService {
                 book_id: Some(metadata.book_id),
                 teaching_instruction: instruction.clone(),
                 context_segments: Vec::new(),
+                prior_messages: Vec::new(),
                 current_question,
                 input_budget_tokens: u64::from(budget.usable_input),
             },

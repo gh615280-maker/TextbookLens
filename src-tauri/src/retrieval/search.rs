@@ -1,7 +1,7 @@
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool, sqlite::SqliteRow};
+use sqlx::{Row, SqliteConnection, SqlitePool, Transaction, sqlite::SqliteRow};
 use uuid::Uuid;
 
 use crate::{
@@ -10,6 +10,13 @@ use crate::{
 };
 
 use super::provenance::RetrievalProvenance;
+
+const MAX_RELEVANT_QUERY_TERMS: usize = 32;
+const MAX_RELEVANT_TERM_CODE_POINTS: usize = 128;
+const MAX_RELEVANT_CANDIDATES: usize = 256;
+const MAX_SEARCH_HIT_TEXT_BYTES: usize = 64 * 1024;
+const MAX_SEARCH_TITLE_BYTES: usize = 16 * 1024;
+const MAX_SEARCH_LOCATOR_JSON_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,13 +73,23 @@ pub async fn search_book(
     query: &str,
     limit: u32,
 ) -> AppResult<Vec<SearchHit>> {
+    let mut connection = pool.acquire().await?;
+    search_book_on_connection(&mut connection, book_id, query, limit).await
+}
+
+async fn search_book_on_connection(
+    connection: &mut SqliteConnection,
+    book_id: Uuid,
+    query: &str,
+    limit: u32,
+) -> AppResult<Vec<SearchHit>> {
     let query = query.trim();
     if query.is_empty() {
         return Err(AppError::new(AppErrorCode::InvalidInput));
     }
     let status: Option<String> = sqlx::query_scalar("SELECT import_status FROM books WHERE id = ?")
         .bind(book_id.to_string())
-        .fetch_optional(pool)
+        .fetch_optional(&mut *connection)
         .await?;
     match status.as_deref() {
         Some("ready") => {}
@@ -83,9 +100,9 @@ pub async fn search_book(
     let capped_limit = limit.clamp(1, 100);
     let fetch_limit = i64::from(capped_limit.saturating_mul(4));
     let mut hits = if query.chars().count() >= 3 {
-        search_fts(pool, book_id, query, fetch_limit).await?
+        search_fts(connection, book_id, query, fetch_limit).await?
     } else {
-        search_like(pool, book_id, query, fetch_limit).await?
+        search_like(connection, book_id, query, fetch_limit).await?
     };
     hits.sort_by(|left, right| {
         right
@@ -98,8 +115,72 @@ pub async fn search_book(
     Ok(hits.into_iter().map(|ranked| ranked.hit).collect())
 }
 
+/// Query-driven bounded search used by textbook-level preparation inside its read transaction.
+/// Terms are derived locally from the full question; neither the question nor results leave Rust.
+pub(crate) async fn search_book_relevant_in_transaction(
+    transaction: &mut Transaction<'_, sqlx::Sqlite>,
+    book_id: Uuid,
+    question: &str,
+    limit: u32,
+) -> AppResult<Vec<SearchHit>> {
+    let terms = relevant_query_terms(question)?;
+    let capped_limit = limit.clamp(1, 100);
+    let fetch_limit = i64::from(capped_limit);
+    let connection = &mut **transaction;
+    let status: Option<String> = sqlx::query_scalar("SELECT import_status FROM books WHERE id = ?")
+        .bind(book_id.to_string())
+        .fetch_optional(&mut *connection)
+        .await?;
+    match status.as_deref() {
+        Some("ready") => {}
+        Some(_) => return Err(AppError::new(AppErrorCode::BookNotReady)),
+        None => return Err(AppError::new(AppErrorCode::NotFound)),
+    }
+
+    let mut by_stable_order = BTreeMap::<String, RankedHit>::new();
+    'terms: for term in &terms {
+        let rows = if term.chars().count() >= 3 {
+            search_fts(connection, book_id, term, fetch_limit).await?
+        } else {
+            search_like(connection, book_id, term, fetch_limit).await?
+        };
+        for ranked in rows {
+            let key = format!("{}:{}", ranked.source_order, ranked.stable_order);
+            if by_stable_order.contains_key(&key) {
+                continue;
+            }
+            if by_stable_order.len() >= MAX_RELEVANT_CANDIDATES {
+                break 'terms;
+            }
+            by_stable_order.insert(key, ranked);
+        }
+    }
+
+    let mut hits = by_stable_order
+        .into_values()
+        .map(|mut ranked| {
+            ranked.hit.relevance_micros = weighted_term_relevance(
+                &ranked.hit.context_text,
+                &terms,
+                ranked.hit.provenance.ranking_weight(),
+            );
+            ranked.score = u64::from(ranked.hit.relevance_micros);
+            ranked
+        })
+        .collect::<Vec<_>>();
+    hits.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.source_order.cmp(&right.source_order))
+            .then_with(|| left.stable_order.cmp(&right.stable_order))
+    });
+    hits.truncate(usize::try_from(capped_limit).map_err(|_| database_error())?);
+    Ok(hits.into_iter().map(|ranked| ranked.hit).collect())
+}
+
 async fn search_fts(
-    pool: &SqlitePool,
+    connection: &mut SqliteConnection,
     book_id: Uuid,
     query: &str,
     fetch_limit: i64,
@@ -111,7 +192,7 @@ async fn search_fts(
     .bind(&phrase)
     .bind(book_id.to_string())
     .bind(fetch_limit)
-    .fetch_all(pool)
+    .fetch_all(&mut *connection)
     .await?;
     let indexed_rows = sqlx::query(
         "SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256, p.status AS page_status, p.review_reason_code FROM index_search_chunks_fts JOIN index_search_chunks c ON c.rowid = index_search_chunks_fts.rowid JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version AND p.status IN ('indexed', 'needs_review') LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE index_search_chunks_fts MATCH ? AND c.book_id = ? AND (c.source != 'user_corrected' OR (correction.id IS NOT NULL AND correction.conflict_state = 'active' AND correction.target_content_version = c.content_version)) AND NOT (c.source = 'ai_transcribed' AND EXISTS (SELECT 1 FROM index_corrections active_correction WHERE active_correction.book_id = c.book_id AND active_correction.page_id = c.page_id AND active_correction.target_block_id = c.block_id AND active_correction.target_content_version = c.content_version AND active_correction.value_kind = 'text' AND active_correction.conflict_state = 'active')) AND NOT (c.source IN ('ai_transcribed', 'user_corrected') AND EXISTS (SELECT 1 FROM index_corrections conflicted_correction WHERE conflicted_correction.book_id = c.book_id AND conflicted_correction.page_id = c.page_id AND conflicted_correction.target_block_id = c.block_id AND conflicted_correction.conflict_state = 'conflict')) ORDER BY p.page_number, c.ordinal, c.source, c.id LIMIT ?",
@@ -119,7 +200,7 @@ async fn search_fts(
     .bind(phrase)
     .bind(book_id.to_string())
     .bind(fetch_limit)
-    .fetch_all(pool)
+    .fetch_all(&mut *connection)
     .await?;
 
     let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len());
@@ -133,7 +214,7 @@ async fn search_fts(
 }
 
 async fn search_like(
-    pool: &SqlitePool,
+    connection: &mut SqliteConnection,
     book_id: Uuid,
     query: &str,
     fetch_limit: i64,
@@ -145,7 +226,7 @@ async fn search_like(
     .bind(book_id.to_string())
     .bind(&escaped)
     .bind(fetch_limit)
-    .fetch_all(pool)
+    .fetch_all(&mut *connection)
     .await?;
     let indexed_rows = sqlx::query(
         "SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256, p.status AS page_status, p.review_reason_code FROM index_search_chunks c JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version AND p.status IN ('indexed', 'needs_review') LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE c.book_id = ? AND c.text LIKE '%' || ? || '%' ESCAPE '\\' AND (c.source != 'user_corrected' OR (correction.id IS NOT NULL AND correction.conflict_state = 'active' AND correction.target_content_version = c.content_version)) AND NOT (c.source = 'ai_transcribed' AND EXISTS (SELECT 1 FROM index_corrections active_correction WHERE active_correction.book_id = c.book_id AND active_correction.page_id = c.page_id AND active_correction.target_block_id = c.block_id AND active_correction.target_content_version = c.content_version AND active_correction.value_kind = 'text' AND active_correction.conflict_state = 'active')) AND NOT (c.source IN ('ai_transcribed', 'user_corrected') AND EXISTS (SELECT 1 FROM index_corrections conflicted_correction WHERE conflicted_correction.book_id = c.book_id AND conflicted_correction.page_id = c.page_id AND conflicted_correction.target_block_id = c.block_id AND conflicted_correction.conflict_state = 'conflict')) ORDER BY p.page_number, c.ordinal, c.source, c.id LIMIT ?",
@@ -153,7 +234,7 @@ async fn search_like(
     .bind(book_id.to_string())
     .bind(escaped)
     .bind(fetch_limit)
-    .fetch_all(pool)
+    .fetch_all(&mut *connection)
     .await?;
 
     let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len());
@@ -169,8 +250,16 @@ async fn search_like(
 fn local_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<RankedHit> {
     let provenance = RetrievalProvenance::local_text();
     let text: String = row.try_get("text")?;
+    validate_search_text(&text)?;
     let stable_id: String = row.try_get("stable_id")?;
+    parse_uuid(stable_id.clone())?;
     let section_id = parse_uuid(row.try_get::<String, _>("section_id")?)?;
+    let section_title: Option<String> = row.try_get("section_title")?;
+    if section_title.as_ref().is_some_and(|title| {
+        title.len() > MAX_SEARCH_TITLE_BYTES || contains_disallowed_control(title)
+    }) {
+        return Err(database_error());
+    }
     let ordinal = to_u32(row.try_get::<i64, _>("ordinal")?)?;
     let relevance_micros = weighted_relevance(&text, query, provenance.ranking_weight());
     Ok(RankedHit {
@@ -180,7 +269,7 @@ fn local_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<Ra
         hit: SearchHit {
             snippet: snippet(&text, query),
             locator: parse_locator(row)?,
-            section_title: row.try_get("section_title")?,
+            section_title,
             provenance,
             context_book_id: book_id,
             context_section_id: Some(section_id),
@@ -205,9 +294,13 @@ fn indexed_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<
         .map(parse_uuid)
         .transpose()?;
     let original_value_sha256: Option<String> = row.try_get("original_value_sha256")?;
-    if (source == ContentSource::UserCorrected)
-        != (correction_id.is_some() && original_value_sha256.is_some())
-    {
+    let valid_correction_audit = match source {
+        ContentSource::UserCorrected => {
+            correction_id.is_some() && original_value_sha256.as_deref().is_some_and(valid_sha256)
+        }
+        _ => correction_id.is_none() && original_value_sha256.is_none(),
+    };
+    if !valid_correction_audit {
         return Err(database_error());
     }
     let review_status = if source == ContentSource::UserCorrected {
@@ -230,7 +323,9 @@ fn indexed_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<
         review_status,
     );
     let text: String = row.try_get("text")?;
+    validate_search_text(&text)?;
     let stable_id: String = row.try_get("stable_id")?;
+    parse_uuid(stable_id.clone())?;
     let ordinal = to_u32(row.try_get::<i64, _>("ordinal")?)?;
     let relevance_micros = weighted_relevance(&text, query, provenance.ranking_weight());
     let stable_order = format!(
@@ -259,6 +354,9 @@ fn indexed_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<
 
 fn parse_locator(row: &SqliteRow) -> AppResult<DocumentLocator> {
     let locator_json: String = row.try_get("locator_json")?;
+    if locator_json.len() > MAX_SEARCH_LOCATOR_JSON_BYTES {
+        return Err(database_error());
+    }
     serde_json::from_str(&locator_json).map_err(AppError::database)
 }
 
@@ -291,6 +389,112 @@ fn weighted_relevance(text: &str, query: &str, source_weight_micros: u32) -> u32
     u32::try_from(weighted).unwrap_or(u32::MAX)
 }
 
+fn relevant_query_terms(question: &str) -> AppResult<Vec<String>> {
+    let trimmed = question.trim();
+    if trimmed.is_empty()
+        || trimmed.chars().count() > crate::db::messages::MAX_LEARNING_QUESTION_CODE_POINTS
+        || trimmed
+            .chars()
+            .any(|value| value.is_control() && value != '\n' && value != '\t')
+    {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+
+    let mut terms = std::collections::BTreeSet::new();
+    for run in trimmed
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|run| !run.is_empty())
+    {
+        let characters = run.chars().collect::<Vec<_>>();
+        if (3..=MAX_RELEVANT_TERM_CODE_POINTS).contains(&characters.len()) {
+            retain_bounded_term(&mut terms, run.to_lowercase());
+        }
+        if characters.iter().any(|character| !character.is_ascii()) && characters.len() > 4 {
+            for width in [4_usize, 3_usize] {
+                for window in characters.windows(width) {
+                    retain_bounded_term(
+                        &mut terms,
+                        window.iter().collect::<String>().to_lowercase(),
+                    );
+                }
+            }
+        }
+    }
+    if terms.is_empty() {
+        retain_bounded_term(
+            &mut terms,
+            trimmed
+                .chars()
+                .take(MAX_RELEVANT_TERM_CODE_POINTS)
+                .collect::<String>()
+                .to_lowercase(),
+        );
+    }
+    let mut terms = terms.into_iter().collect::<Vec<_>>();
+    terms.sort_by(|left, right| {
+        right
+            .chars()
+            .count()
+            .cmp(&left.chars().count())
+            .then_with(|| left.cmp(right))
+    });
+    terms.truncate(MAX_RELEVANT_QUERY_TERMS);
+    Ok(terms)
+}
+
+fn retain_bounded_term(terms: &mut std::collections::BTreeSet<String>, value: String) {
+    if value.is_empty() || value.chars().count() > MAX_RELEVANT_TERM_CODE_POINTS {
+        return;
+    }
+    terms.insert(value);
+    if terms.len() <= MAX_RELEVANT_QUERY_TERMS {
+        return;
+    }
+    let worst = terms
+        .iter()
+        .min_by(|left, right| {
+            left.chars()
+                .count()
+                .cmp(&right.chars().count())
+                .then_with(|| right.cmp(left))
+        })
+        .cloned();
+    if let Some(worst) = worst {
+        terms.remove(&worst);
+    }
+}
+
+fn weighted_term_relevance(text: &str, terms: &[String], source_weight_micros: u32) -> u32 {
+    let folded = text.to_lowercase();
+    let text_scalars = u64::try_from(folded.chars().count().max(1)).unwrap_or(u64::MAX);
+    let mut raw = 0_u64;
+    for term in terms {
+        let occurrences = u64::try_from(folded.matches(term).count()).unwrap_or(u64::MAX);
+        if occurrences == 0 {
+            continue;
+        }
+        let term_scalars = u64::try_from(term.chars().count()).unwrap_or(u64::MAX);
+        raw = raw.saturating_add(
+            occurrences
+                .saturating_mul(term_scalars)
+                .saturating_mul(1_000_000),
+        );
+        raw = raw.saturating_add(
+            occurrences
+                .saturating_mul(term_scalars)
+                .saturating_mul(1_000_000)
+                .checked_div(text_scalars)
+                .unwrap_or(0),
+        );
+    }
+    let weighted = raw
+        .max(1)
+        .saturating_mul(u64::from(source_weight_micros))
+        .checked_div(1_000_000)
+        .unwrap_or(u64::MAX);
+    u32::try_from(weighted).unwrap_or(u32::MAX)
+}
+
 const fn source_order(source: ContentSource) -> u8 {
     match source {
         ContentSource::UserCorrected => 0,
@@ -305,6 +509,29 @@ fn escape_like(query: &str) -> String {
         .replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
+}
+
+fn validate_search_text(value: &str) -> AppResult<()> {
+    if value.is_empty()
+        || value.len() > MAX_SEARCH_HIT_TEXT_BYTES
+        || contains_disallowed_control(value)
+    {
+        return Err(database_error());
+    }
+    Ok(())
+}
+
+fn contains_disallowed_control(value: &str) -> bool {
+    value
+        .chars()
+        .any(|character| character.is_control() && character != '\n' && character != '\t')
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn snippet(text: &str, query: &str) -> String {
