@@ -68,8 +68,16 @@ const copy = {
     clearTitle: 'Clear all TextbookLens data?',
     clearWarning:
       'This cannot be undone. Every clear requires this exact confirmation.',
-    clearItems:
-      'Database; app-owned textbook copies, derived files, and indexes; history, annotations, and settings; cache and logs; and TextbookLens credentials will be removed. Your original files and separately saved .tlbackup files are not deleted.',
+    clearItems: [
+      'Database, settings, and teaching instructions',
+      'App-owned textbook copies and derived reading files',
+      'Local indexes and corrections',
+      'Completed history, annotations, and markers',
+      'Cache, logs, staging, trash, and remote temporary resource records',
+      'TextbookLens credentials',
+    ],
+    clearPreserved:
+      'Your original files and separately saved .tlbackup files are not deleted.',
     typePhrase: 'Type {phrase} to continue.',
     clearConfirm: 'Clear all data',
     clearing: 'Clearing local data…',
@@ -129,8 +137,15 @@ const copy = {
     restoreFailed: '无法验证或准备此备份，当前数据已保留。',
     clearTitle: '清除所有 TextbookLens 数据？',
     clearWarning: '此操作不可撤销，每次清除都必须输入以下精确确认语。',
-    clearItems:
-      '将删除数据库；应用拥有的教材副本、派生文件和索引；历史、批注和设置；缓存和日志；以及 TextbookLens 凭据。不会删除您的原始文件或单独保存的 .tlbackup 文件。',
+    clearItems: [
+      '数据库、设置和教学指令',
+      '应用拥有的教材副本和派生阅读文件',
+      '本地索引和修正',
+      '已完成的历史、批注和标记',
+      '缓存、日志、暂存区、回收区和远程临时资源记录',
+      'TextbookLens 凭据',
+    ],
+    clearPreserved: '不会删除您的原始文件或单独保存的 .tlbackup 文件。',
     typePhrase: '输入 {phrase} 以继续。',
     clearConfirm: '清除全部数据',
     clearing: '正在清除本地数据…',
@@ -190,8 +205,15 @@ const copy = {
     restoreFailed: '無法驗證或準備此備份，目前資料已保留。',
     clearTitle: '清除所有 TextbookLens 資料？',
     clearWarning: '此操作無法復原，每次清除都必須輸入下列精確確認語。',
-    clearItems:
-      '將刪除資料庫；應用程式擁有的教材副本、衍生檔案與索引；歷程、註解與設定；快取與記錄；以及 TextbookLens 憑據。不會刪除您的原始檔或另行儲存的 .tlbackup 檔案。',
+    clearItems: [
+      '資料庫、設定和教學指令',
+      '應用程式擁有的教材副本和衍生閱讀檔案',
+      '本機索引和修正',
+      '已完成的歷程、註解和標記',
+      '快取、記錄、暫存區、回收區和遠端臨時資源記錄',
+      'TextbookLens 憑據',
+    ],
+    clearPreserved: '不會刪除您的原始檔或另行儲存的 .tlbackup 檔案。',
     typePhrase: '輸入 {phrase} 以繼續。',
     clearConfirm: '清除所有資料',
     clearing: '正在清除本機資料…',
@@ -548,7 +570,12 @@ export function SettingsPage({
           onClose={() => !busy && setDialog(null)}
         >
           <p>{text.clearWarning}</p>
-          <p>{text.clearItems}</p>
+          <ul>
+            {text.clearItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p>{text.clearPreserved}</p>
           <label>
             {text.typePhrase.replace('{phrase}', CLEAR_PHRASE)}
             <input

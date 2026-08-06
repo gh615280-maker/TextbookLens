@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -178,6 +184,9 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(
       'separately saved .tlbackup files are not deleted',
     );
+    expect(
+      within(screen.getByRole('dialog')).getAllByRole('listitem'),
+    ).toHaveLength(6);
     const confirm = screen
       .getByRole('dialog')
       .getElementsByTagName('button')[1] as HTMLButtonElement;
