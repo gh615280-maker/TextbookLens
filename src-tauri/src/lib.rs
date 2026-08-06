@@ -32,6 +32,7 @@ pub fn run() {
             let paths = app_state::AppPaths::from_app(app.handle())?;
             let log_guard = logging::init(&paths.logs)?;
             let database = db::Database::open(&paths.database)?;
+            maintenance::delete_book::recover_pending_deletions(database.pool(), &paths)?;
             db::settings::recover_interrupted_imports(database.pool(), &paths)?;
             indexing::recovery::recover_on_startup(database.pool(), &paths.indexing_scratch())?;
             let credential_store: Arc<dyn credentials::CredentialStore> =
@@ -81,6 +82,7 @@ pub fn run() {
             commands::onboarding::get_onboarding_state,
             commands::books::list_books,
             commands::books::get_book,
+            commands::books::delete_book,
             commands::books::delete_failed_import,
             commands::books::list_reader_sections,
             commands::documents::begin_import,

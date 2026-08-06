@@ -12,7 +12,11 @@ use textbooklens_lib::{
     documents::storage::{copy_source, noop_progress, validate_source},
     domain::{ActiveOperationKind, BookIndexAggregateStatus, ImportErrorStage, ImportStatus},
     errors::AppErrorCode,
-    maintenance::gate::MaintenanceGate,
+    maintenance::{
+        delete_book::DeleteBookService,
+        gate::MaintenanceGate,
+        storage::{APP_DATA_DIRECTORY_NAME, prepare_app_data_paths},
+    },
 };
 use tokio_util::sync::CancellationToken;
 
@@ -52,6 +56,72 @@ fn created_book(outcome: BeginImportOutcome) -> textbooklens_lib::domain::BookSu
 }
 
 fn no_progress(_: ImportEvent) {}
+
+#[tokio::test]
+async fn complete_delete_waits_for_explicit_import_cancel_ack_and_preserves_user_source() {
+    let (temp, paths, database) = tokio::task::spawn_blocking(|| {
+        let temp = tempfile::tempdir().unwrap();
+        let prepared = prepare_app_data_paths(&temp.path().join(APP_DATA_DIRECTORY_NAME)).unwrap();
+        let paths = AppPaths {
+            root: prepared.root,
+            books: prepared.books,
+            cache: prepared.cache,
+            logs: prepared.logs,
+            database: prepared.database,
+        };
+        let database = Database::open(&paths.database).unwrap();
+        (temp, paths, database)
+    })
+    .await
+    .unwrap();
+    let gate = MaintenanceGate::default();
+    let imports = ImportService::with_maintenance_gate(
+        database.pool().clone(),
+        paths.clone(),
+        ImportCancellationRegistry::default(),
+        gate.clone(),
+    );
+    let deletion = DeleteBookService::new(database.pool().clone(), paths, gate);
+    let user_bytes = b"%PDF synthetic user-owned original";
+    let user_source = source_file(&temp, "user-original.pdf", user_bytes);
+    let book = created_book(
+        imports
+            .begin_import(
+                BeginImportRequest::new(user_source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+
+    assert_eq!(
+        deletion.delete_book(book.id).await.unwrap_err().code,
+        AppErrorCode::RequestConflict
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM books WHERE id = ?)")
+            .bind(book.id.to_string())
+            .fetch_one(database.pool())
+            .await
+            .unwrap()
+    );
+
+    imports.cancel_import(book.id).await.unwrap();
+    assert_eq!(
+        imports.get_book(book.id).await.unwrap().import_status,
+        ImportStatus::Failed
+    );
+    deletion.delete_failed_book(book.id).await.unwrap();
+
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM books WHERE id = ?)")
+            .bind(book.id.to_string())
+            .fetch_one(database.pool())
+            .await
+            .unwrap()
+    );
+    assert_eq!(fs::read(user_source).unwrap(), user_bytes);
+}
 
 #[tokio::test]
 async fn queued_status_maps_through_the_rust_book_summary() {

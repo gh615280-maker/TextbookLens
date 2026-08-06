@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc, time::Duration};
+use std::{collections::HashSet, fmt, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -22,6 +22,7 @@ const MAX_CLEANUP_ATTEMPTS: i64 = 5;
 const MAX_OPAQUE_REMOTE_ID_BYTES: usize = 4_096;
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(30);
 const REMOTE_SWEEP_LIMIT: i64 = 64;
+const MAX_TARGETED_CLEANUP_IDS: usize = 10_001;
 
 pub struct RemoteTrackingFailure {
     vault_key: String,
@@ -178,6 +179,58 @@ pub async fn sweep_remote_resources(
                 summary.failed = summary.failed.saturating_add(1);
             }
             Ok(CleanupOutcome::CompetingClaim) => {}
+            Err(_) => {
+                summary.claimed = summary.claimed.saturating_add(1);
+                summary.failed = summary.failed.saturating_add(1);
+            }
+        }
+    }
+    Ok(summary)
+}
+
+/// Retries only the detached opaque cleanup records returned by one local
+/// textbook deletion. The identifiers are never serialized or logged, and a
+/// provider failure remains represented by the durable row rather than
+/// affecting the already committed local deletion.
+pub async fn sweep_remote_resource_ids(
+    pool: &SqlitePool,
+    credential_store: &dyn CredentialStore,
+    cleaner: &dyn RemoteResourceCleaner,
+    resource_ids: &[Uuid],
+    cancel: CancellationToken,
+) -> AppResult<RemoteCleanupSummary> {
+    if resource_ids.len() > MAX_TARGETED_CLEANUP_IDS {
+        return Err(AppError::new(AppErrorCode::RequestConflict));
+    }
+    let mut seen = HashSet::with_capacity(resource_ids.len());
+    if resource_ids.iter().any(|id| !seen.insert(*id)) {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+
+    let mut summary = recover_success_markers_for_ids(pool, credential_store, resource_ids).await?;
+    for resource_id in resource_ids {
+        if cancel.is_cancelled() {
+            break;
+        }
+        match cleanup_one(
+            pool,
+            credential_store,
+            cleaner,
+            *resource_id,
+            cancel.child_token(),
+        )
+        .await
+        {
+            Ok(CleanupOutcome::Succeeded) => {
+                summary.claimed = summary.claimed.saturating_add(1);
+                summary.succeeded = summary.succeeded.saturating_add(1);
+            }
+            Ok(CleanupOutcome::Failed) => {
+                summary.claimed = summary.claimed.saturating_add(1);
+                summary.failed = summary.failed.saturating_add(1);
+            }
+            Ok(CleanupOutcome::CompetingClaim) => {}
+            Err(error) if error.code == AppErrorCode::NotFound => {}
             Err(_) => {
                 summary.claimed = summary.claimed.saturating_add(1);
                 summary.failed = summary.failed.saturating_add(1);
@@ -346,6 +399,41 @@ async fn recover_success_markers(
             .is_ok_and(|value| value.expose_secret() == DELETED_MARKER)
         {
             mark_succeeded(pool, resource_id, attempt_id).await?;
+            let _ = credential_store.delete(&key).await;
+            recovered = recovered.saturating_add(1);
+        }
+    }
+    Ok(RemoteCleanupSummary {
+        recovered_success_markers: recovered,
+        ..RemoteCleanupSummary::default()
+    })
+}
+
+async fn recover_success_markers_for_ids(
+    pool: &SqlitePool,
+    credential_store: &dyn CredentialStore,
+    resource_ids: &[Uuid],
+) -> AppResult<RemoteCleanupSummary> {
+    let mut recovered = 0_u32;
+    for resource_id in resource_ids {
+        let row = sqlx::query(
+            "SELECT cleanup_attempt_id, encrypted_reference FROM provider_remote_resources WHERE id = ? AND cleanup_status = 'cleaning'",
+        )
+        .bind(resource_id.to_string())
+        .fetch_optional(pool)
+        .await?;
+        let Some(row) = row else {
+            continue;
+        };
+        let attempt_id = parse_uuid(&row.try_get::<String, _>("cleanup_attempt_id")?)?;
+        let vault_id = parse_reference(&row.try_get::<String, _>("encrypted_reference")?)?;
+        let key = vault_key(vault_id);
+        if credential_store
+            .get(&key)
+            .await
+            .is_ok_and(|value| value.expose_secret() == DELETED_MARKER)
+        {
+            mark_succeeded(pool, *resource_id, attempt_id).await?;
             let _ = credential_store.delete(&key).await;
             recovered = recovered.saturating_add(1);
         }

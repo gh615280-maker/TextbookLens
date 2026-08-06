@@ -50,6 +50,334 @@ pub struct BookRecord {
     pub stored_path: Option<String>,
 }
 
+#[derive(Clone)]
+pub struct BookDeletePlan {
+    pub book_id: Uuid,
+    pub format: BookFormat,
+    pub import_status: ImportStatus,
+    pub stored_path: Option<String>,
+    pub page_ids: Vec<Uuid>,
+    pub has_nonterminal_indexing: bool,
+}
+
+impl std::fmt::Debug for BookDeletePlan {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BookDeletePlan")
+            .field("book_id", &"<redacted>")
+            .field("format", &self.format)
+            .field("import_status", &self.import_status)
+            .field(
+                "stored_path",
+                &self.stored_path.as_ref().map(|_| "<redacted>"),
+            )
+            .field("page_count", &self.page_ids.len())
+            .field("has_nonterminal_indexing", &self.has_nonterminal_indexing)
+            .finish()
+    }
+}
+
+pub async fn load_delete_plan(pool: &SqlitePool, book_id: Uuid) -> AppResult<BookDeletePlan> {
+    let row =
+        sqlx::query("SELECT format, import_status, sha256, stored_path FROM books WHERE id = ?")
+            .bind(book_id.to_string())
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    let sha256: Option<String> = row.try_get("sha256")?;
+    let stored_path: Option<String> = row.try_get("stored_path")?;
+    if sha256.is_some() != stored_path.is_some() {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+
+    let maximum_page_ids = crate::maintenance::journal::MAX_DELETE_JOURNAL_ENTRIES;
+    let page_query_limit = i64::try_from(
+        maximum_page_ids
+            .checked_add(1)
+            .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?,
+    )
+    .map_err(|_| AppError::new(AppErrorCode::DatabaseError))?;
+    let page_ids = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM index_pages WHERE book_id = ? ORDER BY id LIMIT ?",
+    )
+    .bind(book_id.to_string())
+    .bind(page_query_limit)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|id| Uuid::parse_str(&id).map_err(|_| AppError::new(AppErrorCode::DatabaseError)))
+    .collect::<AppResult<Vec<_>>>()?;
+    if page_ids.len() > maximum_page_ids {
+        return Err(AppError::new(AppErrorCode::RequestConflict));
+    }
+    if page_ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
+
+    let has_nonterminal_indexing: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM index_runs WHERE book_id = ? AND status IN ('running', 'paused', 'cancelling')) OR EXISTS(SELECT 1 FROM index_pages WHERE book_id = ? AND status IN ('queued', 'rendering', 'sending', 'parsing', 'validating'))",
+    )
+    .bind(book_id.to_string())
+    .bind(book_id.to_string())
+    .fetch_one(pool)
+    .await?;
+
+    Ok(BookDeletePlan {
+        book_id,
+        format: parse_format(&row.try_get::<String, _>("format")?)?,
+        import_status: parse_status(&row.try_get::<String, _>("import_status")?)?,
+        stored_path,
+        page_ids,
+        has_nonterminal_indexing,
+    })
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CompleteDeleteStep {
+    BeforeBegin,
+    AfterBegin,
+    AfterRemoteDetach,
+    AfterBookDelete,
+    AfterVerification,
+    BeforeCommit,
+    AfterCommit,
+}
+
+impl CompleteDeleteStep {
+    pub const ALL: [Self; 7] = [
+        Self::BeforeBegin,
+        Self::AfterBegin,
+        Self::AfterRemoteDetach,
+        Self::AfterBookDelete,
+        Self::AfterVerification,
+        Self::BeforeCommit,
+        Self::AfterCommit,
+    ];
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompleteDeleteInjectedCrash {
+    step: CompleteDeleteStep,
+}
+
+impl CompleteDeleteInjectedCrash {
+    pub fn at(step: CompleteDeleteStep) -> Self {
+        Self { step }
+    }
+
+    pub fn step(self) -> CompleteDeleteStep {
+        self.step
+    }
+}
+
+pub trait CompleteDeleteFaultInjector: Send + Sync {
+    fn checkpoint(&self, step: CompleteDeleteStep) -> Result<(), CompleteDeleteInjectedCrash>;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoCompleteDeleteFault;
+
+impl CompleteDeleteFaultInjector for NoCompleteDeleteFault {
+    fn checkpoint(&self, _step: CompleteDeleteStep) -> Result<(), CompleteDeleteInjectedCrash> {
+        Ok(())
+    }
+}
+
+pub enum CompleteDeleteError {
+    App(AppError),
+    Injected(CompleteDeleteInjectedCrash),
+}
+
+impl std::fmt::Debug for CompleteDeleteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::App(error) => formatter
+                .debug_struct("CompleteDeleteError")
+                .field("code", &error.code)
+                .finish(),
+            Self::Injected(crash) => formatter
+                .debug_struct("CompleteDeleteInjectedCrash")
+                .field("step", &crash.step)
+                .finish(),
+        }
+    }
+}
+
+impl From<AppError> for CompleteDeleteError {
+    fn from(error: AppError) -> Self {
+        Self::App(error)
+    }
+}
+
+impl From<sqlx::Error> for CompleteDeleteError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::App(AppError::from(error))
+    }
+}
+
+#[derive(Clone)]
+pub struct CompleteDeleteResult {
+    detached_remote_resource_ids: Vec<Uuid>,
+}
+
+impl CompleteDeleteResult {
+    pub fn detached_remote_resource_ids(&self) -> &[Uuid] {
+        &self.detached_remote_resource_ids
+    }
+}
+
+impl std::fmt::Debug for CompleteDeleteResult {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CompleteDeleteResult")
+            .field(
+                "detached_remote_resource_count",
+                &self.detached_remote_resource_ids.len(),
+            )
+            .finish()
+    }
+}
+
+pub async fn complete_delete(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    fault: &dyn CompleteDeleteFaultInjector,
+) -> Result<CompleteDeleteResult, CompleteDeleteError> {
+    checkpoint_complete_delete(fault, CompleteDeleteStep::BeforeBegin)?;
+    let mut transaction = pool.begin().await?;
+    checkpoint_complete_delete(fault, CompleteDeleteStep::AfterBegin)?;
+
+    let lock = sqlx::query(
+        "UPDATE books SET updated_at = updated_at WHERE id = ? AND import_status IN ('ready', 'failed')",
+    )
+    .bind(book_id.to_string())
+    .execute(&mut *transaction)
+    .await?;
+    if lock.rows_affected() != 1 {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM books WHERE id = ?)")
+            .bind(book_id.to_string())
+            .fetch_one(&mut *transaction)
+            .await?;
+        return Err(CompleteDeleteError::App(AppError::new(if exists {
+            AppErrorCode::RequestConflict
+        } else {
+            AppErrorCode::NotFound
+        })));
+    }
+
+    let maximum_remote_ids = crate::maintenance::journal::MAX_DELETE_JOURNAL_ENTRIES;
+    let remote_query_limit = i64::try_from(
+        maximum_remote_ids
+            .checked_add(1)
+            .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?,
+    )
+    .map_err(|_| AppError::new(AppErrorCode::DatabaseError))?;
+    let detached_remote_resource_ids = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM provider_remote_resources WHERE book_id = ? AND cleanup_status IN ('pending', 'cleaning', 'failed') ORDER BY id LIMIT ?",
+    )
+    .bind(book_id.to_string())
+    .bind(remote_query_limit)
+    .fetch_all(&mut *transaction)
+    .await?
+    .into_iter()
+    .map(|id| Uuid::parse_str(&id).map_err(|_| AppError::new(AppErrorCode::DatabaseError)))
+    .collect::<AppResult<Vec<_>>>()?;
+    if detached_remote_resource_ids.len() > maximum_remote_ids {
+        return Err(CompleteDeleteError::App(AppError::new(
+            AppErrorCode::RequestConflict,
+        )));
+    }
+    let detached = sqlx::query(
+        "UPDATE provider_remote_resources SET book_id = NULL, run_id = NULL, page_id = NULL WHERE book_id = ? AND cleanup_status IN ('pending', 'cleaning', 'failed')",
+    )
+    .bind(book_id.to_string())
+    .execute(&mut *transaction)
+    .await?;
+    if detached.rows_affected()
+        != u64::try_from(detached_remote_resource_ids.len())
+            .map_err(|_| AppError::new(AppErrorCode::DatabaseError))?
+    {
+        return Err(CompleteDeleteError::App(AppError::new(
+            AppErrorCode::DatabaseError,
+        )));
+    }
+    checkpoint_complete_delete(fault, CompleteDeleteStep::AfterRemoteDetach)?;
+
+    let deleted =
+        sqlx::query("DELETE FROM books WHERE id = ? AND import_status IN ('ready', 'failed')")
+            .bind(book_id.to_string())
+            .execute(&mut *transaction)
+            .await?;
+    if deleted.rows_affected() != 1 {
+        return Err(CompleteDeleteError::App(AppError::new(
+            AppErrorCode::RequestConflict,
+        )));
+    }
+    checkpoint_complete_delete(fault, CompleteDeleteStep::AfterBookDelete)?;
+
+    verify_complete_delete(&mut transaction, book_id).await?;
+    checkpoint_complete_delete(fault, CompleteDeleteStep::AfterVerification)?;
+    checkpoint_complete_delete(fault, CompleteDeleteStep::BeforeCommit)?;
+    transaction.commit().await?;
+    checkpoint_complete_delete(fault, CompleteDeleteStep::AfterCommit)?;
+    Ok(CompleteDeleteResult {
+        detached_remote_resource_ids,
+    })
+}
+
+fn checkpoint_complete_delete(
+    fault: &dyn CompleteDeleteFaultInjector,
+    step: CompleteDeleteStep,
+) -> Result<(), CompleteDeleteError> {
+    fault
+        .checkpoint(step)
+        .map_err(CompleteDeleteError::Injected)
+}
+
+async fn verify_complete_delete(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    book_id: Uuid,
+) -> Result<(), CompleteDeleteError> {
+    const RELATED_COUNTS: &[&str] = &[
+        "SELECT COUNT(*) FROM sections WHERE book_id = ?",
+        "SELECT COUNT(*) FROM blocks WHERE book_id = ?",
+        "SELECT COUNT(*) FROM search_chunks WHERE book_id = ?",
+        "SELECT COUNT(*) FROM conversations WHERE book_id = ?",
+        "SELECT COUNT(*) FROM annotations WHERE book_id = ?",
+        "SELECT COUNT(*) FROM index_runs WHERE book_id = ?",
+        "SELECT COUNT(*) FROM index_pages WHERE book_id = ?",
+        "SELECT COUNT(*) FROM index_page_blocks WHERE book_id = ?",
+        "SELECT COUNT(*) FROM index_corrections WHERE book_id = ?",
+        "SELECT COUNT(*) FROM index_search_chunks WHERE book_id = ?",
+        "SELECT COUNT(*) FROM provider_remote_resources WHERE book_id = ?",
+    ];
+    for query in RELATED_COUNTS {
+        let count: i64 = sqlx::query_scalar(*query)
+            .bind(book_id.to_string())
+            .fetch_one(&mut **transaction)
+            .await?;
+        if count != 0 {
+            return Err(CompleteDeleteError::App(AppError::new(
+                AppErrorCode::DatabaseError,
+            )));
+        }
+    }
+    let orphan_messages: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM messages WHERE NOT EXISTS (SELECT 1 FROM conversations WHERE conversations.id = messages.conversation_id)",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    let foreign_key_violations = sqlx::query("PRAGMA foreign_key_check")
+        .fetch_all(&mut **transaction)
+        .await?;
+    if orphan_messages != 0 || !foreign_key_violations.is_empty() {
+        return Err(CompleteDeleteError::App(AppError::new(
+            AppErrorCode::DatabaseError,
+        )));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub enum HashClaim {
     Claimed(BookSummary),
