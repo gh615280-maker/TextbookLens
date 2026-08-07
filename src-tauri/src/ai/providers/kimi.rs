@@ -2,7 +2,7 @@ use std::fmt;
 
 use async_trait::async_trait;
 use reqwest::Method;
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize, Serializer, de::IgnoredAny};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -208,6 +208,36 @@ impl AiProvider for KimiProvider {
             return Err(cancelled());
         }
         Ok(StructuredAnalysisOutcome::inline(analysis))
+    }
+
+    async fn cleanup_remote_resource(
+        &self,
+        credential: &SecretString,
+        handle: &crate::domain::RemoteCleanupHandle,
+        cancel: CancellationToken,
+    ) -> AppResult<()> {
+        if handle.provider() != &ProviderKind::Kimi {
+            return Err(invalid_input());
+        }
+        let id = handle.opaque_id().expose_secret();
+        if id.is_empty()
+            || id.len() > 4096
+            || !id
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.'))
+        {
+            return Err(invalid_input());
+        }
+        let request = ProviderHttpRequest::empty(
+            Method::DELETE,
+            format!("files/{id}"),
+            CredentialHeader::Bearer,
+        )
+        .map_err(AiError::into_app_error)?;
+        self.transport
+            .send_bounded_delete_idempotent(request, credential, cancel)
+            .await
+            .map_err(AiError::into_app_error)
     }
 }
 

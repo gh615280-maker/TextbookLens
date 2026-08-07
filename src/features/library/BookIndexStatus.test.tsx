@@ -56,8 +56,8 @@ describe('BookIndexStatus', () => {
       </LanguageContext.Provider>,
     );
 
-    const start = screen.getByRole('button', { name: 'AI 辅助索引' });
-    expect(start.parentElement).toHaveTextContent('AI 辅助索引已完成');
+    const start = screen.getByRole('button', { name: '准备全文问答' });
+    expect(start.parentElement).toHaveTextContent('准备全文问答已完成');
     await user.click(start);
     expect(onStartIndex).toHaveBeenCalledWith(book);
 

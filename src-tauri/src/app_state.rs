@@ -9,6 +9,7 @@ use crate::{
     db::Database,
     documents::import::ImportCancellationRegistry,
     errors::AppResult,
+    extraction::service::ExtractionCancellationRegistry,
     indexing::{coordinator::IndexOperationRegistry, state::IndexCancellationRegistry},
     learning::{
         book_preparation::BookPreparationRegistry, preparation::PreparationRegistry,
@@ -55,6 +56,7 @@ pub struct AppState {
     pub import_cancellations: ImportCancellationRegistry,
     pub indexing_cancellations: IndexCancellationRegistry,
     pub indexing_operations: IndexOperationRegistry,
+    pub extraction_cancellations: ExtractionCancellationRegistry,
     pub learning_preparations: PreparationRegistry,
     pub book_learning_preparations: BookPreparationRegistry,
     pub learning_requests: LearningRequestRegistry,
@@ -81,6 +83,7 @@ impl AppState {
             indexing_operations: IndexOperationRegistry::with_maintenance_gate(
                 maintenance_gate.clone(),
             ),
+            extraction_cancellations: ExtractionCancellationRegistry::default(),
             learning_preparations: PreparationRegistry::default(),
             book_learning_preparations: BookPreparationRegistry::default(),
             learning_requests: LearningRequestRegistry::with_maintenance_gate(maintenance_gate),

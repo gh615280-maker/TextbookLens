@@ -723,6 +723,7 @@ async fn validate_document_locator(
                     == expected
             }
         }
+        DocumentLocator::ExtractedText { .. } => false,
     };
     if valid {
         Ok(())
@@ -1005,6 +1006,22 @@ pub fn locator_label(locator: &DocumentLocator, section_title: Option<&str>) -> 
         } => format!("pages {start_page}-{end_page}"),
         DocumentLocator::Epub { .. } => "EPUB passage".to_owned(),
         DocumentLocator::Docx { .. } => "DOCX passage".to_owned(),
+        DocumentLocator::ExtractedText {
+            paragraph_start,
+            paragraph_end,
+            ..
+        } if paragraph_start == paragraph_end => {
+            format!("extracted paragraph {}", paragraph_start + 1)
+        }
+        DocumentLocator::ExtractedText {
+            paragraph_start,
+            paragraph_end,
+            ..
+        } => format!(
+            "extracted paragraphs {}-{}",
+            paragraph_start + 1,
+            paragraph_end + 1
+        ),
     }
 }
 

@@ -57,6 +57,18 @@ fn embedded_registry_exposes_versioned_verified_capability_truth() {
     let kimi = &public.providers[4].models[0];
     assert_eq!(kimi.image_input, CapabilitySupport::Supported);
     assert_eq!(kimi.pdf_input, CapabilitySupport::Unsupported);
+    assert_eq!(kimi.native_pdf_input, CapabilitySupport::Unsupported);
+    let kimi_provider = registry
+        .capabilities()
+        .iter()
+        .find(|p| p.kind == ProviderKind::Kimi)
+        .unwrap();
+    assert!(kimi_provider.file_capabilities.file_extraction);
+    assert!(kimi_provider.file_capabilities.file_ocr);
+    assert_eq!(
+        kimi_provider.file_capabilities.max_file_bytes,
+        Some(100 * 1024 * 1024)
+    );
     assert!(kimi.image_limits.is_some());
 
     assert_eq!(

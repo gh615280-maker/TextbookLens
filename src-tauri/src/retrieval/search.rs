@@ -197,18 +197,23 @@ async fn search_fts(
     let indexed_rows = sqlx::query(
         "SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256, p.status AS page_status, p.review_reason_code FROM index_search_chunks_fts JOIN index_search_chunks c ON c.rowid = index_search_chunks_fts.rowid JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version AND p.status IN ('indexed', 'needs_review') LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE index_search_chunks_fts MATCH ? AND c.book_id = ? AND (c.source != 'user_corrected' OR (correction.id IS NOT NULL AND correction.conflict_state = 'active' AND correction.target_content_version = c.content_version)) AND NOT (c.source = 'ai_transcribed' AND EXISTS (SELECT 1 FROM index_corrections active_correction WHERE active_correction.book_id = c.book_id AND active_correction.page_id = c.page_id AND active_correction.target_block_id = c.block_id AND active_correction.target_content_version = c.content_version AND active_correction.value_kind = 'text' AND active_correction.conflict_state = 'active')) AND NOT (c.source IN ('ai_transcribed', 'user_corrected') AND EXISTS (SELECT 1 FROM index_corrections conflicted_correction WHERE conflicted_correction.book_id = c.book_id AND conflicted_correction.page_id = c.page_id AND conflicted_correction.target_block_id = c.block_id AND conflicted_correction.conflict_state = 'conflict')) ORDER BY p.page_number, c.ordinal, c.source, c.id LIMIT ?",
     )
-    .bind(phrase)
+    .bind(&phrase)
     .bind(book_id.to_string())
     .bind(fetch_limit)
     .fetch_all(&mut *connection)
     .await?;
+    let extracted_rows = sqlx::query("SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json FROM extraction_chunks_fts JOIN extraction_chunks c ON c.rowid = extraction_chunks_fts.rowid JOIN book_extractions e ON e.id = c.extraction_id AND e.book_id = c.book_id AND e.status = 'ready' WHERE extraction_chunks_fts MATCH ? AND c.book_id = ? ORDER BY c.ordinal, c.id LIMIT ?")
+        .bind(&phrase).bind(book_id.to_string()).bind(fetch_limit).fetch_all(&mut *connection).await?;
 
-    let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len());
+    let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len() + extracted_rows.len());
     for row in local_rows {
         hits.push(local_ranked_hit(&row, book_id, query)?);
     }
     for row in indexed_rows {
         hits.push(indexed_ranked_hit(&row, book_id, query)?);
+    }
+    for row in extracted_rows {
+        hits.push(extracted_ranked_hit(&row, book_id, query)?);
     }
     Ok(hits)
 }
@@ -232,19 +237,51 @@ async fn search_like(
         "SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json, c.source, c.page_id, c.block_id, c.correction_id, correction.original_value_sha256, p.status AS page_status, p.review_reason_code FROM index_search_chunks c JOIN index_pages p ON p.id = c.page_id AND p.book_id = c.book_id AND p.content_version = c.content_version AND p.status IN ('indexed', 'needs_review') LEFT JOIN index_corrections correction ON correction.id = c.correction_id AND correction.page_id = c.page_id AND correction.book_id = c.book_id WHERE c.book_id = ? AND c.text LIKE '%' || ? || '%' ESCAPE '\\' AND (c.source != 'user_corrected' OR (correction.id IS NOT NULL AND correction.conflict_state = 'active' AND correction.target_content_version = c.content_version)) AND NOT (c.source = 'ai_transcribed' AND EXISTS (SELECT 1 FROM index_corrections active_correction WHERE active_correction.book_id = c.book_id AND active_correction.page_id = c.page_id AND active_correction.target_block_id = c.block_id AND active_correction.target_content_version = c.content_version AND active_correction.value_kind = 'text' AND active_correction.conflict_state = 'active')) AND NOT (c.source IN ('ai_transcribed', 'user_corrected') AND EXISTS (SELECT 1 FROM index_corrections conflicted_correction WHERE conflicted_correction.book_id = c.book_id AND conflicted_correction.page_id = c.page_id AND conflicted_correction.target_block_id = c.block_id AND conflicted_correction.conflict_state = 'conflict')) ORDER BY p.page_number, c.ordinal, c.source, c.id LIMIT ?",
     )
     .bind(book_id.to_string())
-    .bind(escaped)
+    .bind(&escaped)
     .bind(fetch_limit)
     .fetch_all(&mut *connection)
     .await?;
+    let extracted_rows = sqlx::query("SELECT c.id AS stable_id, c.ordinal, c.text, c.locator_json FROM extraction_chunks c JOIN book_extractions e ON e.id = c.extraction_id AND e.book_id = c.book_id AND e.status = 'ready' WHERE c.book_id = ? AND c.text LIKE '%' || ? || '%' ESCAPE '\\' ORDER BY c.ordinal, c.id LIMIT ?")
+        .bind(book_id.to_string()).bind(&escaped).bind(fetch_limit).fetch_all(&mut *connection).await?;
 
-    let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len());
+    let mut hits = Vec::with_capacity(local_rows.len() + indexed_rows.len() + extracted_rows.len());
     for row in local_rows {
         hits.push(local_ranked_hit(&row, book_id, query)?);
     }
     for row in indexed_rows {
         hits.push(indexed_ranked_hit(&row, book_id, query)?);
     }
+    for row in extracted_rows {
+        hits.push(extracted_ranked_hit(&row, book_id, query)?);
+    }
     Ok(hits)
+}
+
+fn extracted_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<RankedHit> {
+    let provenance = RetrievalProvenance::file_extracted();
+    let text: String = row.try_get("text")?;
+    validate_search_text(&text)?;
+    let stable_id: String = row.try_get("stable_id")?;
+    parse_uuid(stable_id.clone())?;
+    let ordinal = to_u32(row.try_get::<i64, _>("ordinal")?)?;
+    let relevance_micros = weighted_relevance(&text, query, provenance.ranking_weight());
+    Ok(RankedHit {
+        score: u64::from(relevance_micros),
+        source_order: source_order(provenance.source),
+        stable_order: format!("file_extracted:{ordinal:010}:{stable_id}"),
+        hit: SearchHit {
+            snippet: snippet(&text, query),
+            locator: parse_locator(row)?,
+            section_title: None,
+            provenance,
+            context_book_id: book_id,
+            context_section_id: None,
+            context_stable_id: stable_id,
+            context_ordinal: ordinal,
+            context_text: text,
+            relevance_micros,
+        },
+    })
 }
 
 fn local_ranked_hit(row: &SqliteRow, book_id: Uuid, query: &str) -> AppResult<RankedHit> {

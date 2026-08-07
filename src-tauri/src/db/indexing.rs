@@ -53,7 +53,7 @@ impl EncryptedRemoteResourceReference {
         Ok(Self(value))
     }
 
-    fn database_value(&self) -> &str {
+    pub(crate) fn database_value(&self) -> &str {
         &self.0
     }
 }

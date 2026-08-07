@@ -26,10 +26,22 @@ pub struct ProviderModelCapability {
     pub default_max_output_tokens: u32,
     pub text_chat: CapabilitySupport,
     pub image_input: CapabilitySupport,
+    // Native model input only; provider-side extraction is described separately.
+    pub native_pdf_input: CapabilitySupport,
+    // Compatibility alias retained for existing clients; identical to native_pdf_input.
     pub pdf_input: CapabilitySupport,
     pub strict_structured_output: CapabilitySupport,
     pub image_limits: Option<ImageLimits>,
     pub last_verified: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "provider.ts")]
+pub struct ProviderFileCapabilities {
+    pub file_extraction: bool,
+    pub file_ocr: bool,
+    pub max_file_bytes: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -68,6 +80,7 @@ pub struct ProviderCapability {
     pub kind: ProviderKind,
     pub display_name: String,
     pub default_model: String,
+    pub file_capabilities: ProviderFileCapabilities,
     pub models: Vec<ProviderModelCapability>,
 }
 

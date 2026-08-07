@@ -4,9 +4,11 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use sqlx::SqlitePool;
 use tauri::State;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
+    ai::registry::ProviderCapabilityRegistry,
     ai::{
         provider::{validate_credential, validate_display_name},
         runtime::ProviderRuntime,
@@ -16,6 +18,7 @@ use crate::{
     db::providers::{self, NewProviderProfile, ReplacementProviderCredential},
     domain::{ActiveOperationKind, AiOperation, ProviderKind, ProviderProfileSummary},
     errors::{AppErrorDto, AppResult},
+    indexing::remote_cleanup::{RuntimeRemoteResourceCleaner, sweep_remote_resource_ids},
 };
 
 #[derive(Deserialize)]
@@ -126,6 +129,38 @@ pub(crate) async fn replace_provider_profile_credential_impl(
             AiOperation::TextLearning,
         )
         .await?;
+    let resource_ids: Vec<String> = sqlx::query_scalar("SELECT id FROM provider_remote_resources WHERE provider_profile_id = ? AND cleanup_status IN ('pending','failed') ORDER BY id")
+        .bind(profile_id.to_string()).fetch_all(pool).await?;
+    let resource_ids = resource_ids
+        .into_iter()
+        .map(|id| {
+            Uuid::parse_str(&id).map_err(|_| {
+                crate::errors::AppError::new(crate::errors::AppErrorCode::DatabaseError)
+            })
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+    let mut cleanup_failed = false;
+    if !resource_ids.is_empty() {
+        let registry = ProviderCapabilityRegistry::load_embedded().map_err(|_| {
+            crate::errors::AppError::new(crate::errors::AppErrorCode::DatabaseError)
+        })?;
+        let cleaner = RuntimeRemoteResourceCleaner::new(store.clone(), registry);
+        let cleanup = sweep_remote_resource_ids(
+            pool,
+            store.as_ref(),
+            &cleaner,
+            &resource_ids,
+            CancellationToken::new(),
+        )
+        .await?;
+        cleanup_failed = cleanup.failed > 0;
+    }
+    let unresolved: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM provider_remote_resources WHERE provider_profile_id = ? AND cleanup_status IN ('pending','failed','cleaning')").bind(profile_id.to_string()).fetch_one(pool).await?;
+    if cleanup_failed || unresolved > 0 {
+        return Err(crate::errors::AppError::new(
+            crate::errors::AppErrorCode::RequestConflict,
+        ));
+    }
     providers::replace_validated_provider_credential(
         pool,
         store,

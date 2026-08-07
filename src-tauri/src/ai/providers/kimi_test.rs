@@ -22,9 +22,40 @@ use crate::{
         },
         structured::PAGE_ANALYSIS_SCHEMA_VERSION,
     },
-    domain::{ImageLimits, ImageMime, StructuredPageRequest, UnifiedVisionRequest},
+    domain::{
+        ImageLimits, ImageMime, ProviderKind, RemoteCleanupHandle, StructuredPageRequest,
+        UnifiedVisionRequest,
+    },
     errors::AppErrorCode,
 };
+
+#[tokio::test]
+async fn file_cleanup_delete_is_idempotent_and_keeps_remote_id_out_of_debug() {
+    for status in [204, 404] {
+        let server = ProviderServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/v1/files/file_fixture_cleanup"))
+            .and(header("authorization", format!("Bearer {KEY}")))
+            .respond_with(ResponseTemplate::new(status))
+            .expect(1)
+            .mount(server.mock_server())
+            .await;
+        let handle = RemoteCleanupHandle::new(
+            ProviderKind::Kimi,
+            SecretString::from("file_fixture_cleanup"),
+        );
+        let result = KimiProvider::new_for_test(&format!("{}/v1", server.uri()))
+            .unwrap()
+            .cleanup_remote_resource(&SecretString::from(KEY), &handle, CancellationToken::new())
+            .await;
+        assert!(
+            result.is_ok(),
+            "DELETE status {status} should be idempotent; requests={:?}",
+            server.mock_server().received_requests().await.unwrap()
+        );
+        assert!(!format!("{handle:?}").contains("file_fixture_cleanup"));
+    }
+}
 use provider_server::{ChunkedSseServer, ProviderServer};
 
 const KEY: &str = "test-kimi-key-not-secret";

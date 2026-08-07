@@ -79,6 +79,18 @@ export const en = {
   'teaching.stay': 'Stay',
   'example.greeting': 'Hello, {name}',
   'indexStart.action': 'AI-assisted index',
+  'extraction.title': 'Prepare full-text Q&A',
+  'extraction.description':
+    'Upload this PDF to Kimi once for OCR and text extraction. Text is stored and searched locally; later questions send only relevant passages.',
+  'extraction.loading':
+    'Checking local extraction status and Kimi configuration…',
+  'extraction.start': 'Prepare full-text Q&A',
+  'extraction.running': 'Extracting and building the local search index…',
+  'extraction.ready': 'Local full-text search is ready ({chunks} passages).',
+  'extraction.failed':
+    'Full-text preparation did not complete. Failed remote deletion will be retried by the cleanup queue.',
+  'extraction.configure': 'Configure Kimi',
+  'extraction.advanced': 'Advanced: full page-by-page visual index',
   'indexStart.title': 'AI-assisted indexing',
   'indexStart.description':
     'Check this PDF locally and send only pages with unreliable text after confirmation.',
@@ -162,7 +174,7 @@ export const en = {
   'library.indexStatus.partial': 'Partial',
   'library.indexStatus.needs_review': 'Needs review',
   'library.indexStatus.failed': 'Failed',
-  'library.indexStart': 'AI-assisted index',
+  'library.indexStart': 'Prepare full-text Q&A',
   'library.indexCompleted': 'Completed',
   'learning.menu': 'Learning actions',
   'learning.explain': 'Explain',

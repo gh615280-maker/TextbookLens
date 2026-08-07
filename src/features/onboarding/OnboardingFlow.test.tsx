@@ -71,6 +71,11 @@ const registry: ProviderCapabilityRegistryDto = {
       kind: 'openai',
       displayName: 'OpenAI',
       defaultModel: 'gpt-5.6',
+      fileCapabilities: {
+        fileExtraction: false,
+        fileOcr: false,
+        maxFileBytes: null,
+      },
       models: [
         {
           id: 'gpt-5.6',
@@ -79,6 +84,7 @@ const registry: ProviderCapabilityRegistryDto = {
           defaultMaxOutputTokens: 128_000,
           textChat: 'supported',
           imageInput: 'supported',
+          nativePdfInput: 'supported',
           pdfInput: 'supported',
           strictStructuredOutput: 'supported',
           imageLimits: null,

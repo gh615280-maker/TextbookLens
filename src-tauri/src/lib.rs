@@ -16,6 +16,7 @@ pub mod document_repository;
 pub mod documents;
 pub mod domain;
 pub mod errors;
+pub mod extraction;
 pub mod indexing;
 pub mod learning;
 pub mod logging;
@@ -58,6 +59,9 @@ pub fn run() {
             maintenance::delete_book::recover_pending_deletions(database.pool(), &paths)?;
             db::settings::recover_interrupted_imports(database.pool(), &paths)?;
             indexing::recovery::recover_on_startup(database.pool(), &paths.indexing_scratch())?;
+            tauri::async_runtime::block_on(extraction::service::recover_on_startup(
+                database.pool(),
+            ))?;
             tauri::async_runtime::block_on(
                 indexing::remote_cleanup::recover_remote_cleanup_on_startup(
                     database.pool(),
@@ -114,6 +118,9 @@ pub fn run() {
             commands::documents::mark_import_failed,
             commands::documents::retry_import,
             commands::documents::search_book,
+            commands::extraction::prepare_book_extraction,
+            commands::extraction::cancel_book_extraction,
+            commands::extraction::get_book_extraction,
             commands::indexing::confirm_index_operation,
             commands::indexing::create_index_run,
             commands::indexing::authorize_index_run,

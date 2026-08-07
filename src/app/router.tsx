@@ -14,6 +14,7 @@ import { SettingsPage } from '../features/settings/SettingsPage';
 import { TeachingInstructionsPage } from '../features/teaching/TeachingInstructionsPage';
 import { IndexQualityPage } from '../features/indexing/IndexQualityPage';
 import { IndexStartPage } from '../features/indexing/IndexStartPage';
+import { ExtractionStartPage } from '../features/extraction/ExtractionStartPage';
 
 export const appRoutes: RouteObject[] = [
   {
@@ -56,6 +57,10 @@ export const appRoutes: RouteObject[] = [
           },
           {
             path: '/books/:bookId/index-start',
+            element: <ExtractionStartPage />,
+          },
+          {
+            path: '/books/:bookId/index-advanced',
             element: <IndexStartPage />,
           },
         ],

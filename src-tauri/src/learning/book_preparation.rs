@@ -1016,6 +1016,9 @@ fn locator_text_bytes(locator: &DocumentLocator) -> usize {
     match locator {
         DocumentLocator::Epub { cfi, .. } => cfi.len(),
         DocumentLocator::Pdf { .. } | DocumentLocator::Docx { .. } => 0,
+        DocumentLocator::ExtractedText {
+            text_fingerprint, ..
+        } => text_fingerprint.len(),
     }
 }
 
@@ -1260,9 +1263,14 @@ SELECT
      OR block.id IS NULL OR block.book_id != chunk.book_id OR block.page_id != chunk.page_id
      OR (chunk.correction_id IS NOT NULL AND (correction.id IS NULL
        OR correction.book_id != chunk.book_id OR correction.page_id != chunk.page_id
-       OR correction.target_block_id != chunk.block_id)))) AS invalid_index_chunks
+       OR correction.target_block_id != chunk.block_id)))) AS invalid_index_chunks,
+  (SELECT COUNT(*) FROM extraction_chunks chunk
+     LEFT JOIN book_extractions extraction ON extraction.id = chunk.extraction_id
+   WHERE chunk.book_id = ? AND (extraction.id IS NULL OR extraction.book_id != chunk.book_id
+     OR extraction.status != 'ready')) AS invalid_extraction_chunks
 "#,
     )
+    .bind(book_id.to_string())
     .bind(book_id.to_string())
     .bind(book_id.to_string())
     .bind(book_id.to_string())
@@ -1274,6 +1282,7 @@ SELECT
         "invalid_local_chunks",
         "invalid_pages",
         "invalid_index_chunks",
+        "invalid_extraction_chunks",
     ] {
         if row.try_get::<i64, _>(column)? != 0 {
             return Err(database_error());

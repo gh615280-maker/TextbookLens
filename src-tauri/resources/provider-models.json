@@ -5,6 +5,7 @@
       "kind": "openai",
       "display_name": "OpenAI",
       "default_model": "gpt-5.6",
+      "file_capabilities": { "file_extraction": false, "file_ocr": false, "max_file_bytes": null },
       "models": [
         {
           "id": "gpt-5.6",
@@ -31,6 +32,7 @@
       "kind": "gemini",
       "display_name": "Gemini",
       "default_model": "gemini-3.6-flash",
+      "file_capabilities": { "file_extraction": false, "file_ocr": false, "max_file_bytes": null },
       "models": [
         {
           "id": "gemini-3.6-flash",
@@ -57,6 +59,7 @@
       "kind": "anthropic",
       "display_name": "Anthropic",
       "default_model": "claude-sonnet-5",
+      "file_capabilities": { "file_extraction": false, "file_ocr": false, "max_file_bytes": null },
       "models": [
         {
           "id": "claude-sonnet-5",
@@ -83,6 +86,7 @@
       "kind": "deepseek",
       "display_name": "DeepSeek",
       "default_model": "deepseek-v4-flash",
+      "file_capabilities": { "file_extraction": false, "file_ocr": false, "max_file_bytes": null },
       "models": [
         {
           "id": "deepseek-v4-flash",
@@ -103,6 +107,7 @@
       "kind": "kimi",
       "display_name": "Kimi",
       "default_model": "kimi-k3",
+      "file_capabilities": { "file_extraction": true, "file_ocr": true, "max_file_bytes": 104857600 },
       "models": [
         {
           "id": "kimi-k3",

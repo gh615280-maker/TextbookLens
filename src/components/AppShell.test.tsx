@@ -43,6 +43,11 @@ describe('AppShell', () => {
               kind: 'openai',
               displayName: 'OpenAI',
               defaultModel: 'synthetic-text',
+              fileCapabilities: {
+                fileExtraction: false,
+                fileOcr: false,
+                maxFileBytes: null,
+              },
               models: [
                 {
                   id: 'synthetic-text',
@@ -51,6 +56,7 @@ describe('AppShell', () => {
                   defaultMaxOutputTokens: 100,
                   textChat: 'supported',
                   imageInput: 'unknown',
+                  nativePdfInput: 'unknown',
                   pdfInput: 'unknown',
                   strictStructuredOutput: 'unsupported',
                   imageLimits: null,

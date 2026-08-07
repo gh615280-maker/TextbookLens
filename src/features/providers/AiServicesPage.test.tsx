@@ -21,6 +21,11 @@ const registry = {
       kind: 'openai' as const,
       displayName: 'OpenAI',
       defaultModel: 'synthetic-text',
+      fileCapabilities: {
+        fileExtraction: false,
+        fileOcr: false,
+        maxFileBytes: null,
+      },
       models: [
         {
           id: 'synthetic-text',
@@ -29,6 +34,7 @@ const registry = {
           defaultMaxOutputTokens: 100,
           textChat: 'supported' as const,
           imageInput: 'unknown' as const,
+          nativePdfInput: 'unknown' as const,
           pdfInput: 'unknown' as const,
           strictStructuredOutput: 'unsupported' as const,
           imageLimits: null,

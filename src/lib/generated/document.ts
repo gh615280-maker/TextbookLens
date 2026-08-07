@@ -4,7 +4,7 @@ export type BlockKind = "heading" | "paragraph" | "list" | "table" | "caption" |
 
 export type ContentAnchor = { "kind": "text", selection: SelectionAnchor, } | { "kind": "region", region: RegionAnchor, };
 
-export type DocumentLocator = { "format": "pdf", startPage: number, endPage: number, rectsByPage: { [key in number]: Array<NormalizedRect> } | null, } | { "format": "epub", cfi: string, sectionId: string, } | { "format": "docx", startBlockId: string, startOffset: number, endBlockId: string, endOffset: number, };
+export type DocumentLocator = { "format": "pdf", startPage: number, endPage: number, rectsByPage: { [key in number]: Array<NormalizedRect> } | null, } | { "format": "epub", cfi: string, sectionId: string, } | { "format": "docx", startBlockId: string, startOffset: number, endBlockId: string, endOffset: number, } | { "format": "extracted_text", charStart: bigint, charEnd: bigint, paragraphStart: number, paragraphEnd: number, textFingerprint: string, };
 
 export type NormalizedBlockInput = { id: string, ordinal: number, kind: BlockKind, plainText: string, locator: DocumentLocator, };
 

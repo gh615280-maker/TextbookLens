@@ -119,10 +119,26 @@ const docxLocatorSchema = z
     endOffset: uint32Schema,
   })
   .strict();
+const extractedTextLocatorSchema = z
+  .object({
+    format: z.literal('extracted_text'),
+    charStart: z.number().int().nonnegative(),
+    charEnd: z.number().int().positive(),
+    paragraphStart: uint32Schema,
+    paragraphEnd: uint32Schema,
+    textFingerprint: z.string().regex(/^[0-9a-f]{64}$/u),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.charStart < value.charEnd &&
+      value.paragraphStart <= value.paragraphEnd,
+  );
 const documentLocatorSchema = z.discriminatedUnion('format', [
   pdfLocatorSchema,
   epubLocatorSchema,
   docxLocatorSchema,
+  extractedTextLocatorSchema,
 ]);
 const textAnchorSchema = z
   .object({

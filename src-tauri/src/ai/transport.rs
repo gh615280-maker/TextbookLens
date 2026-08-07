@@ -163,6 +163,21 @@ impl ProviderTransport {
         Ok(BoundedResponse { status, body })
     }
 
+    pub async fn send_bounded_delete_idempotent(
+        &self,
+        request: ProviderHttpRequest,
+        credential: &SecretString,
+        cancel: CancellationToken,
+    ) -> Result<(), AiError> {
+        let response = self.send(request, credential, &cancel).await?;
+        let status = response.status();
+        let body = read_bounded_body(response, &cancel, self.policy).await?;
+        if status.is_success() || status == StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        Err(AiError::from_provider_http(&self.kind, status, &body))
+    }
+
     pub async fn send_stream(
         &self,
         request: ProviderHttpRequest,

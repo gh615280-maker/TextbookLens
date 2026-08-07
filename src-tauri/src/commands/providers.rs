@@ -1,4 +1,5 @@
 use tauri::State;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
         ProviderOperationConsentCategory, ProviderOperationConsentDecision, ProviderProfileSummary,
     },
     errors::AppErrorDto,
+    indexing::remote_cleanup::{RuntimeRemoteResourceCleaner, sweep_remote_resource_ids},
 };
 
 #[tauri::command]
@@ -51,6 +53,38 @@ pub async fn delete_provider_profile(
     state: State<'_, AppState>,
 ) -> Result<(), AppErrorDto> {
     let _permit = maintenance_permit(&state)?;
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM provider_remote_resources WHERE provider_profile_id = ? AND cleanup_status IN ('pending','failed') ORDER BY id")
+        .bind(profile_id.to_string()).fetch_all(state.db.pool()).await.map_err(crate::errors::AppError::database)?;
+    let ids = ids
+        .into_iter()
+        .map(|id| {
+            Uuid::parse_str(&id).map_err(|_| {
+                crate::errors::AppError::new(crate::errors::AppErrorCode::DatabaseError)
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut cleanup_failed = false;
+    if !ids.is_empty() {
+        let cleaner = RuntimeRemoteResourceCleaner::new(
+            state.credential_store.clone(),
+            state.provider_capabilities.clone(),
+        );
+        let summary = sweep_remote_resource_ids(
+            state.db.pool(),
+            state.credential_store.as_ref(),
+            &cleaner,
+            &ids,
+            CancellationToken::new(),
+        )
+        .await?;
+        cleanup_failed = summary.failed > 0;
+    }
+    let unresolved: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM provider_remote_resources WHERE provider_profile_id = ? AND cleanup_status IN ('pending','failed','cleaning')").bind(profile_id.to_string()).fetch_one(state.db.pool()).await.map_err(crate::errors::AppError::database)?;
+    if cleanup_failed || unresolved > 0 {
+        return Err(
+            crate::errors::AppError::new(crate::errors::AppErrorCode::RequestConflict).into(),
+        );
+    }
     providers::delete_provider_profile(state.db.pool(), state.credential_store.clone(), profile_id)
         .await
         .map_err(AppErrorDto::from)

@@ -78,6 +78,82 @@ pub async fn store_remote_handle(
         .map_err(|error| RemoteTrackingFailure { vault_key, error })
 }
 
+/// File-level variant of `store_remote_handle`; the opaque provider id still
+/// lives only in the OS vault while SQLite records ownership and cleanup state.
+pub async fn store_extraction_remote_handle(
+    pool: &SqlitePool,
+    credential_store: &dyn CredentialStore,
+    extraction_id: Uuid,
+    handle: &RemoteCleanupHandle,
+) -> Result<Uuid, RemoteTrackingFailure> {
+    let vault_id = Uuid::new_v4();
+    let vault_key = vault_key(vault_id);
+    let opaque = handle.opaque_id().expose_secret();
+    if opaque.is_empty()
+        || opaque.len() > MAX_OPAQUE_REMOTE_ID_BYTES
+        || opaque.contains(['\0', '\r', '\n'])
+    {
+        return Err(RemoteTrackingFailure {
+            vault_key,
+            error: AppError::new(AppErrorCode::InvalidInput),
+        });
+    }
+    credential_store
+        .set(&vault_key, handle.opaque_id().clone())
+        .await
+        .map_err(|error| RemoteTrackingFailure {
+            vault_key: vault_key.clone(),
+            error,
+        })?;
+    let reference = EncryptedRemoteResourceReference::new(format!("{REFERENCE_PREFIX}{vault_id}"))
+        .map_err(|error| RemoteTrackingFailure {
+            vault_key: vault_key.clone(),
+            error,
+        })?;
+    let owner = sqlx::query(
+        "SELECT book_id, provider_profile_id, provider_kind FROM book_extractions WHERE id = ?",
+    )
+    .bind(extraction_id.to_string())
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| RemoteTrackingFailure {
+        vault_key: vault_key.clone(),
+        error: AppError::database(error),
+    })?
+    .ok_or_else(|| RemoteTrackingFailure {
+        vault_key: vault_key.clone(),
+        error: AppError::new(AppErrorCode::NotFound),
+    })?;
+    let resource_id = Uuid::new_v4();
+    let timestamp = database_timestamp(Utc::now());
+    sqlx::query("INSERT INTO provider_remote_resources (id, book_id, extraction_id, provider_profile_id, provider_kind, encrypted_reference, cleanup_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
+        .bind(resource_id.to_string())
+        .bind(owner.try_get::<String, _>("book_id").map_err(|error| RemoteTrackingFailure { vault_key: vault_key.clone(), error: AppError::database(error) })?)
+        .bind(extraction_id.to_string())
+        .bind(owner.try_get::<Option<String>, _>("provider_profile_id").map_err(|error| RemoteTrackingFailure { vault_key: vault_key.clone(), error: AppError::database(error) })?)
+        .bind(owner.try_get::<String, _>("provider_kind").map_err(|error| RemoteTrackingFailure { vault_key: vault_key.clone(), error: AppError::database(error) })?)
+        .bind(reference.database_value()).bind(&timestamp).bind(&timestamp)
+        .execute(pool).await
+        .map_err(|error| RemoteTrackingFailure { vault_key, error: AppError::database(error) })?;
+    Ok(resource_id)
+}
+
+pub async fn load_extraction_remote_handle(
+    pool: &SqlitePool,
+    credential_store: &dyn CredentialStore,
+    extraction_id: Uuid,
+) -> AppResult<Option<RemoteCleanupHandle>> {
+    let row = sqlx::query("SELECT provider_kind, encrypted_reference FROM provider_remote_resources WHERE extraction_id = ? AND cleanup_status IN ('pending', 'failed', 'cleaning') ORDER BY created_at DESC LIMIT 1")
+        .bind(extraction_id.to_string()).fetch_optional(pool).await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let provider = parse_provider_kind(&row.try_get::<String, _>("provider_kind")?)?;
+    let vault_id = parse_reference(&row.try_get::<String, _>("encrypted_reference")?)?;
+    let opaque = credential_store.get(&vault_key(vault_id)).await?;
+    Ok(Some(RemoteCleanupHandle::new(provider, opaque)))
+}
+
 /// Completes the compensating path after the SQLite insert failed. A failed
 /// provider delete keeps the vault entry and never records a false success.
 pub async fn finish_failed_tracking_compensation(

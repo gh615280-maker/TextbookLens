@@ -1152,6 +1152,23 @@ fn validate_document_locator_metadata(locator: &DocumentLocator) -> AppResult<()
             }
         }
         DocumentLocator::Docx { .. } => {}
+        DocumentLocator::ExtractedText {
+            char_start,
+            char_end,
+            paragraph_start,
+            paragraph_end,
+            text_fingerprint,
+        } => {
+            if char_start >= char_end
+                || paragraph_start > paragraph_end
+                || text_fingerprint.len() != 64
+                || !text_fingerprint
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+            {
+                return Err(invalid_input());
+            }
+        }
     }
     Ok(())
 }

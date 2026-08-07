@@ -54,7 +54,26 @@ struct ProviderRecord {
     kind: ProviderKind,
     display_name: String,
     default_model: String,
+    file_capabilities: RegistryFileCapabilities,
     models: Vec<ModelRecord>,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RegistryFileCapabilities {
+    file_extraction: bool,
+    file_ocr: bool,
+    max_file_bytes: Option<u64>,
+}
+
+impl From<RegistryFileCapabilities> for crate::domain::ProviderFileCapabilities {
+    fn from(value: RegistryFileCapabilities) -> Self {
+        Self {
+            file_extraction: value.file_extraction,
+            file_ocr: value.file_ocr,
+            max_file_bytes: value.max_file_bytes,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -113,6 +132,7 @@ impl ProviderCapabilityRegistry {
                     kind: provider.kind,
                     display_name: provider.display_name,
                     default_model: provider.default_model,
+                    file_capabilities: provider.file_capabilities.into(),
                     models: provider
                         .models
                         .into_iter()
@@ -123,6 +143,7 @@ impl ProviderCapabilityRegistry {
                             default_max_output_tokens: model.default_max_output_tokens,
                             text_chat: model.text_chat,
                             image_input: model.image_input,
+                            native_pdf_input: model.pdf_input,
                             pdf_input: model.pdf_input,
                             strict_structured_output: model.strict_structured_output,
                             image_limits: model.image_limits.map(ImageLimits::from),
@@ -244,6 +265,16 @@ fn validate(document: &RegistryDocument) -> Result<(), RegistryError> {
         if provider.display_name.trim().is_empty() || provider.default_model.trim().is_empty() {
             return Err(RegistryError::Invalid(
                 "provider display names and default model IDs must not be blank".to_owned(),
+            ));
+        }
+        let files = provider.file_capabilities;
+        if files.file_ocr && !files.file_extraction
+            || files.file_extraction != files.max_file_bytes.is_some()
+            || files.max_file_bytes.is_some_and(|bytes| bytes == 0)
+            || (provider.kind == ProviderKind::Kimi) != files.file_extraction
+        {
+            return Err(RegistryError::Invalid(
+                "provider file extraction capabilities are inconsistent".to_owned(),
             ));
         }
         let mut model_ids = BTreeSet::new();

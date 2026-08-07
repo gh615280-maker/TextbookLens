@@ -8,13 +8,15 @@ export type CredentialStatus = "available" | "missing";
 
 export type ImageLimits = { maxImages: number, maxEncodedBytesEach: bigint, maxTotalEncodedBytes: bigint, maxDimensionPx: number, maxDecodedPixelsEach: bigint, };
 
-export type ProviderCapability = { kind: ProviderKind, displayName: string, defaultModel: string, models: Array<ProviderModelCapability>, };
+export type ProviderCapability = { kind: ProviderKind, displayName: string, defaultModel: string, fileCapabilities: ProviderFileCapabilities, models: Array<ProviderModelCapability>, };
 
 export type ProviderCapabilityRegistryDto = { schemaVersion: number, providers: Array<ProviderCapability>, };
 
+export type ProviderFileCapabilities = { fileExtraction: boolean, fileOcr: boolean, maxFileBytes: bigint | null, };
+
 export type ProviderKind = "openai" | "gemini" | "anthropic" | "deepseek" | "kimi";
 
-export type ProviderModelCapability = { id: string, displayName: string, contextWindowTokens: number, defaultMaxOutputTokens: number, textChat: CapabilitySupport, imageInput: CapabilitySupport, pdfInput: CapabilitySupport, strictStructuredOutput: CapabilitySupport, imageLimits: ImageLimits | null, lastVerified: string, };
+export type ProviderModelCapability = { id: string, displayName: string, contextWindowTokens: number, defaultMaxOutputTokens: number, textChat: CapabilitySupport, imageInput: CapabilitySupport, nativePdfInput: CapabilitySupport, pdfInput: CapabilitySupport, strictStructuredOutput: CapabilitySupport, imageLimits: ImageLimits | null, lastVerified: string, };
 
 export type ProviderOperationConsent = { profileId: string, category: ProviderOperationConsentCategory, decision: ProviderOperationConsentDecision, updatedAt: string, };
 

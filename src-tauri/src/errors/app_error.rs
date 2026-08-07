@@ -220,7 +220,7 @@ impl From<AppError> for AppErrorDto {
 }
 
 impl AppErrorCode {
-    const fn stable_code(self) -> &'static str {
+    pub(crate) const fn stable_code(self) -> &'static str {
         match self {
             Self::InvalidApiKey => "INVALID_API_KEY",
             Self::ModelNotFound => "MODEL_NOT_FOUND",

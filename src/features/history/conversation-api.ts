@@ -49,6 +49,21 @@ const locator = z.discriminatedUnion('format', [
       endOffset: z.number().int().nonnegative(),
     })
     .strict(),
+  z
+    .object({
+      format: z.literal('extracted_text'),
+      charStart: z.number().int().nonnegative(),
+      charEnd: z.number().int().positive(),
+      paragraphStart: z.number().int().nonnegative(),
+      paragraphEnd: z.number().int().nonnegative(),
+      textFingerprint: z.string().regex(/^[0-9a-f]{64}$/u),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        value.charStart < value.charEnd &&
+        value.paragraphStart <= value.paragraphEnd,
+    ),
 ]);
 const quote = z
   .object({

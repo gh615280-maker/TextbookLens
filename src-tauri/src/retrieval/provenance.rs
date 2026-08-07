@@ -37,6 +37,19 @@ impl RetrievalProvenance {
         }
     }
 
+    pub fn file_extracted() -> Self {
+        Self {
+            source: ContentSource::LocalText,
+            quoteable: true,
+            review_status: CitationReviewStatus::NotRequired,
+            page_id: None,
+            block_id: None,
+            correction_id: None,
+            original_source: None,
+            original_value_sha256: None,
+        }
+    }
+
     pub fn indexed(
         source: ContentSource,
         page_id: Uuid,

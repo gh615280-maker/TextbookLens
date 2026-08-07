@@ -55,6 +55,15 @@ pub enum DocumentLocator {
         end_block_id: Uuid,
         end_offset: u32,
     },
+    /// Provider extraction has no trustworthy PDF page boundary. These stable
+    /// offsets can later be matched locally to page text by fingerprint.
+    ExtractedText {
+        char_start: u64,
+        char_end: u64,
+        paragraph_start: u32,
+        paragraph_end: u32,
+        text_fingerprint: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -78,6 +87,13 @@ enum SerializedDocumentLocator {
         start_offset: u32,
         end_block_id: Uuid,
         end_offset: u32,
+    },
+    ExtractedText {
+        char_start: u64,
+        char_end: u64,
+        paragraph_start: u32,
+        paragraph_end: u32,
+        text_fingerprint: String,
     },
 }
 
@@ -120,6 +136,19 @@ impl<'de> Deserialize<'de> for DocumentLocator {
                 start_offset,
                 end_block_id,
                 end_offset,
+            }),
+            SerializedDocumentLocator::ExtractedText {
+                char_start,
+                char_end,
+                paragraph_start,
+                paragraph_end,
+                text_fingerprint,
+            } => Ok(Self::ExtractedText {
+                char_start,
+                char_end,
+                paragraph_start,
+                paragraph_end,
+                text_fingerprint,
             }),
         }
     }
