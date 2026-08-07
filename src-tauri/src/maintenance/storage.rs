@@ -8,6 +8,7 @@ use std::{
 
 use uuid::Uuid;
 
+use super::recovery_fs::{ensure_no_reparse_ancestors, require_regular_file};
 use crate::{
     app_state::AppPaths,
     domain::{
@@ -77,6 +78,8 @@ pub type StorageResult<T> = Result<T, StorageError>;
 
 pub fn prepare_app_data_paths(candidate: &Path) -> StorageResult<PreparedAppDataPaths> {
     validate_untrusted_root_syntax(candidate)?;
+    ensure_no_reparse_ancestors(candidate.parent().ok_or_else(root_invalid)?)
+        .map_err(|_| root_invalid())?;
     match fs::symlink_metadata(candidate) {
         Ok(metadata) => {
             if !metadata.is_dir() || metadata_is_reparse(&metadata) {
@@ -111,6 +114,7 @@ pub fn validate_canonical_app_data_root(candidate: &Path) -> StorageResult<Canon
     if !metadata.is_dir() || metadata_is_reparse(&metadata) {
         return Err(root_invalid());
     }
+    ensure_no_reparse_ancestors(candidate).map_err(|_| root_invalid())?;
     let canonical = fs::canonicalize(candidate).map_err(|_| root_invalid())?;
     let canonical_metadata = fs::symlink_metadata(&canonical).map_err(|_| root_invalid())?;
     if !canonical_metadata.is_dir()
@@ -214,6 +218,7 @@ fn validate_database_entry(root: &CanonicalAppDataRoot, database: &Path) -> Stor
     }
     match fs::symlink_metadata(database) {
         Ok(metadata) if metadata.is_file() && !metadata_is_reparse(&metadata) => {
+            require_regular_file(database).map_err(|_| root_invalid())?;
             let canonical = fs::canonicalize(database).map_err(|_| root_invalid())?;
             if canonical.parent() == Some(root.as_path()) {
                 Ok(())
@@ -349,6 +354,7 @@ impl StorageWalker {
         if metadata_is_reparse(initial) || !initial.is_file() {
             return Err(entry_unsafe());
         }
+        require_regular_file(path).map_err(|_| entry_unsafe())?;
         let canonical = fs::canonicalize(path).map_err(|_| scan_failed())?;
         self.require_contained(&canonical)?;
         let relative = canonical

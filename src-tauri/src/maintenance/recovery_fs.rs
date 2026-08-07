@@ -131,11 +131,15 @@ pub(crate) fn require_directory(path: &Path) -> RecoveryFsResult<()> {
 }
 
 pub(crate) fn require_regular_file(path: &Path) -> RecoveryFsResult<()> {
+    require_regular_file_identity(path).map(|_| ())
+}
+
+fn require_regular_file_identity(path: &Path) -> RecoveryFsResult<FileIdentity> {
     let witness = witness(path)?;
     if witness.kind != OwnedEntryKind::File || witness.links != 1 {
         return Err(RecoveryFsError);
     }
-    Ok(())
+    Ok(witness.identity)
 }
 
 pub(crate) fn require_directory_children(
@@ -526,7 +530,7 @@ fn file_information(_path: &Path, _kind: OwnedEntryKind) -> RecoveryFsResult<Fil
     Err(RecoveryFsError)
 }
 
-fn ensure_no_reparse_ancestors(path: &Path) -> RecoveryFsResult<()> {
+pub(crate) fn ensure_no_reparse_ancestors(path: &Path) -> RecoveryFsResult<()> {
     for ancestor in path.ancestors() {
         if ancestor.as_os_str().is_empty() {
             continue;
