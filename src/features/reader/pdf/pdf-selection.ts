@@ -52,7 +52,7 @@ export function denormalizeRects(
 export interface PdfSelection {
   locator: DocumentLocator;
   quote: TextQuote;
-  sectionId: string;
+  sectionId: null;
   text: string;
 }
 
@@ -92,7 +92,9 @@ export function selectionFromRange(
   const start = pageText.indexOf(text);
   return {
     text,
-    sectionId: `page-${startPage.page}`,
+    // PDF pages are not section identifiers. ReaderPage supplies the owning
+    // persisted section UUID before preparing a learning request.
+    sectionId: null,
     locator: {
       format: 'pdf',
       startPage: startPage.page,

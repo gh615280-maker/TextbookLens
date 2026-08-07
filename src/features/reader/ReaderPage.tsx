@@ -18,6 +18,7 @@ import { RegionSelectionOverlay } from '../learning/RegionSelectionOverlay';
 import { SelectionMenu } from '../learning/SelectionMenu';
 import {
   deferredLearningSurfacePort,
+  learningProfileForRegion,
   menuSnapshotFromRegion,
   menuSnapshotFromText,
   releaseSnapshotCapture,
@@ -34,6 +35,10 @@ import type { AnnotationMarker } from './contracts';
 import { PdfReaderAdapter } from './pdf/PdfReaderAdapter';
 import { ReaderController } from './ReaderController';
 import { ReaderLayout } from './ReaderLayout';
+import {
+  sectionIdForRegionSelection,
+  sectionIdForTextSelection,
+} from './section-resolution';
 
 export function ReaderPage() {
   const { bookId } = useParams();
@@ -52,6 +57,8 @@ export function ReaderPage() {
   );
   const [firstHintVisible, setFirstHintVisible] = useState(false);
   const [learningProfile, setLearningProfile] =
+    useState<LearningProfile | null>(null);
+  const [visionLearningProfile, setVisionLearningProfile] =
     useState<LearningProfile | null>(null);
   const [learningSelection, setLearningSelection] =
     useState<Readonly<LearningSelectionSnapshot> | null>(null);
@@ -158,19 +165,29 @@ export function ReaderPage() {
     void invoke<AppSettingsDto>('get_app_settings')
       .then(async (value) => {
         setFirstHintVisible(!value.firstReaderHintCompleted);
-        const profiles = await invoke<ProviderProfileSummary[]>(
-          'list_provider_profiles',
-          {
+        const [learningProfiles, visionProfiles] = await Promise.all([
+          invoke<ProviderProfileSummary[]>('list_provider_profiles', {
             operation: 'text_learning',
-          },
-        );
-        const selected = profiles.find(
+          }),
+          invoke<ProviderProfileSummary[]>('list_provider_profiles', {
+            operation: 'vision_learning',
+          }),
+        ]);
+        const selected = learningProfiles.find(
           (profile) =>
             profile.id ===
             (value.defaultLearningProfileId ?? value.activeProviderProfileId),
         );
+        const selectedVision = visionProfiles.find(
+          (profile) => profile.id === value.defaultVisionProfileId,
+        );
         setLearningProfile(
           selected ? { id: selected.id, modelId: selected.modelId } : null,
+        );
+        setVisionLearningProfile(
+          selectedVision
+            ? { id: selectedVision.id, modelId: selectedVision.modelId }
+            : null,
         );
       })
       .catch(() => {});
@@ -218,8 +235,10 @@ export function ReaderPage() {
           if (!selection) return;
           completeFirstHint();
           const profile = learningProfileRef.current;
-          const sectionId =
-            selection.anchor.sectionId ?? sectionsRef.current[0]?.id;
+          const sectionId = sectionIdForTextSelection(
+            selection,
+            sectionsRef.current,
+          );
           if (!profile || !sectionId) return;
           setLearningSelection(
             menuSnapshotFromText(selection, {
@@ -270,9 +289,12 @@ export function ReaderPage() {
       .catch(() => {});
   };
   const beginRegionSelection = useCallback(() => {
-    const profile = learningProfile;
-    const sectionId = sections[0]?.id;
-    if (!bookId || !profile || !sectionId || regionSelecting) {
+    if (
+      !bookId ||
+      (!learningProfile && !visionLearningProfile) ||
+      !sections.length ||
+      regionSelecting
+    ) {
       setPanelContent(message('learning.unavailable'));
       return;
     }
@@ -281,6 +303,17 @@ export function ReaderPage() {
       ?.beginRegionSelection()
       .then((region) => {
         if (!region) return;
+        const sectionId = sectionIdForRegionSelection(region, sections);
+        const profile = learningProfileForRegion(
+          region,
+          learningProfile,
+          visionLearningProfile,
+        );
+        if (!profile || !sectionId) {
+          region.capture?.release();
+          setPanelContent(message('learning.unavailable'));
+          return;
+        }
         setLearningSelection(
           menuSnapshotFromRegion(region, {
             bookId,
@@ -291,7 +324,14 @@ export function ReaderPage() {
         );
       })
       .finally(() => setRegionSelecting(false));
-  }, [bookId, learningProfile, message, regionSelecting, sections]);
+  }, [
+    bookId,
+    learningProfile,
+    message,
+    regionSelecting,
+    sections,
+    visionLearningProfile,
+  ]);
   return (
     <>
       {searchParams.get('index') === 'local-only' ? (
@@ -318,7 +358,9 @@ export function ReaderPage() {
         readerContainerRef={readerContainerRef}
         markerHistoryRef={markerHistoryRef}
         onStartRegionSelection={
-          learningProfile && sections[0] ? beginRegionSelection : undefined
+          (learningProfile || visionLearningProfile) && sections[0]
+            ? beginRegionSelection
+            : undefined
         }
         regionSelecting={regionSelecting}
       />

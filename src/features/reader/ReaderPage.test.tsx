@@ -16,10 +16,13 @@ const state = vi.hoisted(() => ({
   pdfShowAnnotations: vi.fn(async () => []),
   annotationMarkers: [] as unknown[],
   commands: [] as string[],
+  providerOperations: [] as string[],
+  textProfileId: '33333333-3333-4333-8333-333333333333',
+  visionProfileId: '44444444-4444-4444-8444-444444444444',
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(async (command: string) => {
+  invoke: vi.fn(async (command: string, args?: { operation?: string }) => {
     state.commands.push(command);
     if (
       command === 'get_app_settings' ||
@@ -27,13 +30,32 @@ vi.mock('@tauri-apps/api/core', () => ({
     )
       return {
         onboardingCompleted: false,
-        activeProviderProfileId: null,
+        activeProviderProfileId: state.textProfileId,
+        defaultLearningProfileId: state.textProfileId,
+        defaultVisionProfileId: state.visionProfileId,
         theme: 'system',
         contextMode: 'standard',
         uiLanguage: 'zh-CN',
         uiLanguageInitialized: true,
         firstReaderHintCompleted: command === 'complete_first_reader_hint',
       };
+    if (command === 'list_provider_profiles') {
+      const operation = args?.operation ?? '';
+      state.providerOperations.push(operation);
+      const vision = operation === 'vision_learning';
+      return [
+        {
+          id: vision ? state.visionProfileId : state.textProfileId,
+          kind: vision ? 'kimi' : 'deepseek',
+          displayName: vision ? 'Kimi Vision' : 'DeepSeek Text',
+          modelId: vision ? 'kimi-k3' : 'deepseek-v4-flash',
+          contextWindowTokens: 131072,
+          isActive: !vision,
+          credentialStatus: 'available',
+          validatedAt: '2026-08-07T00:00:00Z',
+        },
+      ];
+    }
     if (command === 'get_reader_settings')
       return {
         fontScale: 1,
@@ -110,9 +132,29 @@ afterEach(() => {
   vi.clearAllMocks();
   state.annotationMarkers.length = 0;
   state.commands.length = 0;
+  state.providerOperations.length = 0;
 });
 
 describe('ReaderPage', () => {
+  it('loads separate defaults for text and visual learning', async () => {
+    render(
+      <LanguageHarness>
+        <MemoryRouter initialEntries={['/reader/book-1']}>
+          <Routes>
+            <Route path="/reader/:bookId" element={<ReaderPage />} />
+          </Routes>
+        </MemoryRouter>
+      </LanguageHarness>,
+    );
+
+    await waitFor(() =>
+      expect(state.providerOperations).toEqual([
+        'text_learning',
+        'vision_learning',
+      ]),
+    );
+  });
+
   it('shows the stable local-reading limitation after rejecting AI indexing', () => {
     render(
       <LanguageHarness>

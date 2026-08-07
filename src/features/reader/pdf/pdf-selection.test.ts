@@ -53,5 +53,6 @@ describe('PDF selection geometry', () => {
       endPage: 2,
     });
     expect(selected?.quote.exact).toBe('first pagesecond');
+    expect(selected?.sectionId).toBeNull();
   });
 });

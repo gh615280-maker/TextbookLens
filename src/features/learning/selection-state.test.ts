@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   clampMenuPosition,
+  learningProfileForRegion,
   menuSnapshotFromRegion,
   menuSnapshotFromText,
   preparationMetadata,
@@ -69,5 +70,31 @@ describe('learning selection state', () => {
         },
       ),
     ).toEqual({ x: 70, y: 60 });
+  });
+
+  it('uses the vision default only when a region contains captured pixels', () => {
+    const textProfile = ids.profile;
+    const visionProfile = {
+      id: '44444444-4444-4444-8444-444444444444',
+      modelId: 'vision-model',
+    };
+    expect(
+      learningProfileForRegion({ capture: null }, textProfile, visionProfile),
+    ).toBe(textProfile);
+    expect(
+      learningProfileForRegion(
+        {
+          capture: {
+            mimeType: 'image/png',
+            width: 1,
+            height: 1,
+            bytes: new Uint8Array([1]),
+            release() {},
+          },
+        },
+        textProfile,
+        visionProfile,
+      ),
+    ).toBe(visionProfile);
   });
 });

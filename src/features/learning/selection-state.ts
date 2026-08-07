@@ -128,6 +128,14 @@ export function menuSnapshotFromRegion(
   });
 }
 
+export function learningProfileForRegion(
+  region: Pick<RegionSelectionResult, 'capture'>,
+  textProfile: LearningProfile | null,
+  visionProfile: LearningProfile | null,
+): LearningProfile | null {
+  return region.capture ? visionProfile : textProfile;
+}
+
 export function preparationMetadata(
   snapshot: LearningSelectionSnapshot,
   action: Exclude<LearningMenuAction, 'note'>,
