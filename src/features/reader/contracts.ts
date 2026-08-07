@@ -106,6 +106,7 @@ export interface ReaderAdapterEvents {
   onSelection(snapshot: SelectionSnapshot | null): void;
   onProgress(progress: ReadingProgress): void;
   onMarkerActivate(markers: readonly AnnotationMarker[]): void;
+  onMarkersResolved?(): void;
   onFailure(error: UserFacingError): void;
 }
 

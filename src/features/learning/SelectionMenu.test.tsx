@@ -1,9 +1,13 @@
+import { StrictMode } from 'react';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SelectionMenu } from './SelectionMenu';
-import { menuSnapshotFromText } from './selection-state';
+import {
+  menuSnapshotFromRegion,
+  menuSnapshotFromText,
+} from './selection-state';
 
 const snapshot = menuSnapshotFromText(
   {
@@ -67,6 +71,77 @@ const labels = {
 afterEach(cleanup);
 
 describe('SelectionMenu', () => {
+  it('keeps visual capture bytes alive through the StrictMode effect replay', async () => {
+    const bytes = new Uint8Array([137, 80, 78, 71]);
+    const release = vi.fn(() => bytes.fill(0));
+    const visualSnapshot = menuSnapshotFromRegion(
+      {
+        page: 2,
+        rect: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+        sectionId: undefined,
+        text: null,
+        anchor: {
+          kind: 'region',
+          region: {
+            locator: { format: 'pdf', page: 2 },
+            rect: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+            contentSha256: 'a'.repeat(64),
+            textFallback: null,
+          },
+        },
+        capture: {
+          mimeType: 'image/png',
+          width: 1,
+          height: 1,
+          bytes,
+          release,
+        },
+      },
+      {
+        bookId: '11111111-1111-4111-8111-111111111111',
+        sectionId: '22222222-2222-4222-8222-222222222222',
+        profile: {
+          id: '33333333-3333-4333-8333-333333333333',
+          modelId: 'vision-model',
+        },
+        position: { x: 0, y: 0 },
+      },
+    );
+    const view = render(
+      <StrictMode>
+        <SelectionMenu
+          api={{
+            prepare: vi.fn(),
+            authorize: vi.fn(),
+            stageRegionCapture: vi.fn(),
+            discard: vi.fn(),
+            invalidate: vi.fn(),
+          }}
+          noteApi={{
+            create: vi.fn(),
+            update: vi.fn(),
+            delete: vi.fn(),
+            get: vi.fn(),
+            list: vi.fn(),
+          }}
+          labels={labels}
+          snapshot={visualSnapshot}
+          surface={{ handoff: vi.fn() }}
+          onClose={vi.fn()}
+          onError={vi.fn()}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(screen.getByRole('menu')).toBeVisible());
+    expect([...bytes]).toEqual([137, 80, 78, 71]);
+    expect(release).not.toHaveBeenCalled();
+
+    view.unmount();
+    await waitFor(() => expect(release).toHaveBeenCalledOnce());
+    expect([...bytes]).toEqual([0, 0, 0, 0]);
+  });
+
   it('hands an opaque safe preparation to the injected surface exactly once', async () => {
     const api = {
       prepare: vi.fn(async () => ({

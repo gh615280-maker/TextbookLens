@@ -77,7 +77,13 @@ export function selectionFromRange(
     if (pageNumber < startPage.page || pageNumber > endPage.page) continue;
     const pageRect = page.getBoundingClientRect();
     const normalized = normalizeRects(
-      { page: pageNumber, ...pageRect },
+      {
+        page: pageNumber,
+        left: pageRect.left,
+        top: pageRect.top,
+        width: pageRect.width,
+        height: pageRect.height,
+      },
       range.getClientRects(),
     );
     if (normalized.length) rectsByPage[pageNumber] = normalized;

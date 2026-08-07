@@ -19,7 +19,11 @@ import type {
   AnnotationMarker,
 } from '../contracts';
 import { groupOverlappingMarkers } from '../markers/MarkerLayer';
-import { recoverPdfSelection, selectionFromRange } from './pdf-selection';
+import {
+  recoverPdfSelection,
+  selectionFromRange,
+  type PageBounds,
+} from './pdf-selection';
 import { addPdfRectOverlay } from './pdf-markers';
 import {
   capturePdfRegion,
@@ -98,6 +102,24 @@ export class PdfReaderAdapter implements ReaderAdapter {
   #regionReject: ((reason: unknown) => void) | null = null;
   #regionCleanup: (() => void) | null = null;
   #regionCapture: RegionSelectionResult['capture'] = null;
+  #annotationItems: AnnotationMarker[] = [];
+  #annotationsNeedRefresh = false;
+  #annotationRefreshFrame: number | null = null;
+  #eventBus: EventBus | null = null;
+  #onPageRendered = () => {
+    if (this.#annotationItems.length) this.#annotationsNeedRefresh = true;
+    if (
+      !this.#annotationsNeedRefresh ||
+      !this.#annotationItems.length ||
+      this.#annotationRefreshFrame !== null
+    )
+      return;
+    this.#annotationRefreshFrame = requestAnimationFrame(() => {
+      this.#annotationRefreshFrame = null;
+      if (this.#annotationsNeedRefresh && this.#annotationItems.length)
+        void this.showAnnotations(this.#annotationItems);
+    });
+  };
 
   constructor(
     private readonly container: HTMLElement,
@@ -124,6 +146,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     viewport.append(pages);
     this.container.replaceChildren(viewport);
     const eventBus = new EventBus();
+    this.#eventBus = eventBus;
+    eventBus.on('pagerendered', this.#onPageRendered);
     const links = new PDFLinkService({ eventBus, externalLinkTarget: 0 });
     links.externalLinkEnabled = false;
     const viewer = this.createViewer(viewport, pages, eventBus, links);
@@ -176,6 +200,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   async showAnnotations(
     items: Parameters<ReaderAdapter['showAnnotations']>[0],
   ): Promise<MarkerRelocation[]> {
+    this.#annotationItems = [...items];
     this.container
       .querySelectorAll('.pdf-reader-markers,.pdf-marker-overlay')
       .forEach((node) => node.remove());
@@ -184,6 +209,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
     });
     const statuses: MarkerRelocation[] = [];
     const attached: AnnotationMarker[] = [];
+    let needsRefresh = false;
     for (const item of items) {
       const anchor = item.anchor;
       let status: MarkerRelocation['relocationStatus'] = 'unresolved';
@@ -218,7 +244,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
             )!;
             addPdfRectOverlay(
               element,
-              { page: Number(page), ...element.getBoundingClientRect() },
+              pageBounds(Number(page), element),
               rects,
             );
           }
@@ -243,7 +269,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
               )!;
               addPdfRectOverlay(
                 element,
-                { page: Number(page), ...element.getBoundingClientRect() },
+                pageBounds(Number(page), element),
                 rects,
               );
             }
@@ -262,15 +288,16 @@ export class PdfReaderAdapter implements ReaderAdapter {
         const page = this.container.querySelector<HTMLElement>(
           `[data-page-number="${regionLocator.page}"]`,
         );
-        if (page && (await verifyPdfRegionAnchor(page, region))) {
-          addPdfRectOverlay(
-            page,
-            {
-              page: regionLocator.page,
-              ...page.getBoundingClientRect(),
-            },
-            [region.rect],
-          );
+        const verified = page && (await verifyPdfRegionAnchor(page, region));
+        const persistedVisualLocation =
+          page &&
+          item.relocationStatus === 'primary' &&
+          region.textFallback === null &&
+          validPersistedPdfRegion(page, region);
+        if (page && (verified || persistedVisualLocation)) {
+          addPdfRectOverlay(page, pageBounds(regionLocator.page, page), [
+            region.rect,
+          ]);
           status = 'primary';
         } else if (
           page &&
@@ -301,8 +328,11 @@ export class PdfReaderAdapter implements ReaderAdapter {
           }
         }
       }
-      if (status === 'unresolved') this.events.onFailure(anchorNotFound());
-      else attached.push(item);
+      if (status === 'unresolved') {
+        if (pdfAnnotationRenderReady(this.container, anchor))
+          this.events.onFailure(anchorNotFound());
+        else needsRefresh = true;
+      } else attached.push(item);
       statuses.push({ annotationId: item.id, relocationStatus: status });
     }
     for (const group of groupOverlappingMarkers(attached)) {
@@ -310,6 +340,12 @@ export class PdfReaderAdapter implements ReaderAdapter {
         markerButton(group, () => this.events.onMarkerActivate(group)),
       );
     }
+    this.#annotationsNeedRefresh = needsRefresh;
+    if (
+      items.length > 0 &&
+      statuses.every((status) => status.relocationStatus !== 'unresolved')
+    )
+      this.events.onMarkersResolved?.();
     if (markers.childElementCount > 0) this.container.append(markers);
     return statuses;
   }
@@ -527,6 +563,13 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.#regionCapture?.release();
     this.#regionCapture = null;
     this.#generation += 1;
+    if (this.#annotationRefreshFrame !== null)
+      cancelAnimationFrame(this.#annotationRefreshFrame);
+    this.#annotationRefreshFrame = null;
+    this.#annotationItems = [];
+    this.#annotationsNeedRefresh = false;
+    this.#eventBus?.off('pagerendered', this.#onPageRendered);
+    this.#eventBus = null;
     this.container.removeEventListener('mouseup', this.#onMouseUp);
     this.#selection = null;
     const documentHandle = this.#document;
@@ -559,6 +602,67 @@ export class PdfReaderAdapter implements ReaderAdapter {
     };
     this.events.onSelection(this.#selection);
   }
+}
+
+function pageBounds(page: number, element: HTMLElement): PageBounds {
+  const bounds = element.getBoundingClientRect();
+  return {
+    page,
+    left: bounds.left,
+    top: bounds.top,
+    width: bounds.width,
+    height: bounds.height,
+  };
+}
+
+function pdfAnnotationRenderReady(
+  container: HTMLElement,
+  anchor: AnnotationMarker['anchor'],
+): boolean {
+  if (!anchor) return true;
+  let pages: number[] = [];
+  if (anchor.kind === 'text' && anchor.selection.locator.format === 'pdf') {
+    const locator = anchor.selection.locator;
+    pages = Array.from(
+      { length: locator.endPage - locator.startPage + 1 },
+      (_, index) => locator.startPage + index,
+    );
+  } else if (
+    anchor.kind === 'region' &&
+    anchor.region.locator.format === 'pdf'
+  ) {
+    pages = [anchor.region.locator.page];
+  }
+  return (
+    pages.length > 0 &&
+    pages.every(
+      (page) =>
+        container.querySelector<HTMLElement>(
+          `[data-page-number="${page}"][data-loaded="true"]`,
+        ) !== null,
+    )
+  );
+}
+
+function validPersistedPdfRegion(
+  page: HTMLElement,
+  region: Extract<
+    NonNullable<AnnotationMarker['anchor']>,
+    { kind: 'region' }
+  >['region'],
+): boolean {
+  const rect = region.rect;
+  return (
+    region.locator.format === 'pdf' &&
+    page.dataset.pageNumber === String(region.locator.page) &&
+    [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) &&
+    rect.x >= 0 &&
+    rect.y >= 0 &&
+    rect.width > 0 &&
+    rect.height > 0 &&
+    rect.x + rect.width <= 1 &&
+    rect.y + rect.height <= 1
+  );
 }
 
 function loadPdf(bytes: ArrayBuffer): PdfLoadingTask {

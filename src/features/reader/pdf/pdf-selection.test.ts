@@ -33,7 +33,7 @@ describe('PDF selection geometry', () => {
     ];
     pages.forEach((page, index) =>
       Object.defineProperty(page, 'getBoundingClientRect', {
-        value: () => ({ left: 0, top: index * 100, width: 100, height: 100 }),
+        value: () => new DOMRect(0, index * 100, 100, 100),
       }),
     );
     const range = document.createRange();
@@ -54,5 +54,11 @@ describe('PDF selection geometry', () => {
     });
     expect(selected?.quote.exact).toBe('first pagesecond');
     expect(selected?.sectionId).toBeNull();
+    expect(selected?.locator).toMatchObject({
+      rectsByPage: {
+        1: [{ x: 0.02, y: 0.03, width: 0.1, height: 0.1 }],
+        2: [{ x: 0.02, y: 0.03, width: 0.12, height: 0.1 }],
+      },
+    });
   });
 });

@@ -6,6 +6,7 @@ const events: ReaderAdapterEvents = {
   onSelection: vi.fn(),
   onProgress: vi.fn(),
   onMarkerActivate: vi.fn(),
+  onMarkersResolved: vi.fn(),
   onFailure: vi.fn(),
 };
 
@@ -170,12 +171,12 @@ describe('PdfReaderAdapter', () => {
     page.dataset.pageNumber = '1';
     page.textContent = 'prefix target suffix';
     Object.defineProperty(page, 'getBoundingClientRect', {
-      value: () => ({ left: 0, top: 0, width: 100, height: 100 }),
+      value: () => new DOMRect(10, 20, 100, 100),
     });
     document.querySelector('.pdf-viewer')!.append(page);
     const getClientRects = Range.prototype.getClientRects;
     Range.prototype.getClientRects = () =>
-      [{ left: 1, top: 1, width: 10, height: 10 }] as unknown as DOMRectList;
+      [{ left: 11, top: 21, width: 10, height: 10 }] as unknown as DOMRectList;
     const base = {
       id: 'marker',
       kind: 'note' as const,
@@ -238,8 +239,14 @@ describe('PdfReaderAdapter', () => {
         },
       ]),
     ).toEqual([{ annotationId: 'region-marker', relocationStatus: 'primary' }]);
-    expect(document.body.querySelector('.pdf-marker-rect')).not.toBeNull();
+    expect(document.body.querySelector('.pdf-marker-rect')).toHaveStyle({
+      left: '10px',
+      top: '10px',
+      width: '20px',
+      height: '10px',
+    });
     expect(document.body.querySelector('.reader-marker-button')).not.toBeNull();
+    expect(events.onMarkersResolved).toHaveBeenCalled();
     const movedRegion = {
       id: 'moved-region-marker',
       kind: 'ai_conversation' as const,

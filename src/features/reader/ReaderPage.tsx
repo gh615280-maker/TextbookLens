@@ -115,7 +115,21 @@ export function ReaderPage() {
       refreshedMarkerRequestsRef.current.add(request.requestId);
       shouldRefresh = true;
     }
-    if (shouldRefresh) void controllerRef.current?.refreshAnnotations();
+    if (shouldRefresh) {
+      const controller = controllerRef.current;
+      void controller?.refreshAnnotations().then(() => {
+        if (controllerRef.current !== controller) return;
+        const relocations = controller.getMarkerRelocations();
+        if (
+          relocations.length > 0 &&
+          relocations.every(
+            (relocation) => relocation.relocationStatus !== 'unresolved',
+          )
+        ) {
+          setPanelContent(undefined);
+        }
+      });
+    }
   }, [learningRequests]);
   const activateMarker = useCallback(
     (marker: AnnotationMarker) => {
@@ -233,6 +247,7 @@ export function ReaderPage() {
       {
         onSelection: (selection) => {
           if (!selection) return;
+          setPanelContent(undefined);
           completeFirstHint();
           const profile = learningProfileRef.current;
           const sectionId = sectionIdForTextSelection(
@@ -263,6 +278,7 @@ export function ReaderPage() {
                 : null,
           });
         },
+        onMarkersResolved: () => setPanelContent(undefined),
         onFailure: (error) => setPanelContent(error.message),
       },
       markerLayer,
@@ -298,6 +314,7 @@ export function ReaderPage() {
       setPanelContent(message('learning.unavailable'));
       return;
     }
+    setPanelContent(undefined);
     setRegionSelecting(true);
     void controllerRef.current
       ?.beginRegionSelection()

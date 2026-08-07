@@ -95,9 +95,11 @@ export function menuSnapshotFromText(
     position: MenuPosition;
   },
 ): Readonly<LearningSelectionSnapshot> {
+  const anchor = clone(selection.anchor);
+  anchor.sectionId = input.sectionId;
   return freezeSnapshot({
     ...input,
-    anchor: { kind: 'text', selection: clone(selection.anchor) },
+    anchor: { kind: 'text', selection: anchor },
     selectedText: selection.text,
     contentKind: 'text_selection',
     origin: 'text',

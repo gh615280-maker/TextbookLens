@@ -27,7 +27,7 @@ describe('learning selection state', () => {
             rectsByPage: null,
           },
           quote: { exact: 'frozen selection', prefix: '', suffix: '' },
-          sectionId: ids.sectionId,
+          sectionId: null,
         },
       },
       { ...ids, position: { x: 10, y: 20 } },
@@ -50,6 +50,10 @@ describe('learning selection state', () => {
       { ...ids, position: { x: 10, y: 20 } },
     );
     expect(Object.isFrozen(text)).toBe(true);
+    expect(text.anchor).toMatchObject({
+      kind: 'text',
+      selection: { sectionId: ids.sectionId },
+    });
     expect(text.selectedText).toBe(region.selectedText);
     expect(region.contentKind).toBe('reliable_text_region');
     expect(preparationMetadata(text, 'explain', null).selectedText).toBe(

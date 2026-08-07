@@ -66,6 +66,9 @@ export function SelectionMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonsRef = useRef<Array<HTMLButtonElement | null>>([]);
   const live = useRef(true);
+  const activeSnapshot = useRef<Readonly<LearningSelectionSnapshot> | null>(
+    null,
+  );
   const inFlight = useRef(false);
   const [position, setPosition] = useState(snapshot.position);
   const [activeAction, setActiveAction] = useState<LearningMenuAction | null>(
@@ -80,6 +83,7 @@ export function SelectionMenu({
   } | null>(null);
 
   useEffect(() => {
+    activeSnapshot.current = snapshot;
     live.current = true;
     const reposition = () => {
       const element = menuRef.current;
@@ -94,9 +98,18 @@ export function SelectionMenu({
     window.addEventListener('resize', reposition);
     return () => {
       live.current = false;
-      releaseSnapshotCapture(snapshot);
       window.visualViewport?.removeEventListener('resize', reposition);
       window.removeEventListener('resize', reposition);
+      // React StrictMode immediately replays passive effects in development.
+      // Defer cleanup so that the replay can reclaim the same snapshot without
+      // destroying capture bytes before the user authorizes their staging.
+      queueMicrotask(() => {
+        if (activeSnapshot.current !== snapshot || !live.current) {
+          releaseSnapshotCapture(snapshot);
+          if (activeSnapshot.current === snapshot)
+            activeSnapshot.current = null;
+        }
+      });
     };
   }, [snapshot]);
 
