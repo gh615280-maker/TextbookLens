@@ -1,4 +1,7 @@
-import type { DocumentLocator } from '../../../lib/generated/document';
+import type {
+  DocumentLocator,
+  NormalizedRect,
+} from '../../../lib/generated/document';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   EventBus,
@@ -204,11 +207,9 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.container
       .querySelectorAll('.pdf-reader-markers,.pdf-marker-overlay')
       .forEach((node) => node.remove());
-    const markers = Object.assign(document.createElement('div'), {
-      className: 'pdf-reader-markers',
-    });
     const statuses: MarkerRelocation[] = [];
     const attached: AnnotationMarker[] = [];
+    const placements = new Map<string, PdfMarkerPlacement>();
     let needsRefresh = false;
     for (const item of items) {
       const anchor = item.anchor;
@@ -247,6 +248,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
               pageBounds(Number(page), element),
               rects,
             );
+            rememberPdfMarkerPlacement(placements, item, element, rects[0]);
           }
           status = 'primary';
         } else {
@@ -272,6 +274,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
                 pageBounds(Number(page), element),
                 rects,
               );
+              rememberPdfMarkerPlacement(placements, item, element, rects[0]);
             }
             status = 'fallback';
           }
@@ -298,6 +301,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
           addPdfRectOverlay(page, pageBounds(regionLocator.page, page), [
             region.rect,
           ]);
+          rememberPdfMarkerPlacement(placements, item, page, region.rect);
           status = 'primary';
         } else if (
           page &&
@@ -318,12 +322,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
           if (rects?.length) {
             addPdfRectOverlay(
               page,
-              {
-                page: regionLocator.page,
-                ...page.getBoundingClientRect(),
-              },
+              pageBounds(regionLocator.page, page),
               rects,
             );
+            rememberPdfMarkerPlacement(placements, item, page, rects[0]);
             status = 'fallback';
           }
         }
@@ -335,10 +337,25 @@ export class PdfReaderAdapter implements ReaderAdapter {
       } else attached.push(item);
       statuses.push({ annotationId: item.id, relocationStatus: status });
     }
+    const markerLayers = new Map<HTMLElement, HTMLElement>();
     for (const group of groupOverlappingMarkers(attached)) {
-      markers.append(
-        markerButton(group, () => this.events.onMarkerActivate(group)),
+      const placement = group
+        .map((marker) => placements.get(marker.id))
+        .find((candidate) => candidate !== undefined);
+      if (!placement) continue;
+      let layer = markerLayers.get(placement.page);
+      if (!layer) {
+        layer = Object.assign(document.createElement('div'), {
+          className: 'pdf-reader-markers',
+        });
+        placement.page.append(layer);
+        markerLayers.set(placement.page, layer);
+      }
+      const button = markerButton(group, () =>
+        this.events.onMarkerActivate(group),
       );
+      positionPdfMarkerButton(button, placement.page, placement.rect);
+      layer.append(button);
     }
     this.#annotationsNeedRefresh = needsRefresh;
     if (
@@ -346,7 +363,6 @@ export class PdfReaderAdapter implements ReaderAdapter {
       statuses.every((status) => status.relocationStatus !== 'unresolved')
     )
       this.events.onMarkersResolved?.();
-    if (markers.childElementCount > 0) this.container.append(markers);
     return statuses;
   }
 
@@ -613,6 +629,36 @@ function pageBounds(page: number, element: HTMLElement): PageBounds {
     width: bounds.width,
     height: bounds.height,
   };
+}
+
+interface PdfMarkerPlacement {
+  readonly page: HTMLElement;
+  readonly rect: NormalizedRect;
+}
+
+function rememberPdfMarkerPlacement(
+  placements: Map<string, PdfMarkerPlacement>,
+  marker: AnnotationMarker,
+  page: HTMLElement,
+  rect: NormalizedRect | undefined,
+) {
+  if (!rect || placements.has(marker.id)) return;
+  placements.set(marker.id, { page, rect });
+}
+
+function positionPdfMarkerButton(
+  button: HTMLButtonElement,
+  page: HTMLElement,
+  rect: NormalizedRect,
+) {
+  const bounds = page.getBoundingClientRect();
+  const right = rect.x + rect.width;
+  const placeAfter = right <= 0.9;
+  button.style.left = `${(placeAfter ? right : rect.x) * bounds.width}px`;
+  button.style.top = `${Math.min(0.95, Math.max(0, rect.y)) * bounds.height}px`;
+  button.style.transform = placeAfter
+    ? 'translate(0.4rem, -0.2rem)'
+    : 'translate(calc(-100% - 0.4rem), -0.2rem)';
 }
 
 function pdfAnnotationRenderReady(

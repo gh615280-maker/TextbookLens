@@ -246,6 +246,15 @@ describe('PdfReaderAdapter', () => {
       height: '10px',
     });
     expect(document.body.querySelector('.reader-marker-button')).not.toBeNull();
+    expect(
+      document.body
+        .querySelector('.reader-marker-button')
+        ?.closest('[data-page-number]'),
+    ).toBe(page);
+    expect(document.body.querySelector('.reader-marker-button')).toHaveStyle({
+      left: '30px',
+      top: '10px',
+    });
     expect(events.onMarkersResolved).toHaveBeenCalled();
     const movedRegion = {
       id: 'moved-region-marker',
