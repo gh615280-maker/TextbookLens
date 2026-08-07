@@ -19,6 +19,7 @@ const book: BookSummary = {
   importErrorMessage: null,
   importErrorStage: null,
   readingProgress: 0,
+  fullTextQaReady: true,
   indexAggregate: {
     status: 'ready',
     totalPages: 3,
@@ -57,6 +58,7 @@ describe('BookIndexStatus', () => {
     );
 
     const start = screen.getByRole('button', { name: '准备全文问答' });
+    expect(screen.getByRole('status')).toHaveTextContent('全文问答已就绪');
     expect(start.parentElement).toHaveTextContent('准备全文问答已完成');
     await user.click(start);
     expect(onStartIndex).toHaveBeenCalledWith(book);

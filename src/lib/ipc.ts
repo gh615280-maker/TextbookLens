@@ -119,6 +119,7 @@ const bookSummarySchema = z
     importErrorMessage: z.string().nullable(),
     importErrorStage: importStageSchema.nullable(),
     readingProgress: z.number().min(0).max(1),
+    fullTextQaReady: z.boolean(),
     indexAggregate: indexAggregateSchema,
     createdAt: z.string(),
     updatedAt: z.string(),

@@ -24,6 +24,9 @@ export function BookIndexStatus({
   if (canStart) {
     return (
       <span className="library-index-actions">
+        {book.fullTextQaReady ? (
+          <span role="status">{message('library.fullTextQaReady')}</span>
+        ) : null}
         <button type="button" onClick={() => onStartIndex(book)}>
           {message('library.indexStart')}
         </button>

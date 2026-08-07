@@ -16,6 +16,7 @@ function summary(overrides: Record<string, unknown> = {}) {
     importErrorMessage: null,
     importErrorStage: null,
     readingProgress: 0,
+    fullTextQaReady: false,
     indexAggregate: {
       status: 'not_required',
       totalPages: 0,
@@ -59,6 +60,14 @@ describe('BookSummary IPC validation', () => {
   });
 
   it.each([
+    [
+      'missing full-text Q&A status',
+      (() => {
+        const value = { ...summary() };
+        delete (value as { fullTextQaReady?: boolean }).fullTextQaReady;
+        return value;
+      })(),
+    ],
     [
       'missing aggregate',
       (() => {

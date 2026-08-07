@@ -42,6 +42,7 @@ const parsingBook: BookSummary = {
   importErrorMessage: null,
   importErrorStage: null,
   readingProgress: 0,
+  fullTextQaReady: false,
   indexAggregate: {
     status: 'not_required',
     totalPages: 0,

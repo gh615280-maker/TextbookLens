@@ -750,6 +750,7 @@ fn row_to_record(row: &SqliteRow) -> AppResult<BookRecord> {
                 .map(|stage| parse_error_stage(&stage))
                 .transpose()?,
             reading_progress: row.try_get("reading_progress")?,
+            full_text_qa_ready: row.try_get("full_text_qa_ready")?,
             index_aggregate,
             created_at,
             updated_at,
@@ -780,7 +781,15 @@ WITH ranked_runs AS (
     WHERE run.row_number = 1
     GROUP BY run.book_id
 )
-SELECT b.*, index_aggregates.index_total_pages, index_aggregates.index_indexed_pages,
+SELECT b.*,
+    EXISTS(
+        SELECT 1
+        FROM book_extractions extraction
+        WHERE extraction.book_id = b.id
+          AND extraction.source_sha256 = b.sha256
+          AND extraction.status = 'ready'
+    ) AS full_text_qa_ready,
+    index_aggregates.index_total_pages, index_aggregates.index_indexed_pages,
     index_aggregates.index_review_pages, index_aggregates.index_failed_pages,
     index_aggregates.index_not_required_pages, index_aggregates.index_unresolved_pages,
     index_aggregates.index_invalid_statuses
@@ -927,6 +936,55 @@ fn ensure_changed(rows_affected: u64) -> AppResult<()> {
 mod tests {
     use super::*;
     use crate::db::Database;
+
+    #[tokio::test]
+    async fn library_summary_reports_ready_full_text_qa_for_the_current_source() {
+        let (_temporary, database) = tokio::task::spawn_blocking(|| {
+            let temporary = tempfile::tempdir().unwrap();
+            let database = Database::open(temporary.path().join("library.sqlite3")).unwrap();
+            (temporary, database)
+        })
+        .await
+        .unwrap();
+        let book_id = Uuid::new_v4();
+        let source_sha256 = "b".repeat(64);
+        sqlx::query(
+            "INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'Ready extraction', 'pdf', 'ready.pdf', ?, 'ready', '2026-08-07T00:00:00Z', '2026-08-07T00:00:00Z')",
+        )
+        .bind(book_id.to_string())
+        .bind(&source_sha256)
+        .bind(format!("books/{book_id}/original.pdf"))
+        .execute(database.pool())
+        .await
+        .unwrap();
+
+        assert!(
+            !get(database.pool(), book_id)
+                .await
+                .unwrap()
+                .summary
+                .full_text_qa_ready
+        );
+
+        sqlx::query(
+            "INSERT INTO book_extractions (id, book_id, source_sha256, provider_kind, model_id, extraction_version, credential_fingerprint, status, created_at, updated_at) VALUES (?, ?, ?, 'kimi', 'kimi-k3', 'kimi-files-v1', ?, 'ready', '2026-08-07T00:01:00Z', '2026-08-07T00:01:00Z')",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(book_id.to_string())
+        .bind(&source_sha256)
+        .bind("f".repeat(64))
+        .execute(database.pool())
+        .await
+        .unwrap();
+
+        assert!(
+            get(database.pool(), book_id)
+                .await
+                .unwrap()
+                .summary
+                .full_text_qa_ready
+        );
+    }
 
     #[tokio::test]
     async fn ensure_pdf_pages_backfills_missing_legacy_page_idempotently() {

@@ -73,6 +73,8 @@ pub struct BookSummary {
     pub import_error_message: Option<String>,
     pub import_error_stage: Option<ImportErrorStage>,
     pub reading_progress: f64,
+    // This exposes no provider reference or extracted content through the library summary.
+    pub full_text_qa_ready: bool,
     pub index_aggregate: IndexAggregate,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

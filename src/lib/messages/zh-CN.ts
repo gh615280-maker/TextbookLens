@@ -164,6 +164,7 @@ export const zhCN = {
   'library.indexStatus.needs_review': '\u9700\u8981\u590d\u6838',
   'library.indexStatus.failed': '\u7d22\u5f15\u5931\u8d25',
   'library.indexStart': '准备全文问答',
+  'library.fullTextQaReady': '全文问答已就绪',
   'library.indexCompleted': '已完成',
   'learning.menu': '\u5b66\u4e60\u64cd\u4f5c',
   'learning.explain': '\u89e3\u91ca',

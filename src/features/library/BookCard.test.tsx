@@ -20,6 +20,7 @@ function book(overrides: Partial<BookSummary> = {}): BookSummary {
     importErrorMessage: null,
     importErrorStage: null,
     readingProgress: 0.375,
+    fullTextQaReady: false,
     indexAggregate: {
       status: 'not_required',
       totalPages: 0,

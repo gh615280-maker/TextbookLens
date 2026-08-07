@@ -9,7 +9,7 @@ export type BookFormat = "pdf" | "epub" | "docx";
  */
 export type BookIndexAggregateStatus = "not_required" | "ready" | "partial" | "needs_review" | "failed";
 
-export type BookSummary = { id: string, title: string, originalFilename: string, author: string | null, language: string | null, format: BookFormat, importStatus: ImportStatus, importErrorCode: string | null, importErrorMessage: string | null, importErrorStage: ImportErrorStage | null, readingProgress: number, indexAggregate: IndexAggregate, createdAt: string, updatedAt: string, lastOpenedAt: string | null, };
+export type BookSummary = { id: string, title: string, originalFilename: string, author: string | null, language: string | null, format: BookFormat, importStatus: ImportStatus, importErrorCode: string | null, importErrorMessage: string | null, importErrorStage: ImportErrorStage | null, readingProgress: number, fullTextQaReady: boolean, indexAggregate: IndexAggregate, createdAt: string, updatedAt: string, lastOpenedAt: string | null, };
 
 export type ImportErrorStage = "copying" | "parsing" | "indexing";
 

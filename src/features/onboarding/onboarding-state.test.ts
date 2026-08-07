@@ -18,6 +18,7 @@ const book = {
   importErrorMessage: null,
   importErrorStage: null,
   readingProgress: 0,
+  fullTextQaReady: false,
   indexAggregate: {
     status: 'not_required' as const,
     totalPages: 0,

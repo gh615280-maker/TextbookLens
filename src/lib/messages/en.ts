@@ -175,6 +175,7 @@ export const en = {
   'library.indexStatus.needs_review': 'Needs review',
   'library.indexStatus.failed': 'Failed',
   'library.indexStart': 'Prepare full-text Q&A',
+  'library.fullTextQaReady': 'Full-text Q&A ready',
   'library.indexCompleted': 'Completed',
   'learning.menu': 'Learning actions',
   'learning.explain': 'Explain',
