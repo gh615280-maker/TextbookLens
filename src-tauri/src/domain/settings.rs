@@ -33,6 +33,16 @@ pub enum UiLanguage {
     En,
 }
 
+impl UiLanguage {
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ZhCn => "zh-CN",
+            Self::ZhTw => "zh-TW",
+            Self::En => "en",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "settings.ts")]

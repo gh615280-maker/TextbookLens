@@ -22,6 +22,7 @@ use crate::{
         AiOperation, CapabilitySupport, ContentAnchor, ContextMode, DocumentLocator,
         NormalizedRect, ProviderKind, ProviderOperationConsent, ProviderOperationConsentCategory,
         ProviderOperationConsentDecision, RegionAnchor, RegionLocator, TeachingInstructionDto,
+        UiLanguage,
     },
     errors::{AppError, AppErrorCode, AppResult},
     retrieval::{
@@ -217,6 +218,7 @@ struct ProviderBindingSnapshot {
     default_max_output_tokens: u32,
     validated_at: DateTime<Utc>,
     context_mode: ContextMode,
+    ui_language: UiLanguage,
     requires_vision: bool,
     capture_limits: Option<RegionCaptureLimits>,
 }
@@ -237,6 +239,7 @@ impl fmt::Debug for ProviderBindingSnapshot {
             .field("default_max_output_tokens", &self.default_max_output_tokens)
             .field("validated_at", &"<redacted>")
             .field("context_mode", &self.context_mode)
+            .field("ui_language", &self.ui_language)
             .field("requires_vision", &self.requires_vision)
             .field("capture_limits", &self.capture_limits)
             .finish()
@@ -469,6 +472,8 @@ impl LearningPreparationService {
         let (prepared_prompt, packed_context) = PromptPolicy.pack_and_prepare(
             PromptInput {
                 operation: metadata.action.prompt_operation(),
+                expected_language: (metadata.action != LearningAction::Translate)
+                    .then(|| initial_binding.ui_language.code().to_owned()),
                 book_id: Some(metadata.book_id),
                 teaching_instruction: instruction.clone(),
                 context_segments: Vec::new(),
@@ -1350,6 +1355,7 @@ async fn load_binding(
         default_max_output_tokens: model.default_max_output_tokens,
         validated_at,
         context_mode: app_settings.context_mode,
+        ui_language: app_settings.ui_language,
         requires_vision,
         capture_limits,
     })

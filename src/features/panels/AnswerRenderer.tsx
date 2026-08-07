@@ -46,10 +46,81 @@ export function AnswerRenderer({ answer }: { answer: string }) {
         ]}
         remarkPlugins={[remarkGfm, remarkMath]}
       >
-        {boundFencedCode(stripHiddenReasoning(answer))}
+        {boundFencedCode(
+          normalizeProviderMathDelimiters(stripHiddenReasoning(answer)),
+        )}
       </ReactMarkdown>
     </div>
   );
+}
+
+/** Normalizes common provider LaTeX delimiters without rewriting code samples. */
+export function normalizeProviderMathDelimiters(answer: string): string {
+  const lines = answer.match(/[^\n]*\n|[^\n]+$/gu) ?? [];
+  const output: string[] = [];
+  let prose = '';
+  let fence: { character: string; length: number } | null = null;
+  for (const line of lines) {
+    const marker = line.match(/^ {0,3}(`{3,}|~{3,})/u)?.[1] ?? null;
+    if (fence) {
+      output.push(line);
+      if (
+        marker &&
+        marker[0] === fence.character &&
+        marker.length >= fence.length
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (marker) {
+      output.push(normalizeProseMath(prose), line);
+      prose = '';
+      fence = { character: marker[0], length: marker.length };
+      continue;
+    }
+    prose += line;
+  }
+  output.push(normalizeProseMath(prose));
+  return output.join('');
+}
+
+function normalizeProseMath(value: string): string {
+  let output = '';
+  let index = 0;
+  while (index < value.length) {
+    if (value[index] === '`') {
+      const length = backtickRun(value, index);
+      const marker = '`'.repeat(length);
+      const end = value.indexOf(marker, index + length);
+      if (end >= 0) {
+        output += value.slice(index, end + length);
+        index = end + length;
+        continue;
+      }
+    }
+    const opening = value.slice(index, index + 2);
+    const closing =
+      opening === '\\(' ? '\\)' : opening === '\\[' ? '\\]' : null;
+    if (closing && value[index - 1] !== '\\') {
+      const end = value.indexOf(closing, index + 2);
+      if (end >= 0) {
+        const delimiter = opening === '\\(' ? '$' : '$$';
+        output += `${delimiter}${value.slice(index + 2, end)}${delimiter}`;
+        index = end + 2;
+        continue;
+      }
+    }
+    output += value[index];
+    index += 1;
+  }
+  return output;
+}
+
+function backtickRun(value: string, start: number): number {
+  let end = start;
+  while (value[end] === '`') end += 1;
+  return end - start;
 }
 
 /** Provider reasoning tags are never user-visible, including an unfinished stream block. */

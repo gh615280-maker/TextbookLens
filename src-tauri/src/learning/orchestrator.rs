@@ -127,11 +127,10 @@ impl LearningOrchestrator {
 
         let question = prepared.current_question()?.to_owned();
         let model_id = prepared.model_id().to_owned();
-        let chat = prepared.prepared_prompt().clone().into_chat_request(
-            model_id.clone(),
-            prepared.default_max_output_tokens(),
-            None,
-        );
+        let chat = prepared
+            .prepared_prompt()
+            .clone()
+            .into_chat_request(model_id.clone(), prepared.default_max_output_tokens());
         let request = if prepared.requires_vision() {
             let capture = prepared
                 .capture()

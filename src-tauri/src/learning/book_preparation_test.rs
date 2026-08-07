@@ -29,7 +29,7 @@ use crate::{
         IndexCorrectionValueKind, IndexPageBlockKind, IndexQualityReason, LearningRequestStatus,
         MaintenanceStatusCode, NormalizedRect, PrepareBookLearningRequestMetadata,
         ProviderOperationConsent, ProviderOperationConsentCategory,
-        ProviderOperationConsentDecision, UnifiedRole, stable_section_id,
+        ProviderOperationConsentDecision, UiLanguage, UnifiedRole, stable_section_id,
     },
     errors::{AppError, AppErrorCode, AppResult},
     indexing::{
@@ -91,6 +91,8 @@ fn new_book_questions_are_deterministic_private_and_local_for_all_formats() {
             assert_eq!(prepared.model_id(), "gpt-5.6");
 
             let request = prepared.chat_request();
+            assert_eq!(request.expected_language.as_deref(), Some("zh-CN"));
+            assert!(request.system.contains("Response language code: \"zh-CN\""));
             assert_eq!(request.messages.len(), 1);
             assert_eq!(request.messages[0].role, UnifiedRole::User);
             assert_eq!(request.messages[0].content, QUESTION);
@@ -735,6 +737,7 @@ fn retrieval_dropped_before_history_is_not_reintroduced_after_history_compressio
             validated_at: timestamp,
             profile_updated_at: FIXTURE_TIME.to_owned(),
             context_mode: ContextMode::Standard,
+            ui_language: UiLanguage::ZhCn,
         },
         teaching_instruction: TeachingInstructionDto {
             instruction: String::new(),

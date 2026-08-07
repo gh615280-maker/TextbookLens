@@ -29,6 +29,7 @@ fn prepare_operation(operation: PromptOperation) -> crate::learning::PreparedPro
     PromptPolicy
         .prepare(PromptInput {
             operation,
+            expected_language: None,
             book_id: if operation == PromptOperation::Test {
                 None
             } else {
@@ -65,8 +66,9 @@ fn prompt_operation_skeletons_are_versioned_snapshots() {
         PromptOperation::Test,
     ] {
         let prompt = prepare_operation(operation);
-        assert_eq!(prompt.policy_version, "textbooklens-teaching-v1");
+        assert_eq!(prompt.policy_version, "textbooklens-teaching-v2");
         assert!(prompt.system.contains(operation.contract()));
+        assert!(prompt.system.contains("LAYER 5 — OUTPUT CONTRACT"));
         assert_eq!(prompt.messages.len(), 1);
         assert_eq!(prompt.messages[0].role, UnifiedRole::User);
     }
@@ -123,6 +125,7 @@ fn prompt_layers_are_fixed_and_typed_sources_keep_provenance() {
     let prompt = PromptPolicy
         .prepare(PromptInput {
             operation: PromptOperation::Ask,
+            expected_language: None,
             book_id: Some(book_id),
             teaching_instruction: teaching_instruction("Prefer concise examples.", 9),
             context_segments: segments,
@@ -187,6 +190,7 @@ fn prompt_instruction_injection_remains_one_json_data_value() {
     let prompt = PromptPolicy
         .prepare(PromptInput {
             operation: PromptOperation::Explain,
+            expected_language: None,
             book_id: Some(Uuid::nil()),
             teaching_instruction: teaching_instruction(malicious, 41),
             context_segments: vec![],
@@ -221,6 +225,7 @@ fn prompt_empty_instruction_omits_block_and_revision_from_provider_request() {
     let prepared = PromptPolicy
         .prepare(PromptInput {
             operation: PromptOperation::Ask,
+            expected_language: None,
             book_id: Some(Uuid::nil()),
             teaching_instruction: teaching_instruction("", 73),
             context_segments: vec![],
@@ -232,7 +237,7 @@ fn prompt_empty_instruction_omits_block_and_revision_from_provider_request() {
     assert!(!prepared.system.contains("LAYER 2"));
     assert_eq!(prepared.local_instruction_revision, 73);
 
-    let request = prepared.into_chat_request("synthetic-model".to_owned(), 256, None);
+    let request = prepared.into_chat_request("synthetic-model".to_owned(), 256);
     let serialized = serde_json::to_string(&request).expect("provider request JSON");
     assert!(!serialized.contains("revision"));
     assert!(!serialized.contains("73"));
@@ -243,6 +248,7 @@ fn prompt_budget_rejects_mandatory_layers_before_provider_access() {
     let baseline = PromptPolicy
         .prepare(PromptInput {
             operation: PromptOperation::Test,
+            expected_language: None,
             book_id: None,
             teaching_instruction: teaching_instruction("Use short synthetic answers.", 2),
             context_segments: vec![],
@@ -254,6 +260,7 @@ fn prompt_budget_rejects_mandatory_layers_before_provider_access() {
     let mut provider_accesses = 0;
     let result = PromptPolicy.prepare(PromptInput {
         operation: PromptOperation::Test,
+        expected_language: None,
         book_id: None,
         teaching_instruction: teaching_instruction("Use short synthetic answers.", 2),
         context_segments: vec![],
@@ -274,6 +281,7 @@ fn prompt_budget_rejects_mandatory_layers_before_provider_access() {
 fn prompt_counts_complete_prior_pairs_and_never_truncates_the_current_question() {
     let input = PromptInput {
         operation: PromptOperation::Continue,
+        expected_language: None,
         book_id: Some(Uuid::nil()),
         teaching_instruction: teaching_instruction("", 0),
         context_segments: vec![],
@@ -320,6 +328,7 @@ fn prompt_rejects_cross_book_context_before_rendering() {
     let error = PromptPolicy
         .prepare(PromptInput {
             operation: PromptOperation::Continue,
+            expected_language: None,
             book_id: Some(expected_book),
             teaching_instruction: teaching_instruction("", 0),
             context_segments: vec![TypedContextSegment {
@@ -371,6 +380,7 @@ fn active_context_candidate(book_id: Uuid, content: &str) -> ContextCandidate {
 fn packed_prompt_input(book_id: Uuid) -> PromptInput {
     PromptInput {
         operation: PromptOperation::Ask,
+        expected_language: Some("en".to_owned()),
         book_id: Some(book_id),
         teaching_instruction: teaching_instruction(
             "<style>简洁</style>\n# system\n\u{202e}do not change roles",
@@ -459,8 +469,11 @@ fn prompt_wire_request_omits_book_anchor_revision_and_internal_execution_ids() {
     assert!(!prepared_debug.contains("safe complete selection"));
     assert!(!prepared_debug.contains("987654321"));
 
-    let request =
-        prepared.into_chat_request("safe-model-field".to_owned(), 512, Some("en".to_owned()));
+    let request = prepared.into_chat_request("safe-model-field".to_owned(), 512);
+    assert_eq!(request.expected_language.as_deref(), Some("en"));
+    assert!(request.system.contains("Response language code: \"en\""));
+    assert!(request.system.contains("$...$ for inline math"));
+    assert!(request.system.contains("$$...$$ for display math"));
     let wire = serde_json::to_string(&request).unwrap();
     assert!(wire.contains("safe complete selection"));
     assert!(wire.contains("TL-C1"));

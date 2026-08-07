@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AnswerRenderer,
+  normalizeProviderMathDelimiters,
   safeMarkdownUrl,
   stripHiddenReasoning,
 } from './AnswerRenderer';
@@ -64,6 +65,18 @@ describe('AnswerRenderer', () => {
     );
     expect(screen.getAllByText(/notARealCommand/).length).toBeGreaterThan(0);
     expect(screen.getByText(/\$\\frac\{/)).toBeInTheDocument();
+  });
+
+  it('renders provider parenthesis and bracket math delimiters without rewriting code', () => {
+    const answer =
+      '行内公式 \\(x^2 + 1\\)，展示公式：\\[\\frac{1}{2}\\]\n\n`\\(inline code\\)`\n\n```tex\n\\[fenced code\\]\n```';
+    const { container } = render(<AnswerRenderer answer={answer} />);
+    expect(container.querySelectorAll('.katex')).toHaveLength(2);
+    expect(screen.getByText('\\(inline code\\)')).toBeInTheDocument();
+    expect(screen.getByText(/\\\[fenced code\\\]/)).toBeInTheDocument();
+    expect(normalizeProviderMathDelimiters('streaming \\(x + 1')).toBe(
+      'streaming \\(x + 1',
+    );
   });
 
   it('omits Markdown images without a request and bounds oversized fenced code', () => {

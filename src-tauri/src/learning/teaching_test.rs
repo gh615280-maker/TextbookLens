@@ -82,6 +82,7 @@ where
 
     let prompt = PromptPolicy.prepare(PromptInput {
         operation: PromptOperation::Test,
+        expected_language: None,
         book_id: None,
         teaching_instruction: TeachingInstructionDto {
             instruction: request.instruction,
@@ -99,7 +100,6 @@ where
             prompt.into_chat_request(
                 loaded.profile().model_id.clone(),
                 MAX_TEACHING_TEST_OUTPUT_TOKENS,
-                None,
             ),
             cancel.clone(),
         )

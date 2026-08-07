@@ -124,6 +124,7 @@ pub async fn prepare_conversation_followup(
     let (mut prompt, packed) = PromptPolicy.pack_and_prepare(
         PromptInput {
             operation: PromptOperation::Continue,
+            expected_language: Some(app_settings.ui_language.code().to_owned()),
             book_id: Some(book_id),
             teaching_instruction: instruction,
             context_segments: Vec::new(),
@@ -146,7 +147,7 @@ pub async fn prepare_conversation_followup(
 
     Ok(PreparedFollowupExecution {
         operation: AiOperation::TextLearning,
-        chat_request: prompt.into_chat_request(model_id.clone(), max_output_tokens, None),
+        chat_request: prompt.into_chat_request(model_id.clone(), max_output_tokens),
         context: Arc::new(LearningRequestContext {
             target: LearningPersistenceTarget::SelectionFollowup(FollowupRequestContext {
                 book_id,

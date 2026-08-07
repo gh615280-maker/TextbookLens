@@ -22,7 +22,7 @@ use crate::{
         BookLearningPreparationSummary, CapabilitySupport, Citation, CitationReviewStatus,
         ContextMode, ConversationScope, DocumentLocator, PrepareBookLearningRequestMetadata,
         ProviderKind, ProviderOperationConsent, ProviderOperationConsentCategory,
-        ProviderOperationConsentDecision, TeachingInstructionDto, UnifiedChatRequest,
+        ProviderOperationConsentDecision, TeachingInstructionDto, UiLanguage, UnifiedChatRequest,
         UnifiedMessage, UnifiedRole,
     },
     errors::{AppError, AppErrorCode, AppResult},
@@ -101,6 +101,7 @@ struct ProviderBindingSnapshot {
     validated_at: DateTime<Utc>,
     profile_updated_at: String,
     context_mode: ContextMode,
+    ui_language: UiLanguage,
 }
 
 impl fmt::Debug for ProviderBindingSnapshot {
@@ -119,6 +120,7 @@ impl fmt::Debug for ProviderBindingSnapshot {
             .field("validated_at", &"<redacted>")
             .field("profile_updated_at", &"<redacted>")
             .field("context_mode", &self.context_mode)
+            .field("ui_language", &self.ui_language)
             .finish()
     }
 }
@@ -308,13 +310,10 @@ impl PreparedBookLearningRequest {
 
     /// Returns the exact immutable text request prepared here. It does not access a provider.
     pub fn chat_request(&self) -> UnifiedChatRequest {
-        UnifiedChatRequest {
-            model: self.binding.model_id.clone(),
-            system: self.prepared_prompt.system.clone(),
-            messages: self.prepared_prompt.messages.clone(),
-            max_output_tokens: self.binding.default_max_output_tokens,
-            expected_language: None,
-        }
+        self.prepared_prompt.clone().into_chat_request(
+            self.binding.model_id.clone(),
+            self.binding.default_max_output_tokens,
+        )
     }
 }
 
@@ -1121,7 +1120,7 @@ async fn load_provider_binding(
     };
 
     let settings = sqlx::query(
-        "SELECT default_learning_profile_id, context_mode FROM app_settings WHERE id = 1",
+        "SELECT default_learning_profile_id, context_mode, ui_language FROM app_settings WHERE id = 1",
     )
     .fetch_optional(&mut **transaction)
     .await?
@@ -1134,6 +1133,12 @@ async fn load_provider_binding(
     let context_mode = match settings.try_get::<String, _>("context_mode")?.as_str() {
         "standard" => ContextMode::Standard,
         "long" => ContextMode::Long,
+        _ => return Err(database_error()),
+    };
+    let ui_language = match settings.try_get::<String, _>("ui_language")?.as_str() {
+        "zh-CN" => UiLanguage::ZhCn,
+        "zh-TW" => UiLanguage::ZhTw,
+        "en" => UiLanguage::En,
         _ => return Err(database_error()),
     };
     let profile = sqlx::query(
@@ -1201,6 +1206,7 @@ async fn load_provider_binding(
         validated_at,
         profile_updated_at,
         context_mode,
+        ui_language,
     })
 }
 
@@ -1682,6 +1688,7 @@ fn pack_local_snapshot(
         match PromptPolicy.pack_book_and_prepare(
             PromptInput {
                 operation,
+                expected_language: Some(snapshot.binding.ui_language.code().to_owned()),
                 book_id: Some(snapshot.binding.book.book_id),
                 teaching_instruction: snapshot.teaching_instruction.clone(),
                 context_segments: Vec::new(),
@@ -1756,6 +1763,7 @@ fn fingerprint_snapshot(
         ContextMode::Standard => "standard",
         ContextMode::Long => "long",
     });
+    fingerprint.text(binding.ui_language.code());
     fingerprint.text(&teaching.instruction);
     fingerprint.u64(teaching.revision);
     fingerprint.text(&teaching.updated_at.to_rfc3339());

@@ -103,6 +103,16 @@ fn history_loads_current_profile_instruction_and_only_bounded_same_conversation_
         .unwrap();
         assert_eq!(prepared.context.provider_profile_id, profile_id);
         assert_eq!(prepared.context.model_id, "gpt-5.6");
+        assert_eq!(
+            prepared.chat_request.expected_language.as_deref(),
+            Some("zh-CN")
+        );
+        assert!(
+            prepared
+                .chat_request
+                .system
+                .contains("Response language code: \"zh-CN\"")
+        );
         assert!(
             prepared
                 .chat_request

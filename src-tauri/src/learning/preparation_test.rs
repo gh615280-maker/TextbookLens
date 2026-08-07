@@ -343,6 +343,15 @@ fn preparation_summary_has_only_safe_exact_fields_and_normal_text_needs_no_confi
         assert_eq!(request.book_id(), fixture.book_id);
         assert_eq!(request.provider_profile_id(), fixture.profile_id);
         assert_eq!(request.model_id(), MODEL_ID);
+        assert_eq!(
+            request
+                .prepared_prompt()
+                .clone()
+                .into_chat_request(MODEL_ID.to_owned(), 1)
+                .expected_language
+                .as_deref(),
+            Some("zh-CN")
+        );
         assert!(!request.packed_context().citations.is_empty());
         let debug = format!("{request:?}");
         assert!(!debug.contains(SELECTED_TEXT));
