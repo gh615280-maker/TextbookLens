@@ -110,7 +110,7 @@ fn production_origins_and_policy_are_fixed_and_hardened() {
         ),
         (ProviderKind::Anthropic, "https://api.anthropic.com/"),
         (ProviderKind::DeepSeek, "https://api.deepseek.com/"),
-        (ProviderKind::Kimi, "https://api.moonshot.ai/v1/"),
+        (ProviderKind::Kimi, "https://api.moonshot.cn/v1/"),
     ];
     for (kind, origin) in expected {
         let transport = ProviderTransport::new(kind).unwrap();

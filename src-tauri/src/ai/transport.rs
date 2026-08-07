@@ -415,7 +415,7 @@ fn production_origin(kind: &ProviderKind) -> &'static str {
         ProviderKind::Gemini => "https://generativelanguage.googleapis.com/",
         ProviderKind::Anthropic => "https://api.anthropic.com/",
         ProviderKind::DeepSeek => "https://api.deepseek.com/",
-        ProviderKind::Kimi => "https://api.moonshot.ai/v1/",
+        ProviderKind::Kimi => "https://api.moonshot.cn/v1/",
     }
 }
 
