@@ -154,6 +154,7 @@ export const zhCN = {
   'library.indexStatus.needs_review': '\u9700\u8981\u590d\u6838',
   'library.indexStatus.failed': '\u7d22\u5f15\u5931\u8d25',
   'library.indexStart': 'AI 辅助索引',
+  'library.indexCompleted': '已完成',
   'learning.menu': '\u5b66\u4e60\u64cd\u4f5c',
   'learning.explain': '\u89e3\u91ca',
   'learning.example': '\u4e3e\u4f8b',

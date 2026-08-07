@@ -58,8 +58,12 @@ export function isBookOpenable(book: BookSummary): boolean {
   return book.importStatus === 'ready';
 }
 
-export function isProcessingBook(book: BookSummary): boolean {
+export function isProcessingBook(
+  book: BookSummary,
+  activeIndexBookIds: ReadonlySet<string> = new Set(),
+): boolean {
   return (
+    activeIndexBookIds.has(book.id) ||
     book.importStatus === 'queued' ||
     book.importStatus === 'copying' ||
     book.importStatus === 'parsing' ||
@@ -71,10 +75,11 @@ export function getVisibleBooks(
   books: readonly BookSummary[],
   state: Pick<LibraryState, 'filter' | 'query' | 'sort'>,
   locale: string,
+  activeIndexBookIds: ReadonlySet<string> = new Set(),
 ): BookSummary[] {
   const query = foldForSearch(state.query, locale);
   return [...books]
-    .filter((book) => matchesFilter(book, state.filter))
+    .filter((book) => matchesFilter(book, state.filter, activeIndexBookIds))
     .filter((book) => matchesQuery(book, query, locale))
     .sort((left, right) => compareBooks(left, right, state.sort, locale));
 }
@@ -83,14 +88,18 @@ export function foldForSearch(value: string, locale: string): string {
   return value.normalize('NFKC').toLocaleLowerCase(locale).trim();
 }
 
-function matchesFilter(book: BookSummary, filter: LibraryFilter): boolean {
+function matchesFilter(
+  book: BookSummary,
+  filter: LibraryFilter,
+  activeIndexBookIds: ReadonlySet<string>,
+): boolean {
   switch (filter) {
     case 'all':
       return true;
     case 'recent':
       return book.lastOpenedAt !== null;
     case 'processing':
-      return isProcessingBook(book);
+      return isProcessingBook(book, activeIndexBookIds);
   }
 }
 

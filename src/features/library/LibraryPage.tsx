@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLanguage, useMessage } from '../../app/LanguageProvider';
 import { toUserError, type UserFacingError } from '../../lib/errors';
 import type { BookSummary } from '../../lib/generated/book';
+import type { IndexRunAggregateDto } from '../../lib/generated/indexing';
 import { TauriImportIpc } from '../../lib/ipc';
 import {
   ImportCoordinator,
@@ -36,6 +37,7 @@ export interface LibraryPageProps {
     findCurrentRunForBook(bookId: string): Promise<{
       bookId: string;
       runId: string;
+      controlStatus?: IndexRunAggregateDto['controlStatus'];
     } | null>;
   };
 }
@@ -61,6 +63,9 @@ export function LibraryPage({
     () => indexRunLookup ?? new TauriIndexingApi(),
   );
   const [books, setBooks] = useState<BookSummary[]>([]);
+  const [activeIndexBookIds, setActiveIndexBookIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<UserFacingError | null>(null);
   const [importState, dispatchImport] = useReducer(
@@ -75,24 +80,57 @@ export function LibraryPage({
     null,
   );
 
+  const readLibrarySnapshot = useCallback(async () => {
+    const listedBooks = await api.listBooks();
+    const activeRuns = await Promise.all(
+      listedBooks
+        .filter(
+          (book) =>
+            book.importStatus === 'ready' &&
+            book.format === 'pdf' &&
+            book.indexAggregate.status === 'partial',
+        )
+        .map(async (book) => {
+          try {
+            const run = await currentRunLookup.findCurrentRunForBook(book.id);
+            return run?.bookId === book.id &&
+              run.controlStatus !== undefined &&
+              isUnfinishedIndexRun(run.controlStatus)
+              ? book.id
+              : null;
+          } catch {
+            return null;
+          }
+        }),
+    );
+    return {
+      books: listedBooks,
+      activeIndexBookIds: new Set(
+        activeRuns.filter((bookId): bookId is string => bookId !== null),
+      ),
+    };
+  }, [api, currentRunLookup]);
+
   const refresh = useCallback(async () => {
     try {
-      setBooks(await api.listBooks());
+      const snapshot = await readLibrarySnapshot();
+      setBooks(snapshot.books);
+      setActiveIndexBookIds(snapshot.activeIndexBookIds);
       setLoadError(null);
     } catch (error) {
       setLoadError(toUserError(error));
     } finally {
       setLoading(false);
     }
-  }, [api]);
+  }, [readLibrarySnapshot]);
 
   useEffect(() => {
     let active = true;
-    void api
-      .listBooks()
-      .then((listedBooks) => {
+    void readLibrarySnapshot()
+      .then((snapshot) => {
         if (!active) return;
-        setBooks(listedBooks);
+        setBooks(snapshot.books);
+        setActiveIndexBookIds(snapshot.activeIndexBookIds);
         setLoadError(null);
       })
       .catch((error: unknown) => {
@@ -104,9 +142,46 @@ export function LibraryPage({
     return () => {
       active = false;
     };
-  }, [api]);
+  }, [readLibrarySnapshot]);
 
-  const visibleBooks = getVisibleBooks(books, libraryState, uiLanguage);
+  useEffect(() => {
+    if (activeIndexBookIds.size === 0) return;
+    let active = true;
+    let polling = false;
+    const timer = window.setInterval(() => {
+      if (polling) return;
+      polling = true;
+      void readLibrarySnapshot()
+        .then((snapshot) =>
+          snapshot.activeIndexBookIds.size === 0
+            ? readLibrarySnapshot().catch(() => snapshot)
+            : snapshot,
+        )
+        .then((snapshot) => {
+          if (!active) return;
+          setBooks(snapshot.books);
+          setActiveIndexBookIds(snapshot.activeIndexBookIds);
+          setLoadError(null);
+        })
+        .catch(() => {
+          // Keep the last safe library snapshot on a transient poll failure.
+        })
+        .finally(() => {
+          polling = false;
+        });
+    }, 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeIndexBookIds.size, readLibrarySnapshot]);
+
+  const visibleBooks = getVisibleBooks(
+    books,
+    libraryState,
+    uiLanguage,
+    activeIndexBookIds,
+  );
 
   useEffect(() => {
     if (!libraryState.focusedBookId) return;
@@ -349,4 +424,10 @@ function upsertBook(
   const index = current.findIndex((book) => book.id === next.id);
   if (index === -1) return [next, ...current];
   return current.map((book) => (book.id === next.id ? next : book));
+}
+
+function isUnfinishedIndexRun(
+  status: IndexRunAggregateDto['controlStatus'],
+): boolean {
+  return status === 'running' || status === 'paused' || status === 'cancelling';
 }

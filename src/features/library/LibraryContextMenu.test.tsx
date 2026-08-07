@@ -198,6 +198,49 @@ describe('library context menu', () => {
     );
     expect(deleteFailedImport).toHaveBeenCalledWith(BOOK_ID);
   });
+
+  it('places ready books with unfinished AI index runs in Processing', async () => {
+    const user = userEvent.setup();
+    const completedId = '33333333-3333-4333-8333-333333333333';
+    render(
+      <WithLanguage>
+        <MemoryRouter>
+          <LibraryPage
+            importCoordinator={{
+              importDocument: vi.fn(),
+              retryDocument: vi.fn(),
+              cancel: vi.fn(),
+              cancelPending: vi.fn(),
+            }}
+            libraryApi={{
+              listBooks: async () => [
+                book(),
+                book({ id: completedId, title: 'Completed book' }),
+              ],
+              deleteFailedImport: vi.fn(),
+            }}
+            indexRunLookup={{
+              findCurrentRunForBook: vi.fn(async (bookId) => ({
+                bookId,
+                runId: RUN_ID,
+                controlStatus:
+                  bookId === BOOK_ID
+                    ? ('running' as const)
+                    : ('completed' as const),
+              })),
+            }}
+          />
+        </MemoryRouter>
+      </WithLanguage>,
+    );
+
+    await screen.findByRole('button', { name: 'Alpha' });
+    await user.click(screen.getByRole('button', { name: 'Processing' }));
+    expect(screen.getByRole('button', { name: 'Alpha' })).toBeVisible();
+    expect(
+      screen.queryByRole('button', { name: 'Completed book' }),
+    ).not.toBeInTheDocument();
+  });
 });
 
 function LocationProbe() {

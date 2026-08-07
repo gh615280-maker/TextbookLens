@@ -475,6 +475,12 @@ main {
   gap: var(--space-1);
 }
 
+.library-index-actions {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+}
+
 .skip-link {
   position: absolute;
   z-index: 1;

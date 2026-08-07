@@ -156,6 +156,7 @@ export const zhTW = {
   'library.indexStatus.needs_review': '\u9700\u8981\u8907\u6838',
   'library.indexStatus.failed': '\u7d22\u5f15\u5931\u6557',
   'library.indexStart': 'AI 輔助索引',
+  'library.indexCompleted': '已完成',
   'learning.menu': '\u5b78\u7fd2\u64cd\u4f5c',
   'learning.explain': '\u89e3\u91cb',
   'learning.example': '\u8209\u4f8b',

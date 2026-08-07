@@ -102,6 +102,20 @@ describe('library state', () => {
     ).toEqual(['a', 'z']);
   });
 
+  it('includes locally ready books while their AI index run is unfinished', () => {
+    const indexing = book({ id: 'ai-running', title: 'AI running' });
+    const completed = book({ id: 'completed', title: 'Completed' });
+
+    expect(
+      getVisibleBooks(
+        [completed, indexing],
+        { ...initialLibraryState, filter: 'processing' },
+        'en',
+        new Set([indexing.id]),
+      ).map((candidate) => candidate.id),
+    ).toEqual(['ai-running']);
+  });
+
   it('keeps locally ready partial and review books openable', () => {
     expect(
       isBookOpenable(

@@ -163,6 +163,7 @@ export const en = {
   'library.indexStatus.needs_review': 'Needs review',
   'library.indexStatus.failed': 'Failed',
   'library.indexStart': 'AI-assisted index',
+  'library.indexCompleted': 'Completed',
   'learning.menu': 'Learning actions',
   'learning.explain': 'Explain',
   'learning.example': 'Give an example',

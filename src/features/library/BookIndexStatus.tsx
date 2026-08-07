@@ -15,19 +15,51 @@ export function BookIndexStatus({
   const message = useMessage();
   const aggregate = book.indexAggregate;
   const unavailable = aggregate.status === 'not_required';
-  const label = message(`library.indexStatus.${aggregate.status}`);
+  const label =
+    aggregate.status === 'ready'
+      ? message('library.indexCompleted')
+      : message(`library.indexStatus.${aggregate.status}`);
+  const canStart = book.importStatus === 'ready' && book.format === 'pdf';
 
-  if (book.importStatus === 'ready' && book.format === 'pdf' && unavailable) {
+  if (canStart) {
     return (
-      <button type="button" onClick={() => onStartIndex(book)}>
-        {message('library.indexStart')}
-      </button>
+      <span className="library-index-actions">
+        <button type="button" onClick={() => onStartIndex(book)}>
+          {message('library.indexStart')}
+        </button>
+        {!unavailable ? (
+          <IndexStatusButton
+            book={book}
+            label={label}
+            onOpenStatus={onOpenStatus}
+          />
+        ) : null}
+      </span>
     );
   }
+  return unavailable ? (
+    <button type="button" disabled>
+      {label}
+    </button>
+  ) : (
+    <IndexStatusButton book={book} label={label} onOpenStatus={onOpenStatus} />
+  );
+}
+
+function IndexStatusButton({
+  book,
+  label,
+  onOpenStatus,
+}: {
+  book: BookSummary;
+  label: string;
+  onOpenStatus(book: BookSummary): void;
+}) {
+  const message = useMessage();
+  const aggregate = book.indexAggregate;
   return (
     <button
       aria-label={message('library.indexStatus.action', { title: book.title })}
-      disabled={unavailable}
       type="button"
       onClick={() => onOpenStatus(book)}
     >
