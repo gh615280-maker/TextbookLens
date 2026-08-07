@@ -248,32 +248,21 @@ describe('ImportCoordinator', () => {
     ]);
   });
 
-  it('accepts dense emitted PDF sections when source page locators skip an empty page', async () => {
+  it('accepts an addressable PDF section with no extracted text blocks', async () => {
     const ipc = new FakeImportIpc();
     const first = section(0);
-    const third = section(1);
-    third.locator = {
-      format: 'pdf',
-      startPage: 3,
-      endPage: 3,
-      rectsByPage: null,
-    };
-    third.blocks[0]!.locator = {
-      format: 'pdf',
-      startPage: 3,
-      endPage: 3,
-      rectsByPage: null,
-    };
+    const empty = section(1, 0);
+    const third = section(2);
     const parse = parser(async (_context, sink) => {
       await sink.begin(metadata());
-      await sink.append([first, third]);
+      await sink.append([first, empty, third]);
     });
 
     await expect(
       coordinator(ipc, parse).importDocument('C:/transient.pdf'),
     ).resolves.toMatchObject({ importStatus: 'ready' });
 
-    expect(ipc.batches).toEqual([[first, third]]);
+    expect(ipc.batches).toEqual([[first, empty, third]]);
     expect(ipc.calls).not.toContain('mark_import_failed');
   });
 

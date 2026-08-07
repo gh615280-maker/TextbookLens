@@ -27,6 +27,7 @@ class FakeApi implements ReaderApi {
   readonly updateReaderSettings = vi.fn();
   readonly saveReadingProgress = vi.fn();
   readonly listReaderSections = vi.fn(async () => []);
+  readonly ensurePdfPageSections = vi.fn(async () => []);
   readonly searchBook = vi.fn(async () => []);
   readonly listAnnotationMarkers = vi.fn<ReaderApi['listAnnotationMarkers']>(
     async () => [
@@ -60,6 +61,7 @@ describe('ReaderController', () => {
   it('opens only the matching adapter and releases document bytes after opening', async () => {
     const api = new FakeApi();
     const pdf = adapter('pdf');
+    pdf.getPageCount = () => 3;
     const epub = adapter('epub');
     const controller = new ReaderController(api, {
       pdf: () => pdf,
@@ -73,6 +75,7 @@ describe('ReaderController', () => {
       api.current.lastLocator,
     );
     expect(epub.open).not.toHaveBeenCalled();
+    expect(api.ensurePdfPageSections).toHaveBeenCalledWith(bookId, 3);
     expect(controller.sourceForTesting()).toBeNull();
   });
 

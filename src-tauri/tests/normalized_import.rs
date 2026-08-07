@@ -218,6 +218,33 @@ async fn fts_match_count(database: &Database, query: &str) -> i64 {
 }
 
 #[tokio::test]
+async fn image_only_pdf_pages_finalize_without_local_text_chunks() {
+    let (temp, database, service) = test_service().await;
+    let book = begin_pdf(&temp, &service, "image-only.pdf", "image-only-source").await;
+    service
+        .append_parsed_sections(
+            book.id,
+            vec![
+                pdf_section(book.id, 0, "Page 1", &[]),
+                pdf_section(book.id, 1, "Page 2", &[]),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let ready = service
+        .finalize_import(book.id, noop_progress())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        ready.import_status,
+        textbooklens_lib::domain::ImportStatus::Ready
+    );
+    assert_eq!(counts(&database, book.id).await, (2, 0, 0, 0));
+}
+
+#[tokio::test]
 async fn batches_finalize_atomically_and_search_never_crosses_books() {
     let (temp, database, service) = test_service().await;
     let first = begin_pdf(&temp, &service, "first.pdf", "first-index-source").await;

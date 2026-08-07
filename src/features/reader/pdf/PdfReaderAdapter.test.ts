@@ -36,6 +36,7 @@ describe('PdfReaderAdapter', () => {
       fraction: 2 / 3,
       locator: { startPage: 2 },
     });
+    expect(adapter.getPageCount()).toBe(3);
     expect(
       await adapter.navigate({
         format: 'pdf',

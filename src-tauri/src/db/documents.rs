@@ -189,14 +189,23 @@ async fn finalize_import_transaction(
 ) -> AppResult<BookSummary> {
     ensure_not_cancelled(cancellation)?;
     let mut transaction = pool.begin().await?;
-    let status: Option<String> = sqlx::query_scalar("SELECT import_status FROM books WHERE id = ?")
+    let book = sqlx::query("SELECT format, import_status FROM books WHERE id = ?")
         .bind(book_id.to_string())
         .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    let format = parse_format(&book.try_get::<String, _>("format")?)?;
+    match book.try_get::<String, _>("import_status")?.as_str() {
+        "indexing" => {}
+        _ => return Err(AppError::new(AppErrorCode::BookNotReady)),
+    }
+
+    let section_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sections WHERE book_id = ?")
+        .bind(book_id.to_string())
+        .fetch_one(&mut *transaction)
         .await?;
-    match status.as_deref() {
-        Some("indexing") => {}
-        Some(_) => return Err(AppError::new(AppErrorCode::BookNotReady)),
-        None => return Err(AppError::new(AppErrorCode::NotFound)),
+    if section_count == 0 {
+        return Err(AppError::new(AppErrorCode::NoExtractableText));
     }
 
     let rows = sqlx::query(
@@ -205,7 +214,7 @@ async fn finalize_import_transaction(
     .bind(book_id.to_string())
     .fetch_all(&mut *transaction)
     .await?;
-    if rows.is_empty() {
+    if rows.is_empty() && format != BookFormat::Pdf {
         return Err(AppError::new(AppErrorCode::NoExtractableText));
     }
     let mut section_ordinals = std::collections::HashMap::<Uuid, u32>::new();
@@ -225,7 +234,7 @@ async fn finalize_import_transaction(
         });
     }
     let chunks = chunk_blocks_default(&blocks);
-    if chunks.is_empty() {
+    if chunks.is_empty() && format != BookFormat::Pdf {
         return Err(AppError::new(AppErrorCode::NoExtractableText));
     }
 
@@ -328,7 +337,7 @@ fn validate_batch(
         .sum::<usize>();
     if sections.is_empty()
         || sections.len() > MAX_BATCH_SECTIONS
-        || block_count == 0
+        || (block_count == 0 && *format != BookFormat::Pdf)
         || block_count > MAX_BATCH_BLOCKS
     {
         return Err(AppError::new(AppErrorCode::InvalidInput));
@@ -341,7 +350,7 @@ fn validate_batch(
             || !section_ids.insert(section.id)
             || !section_ordinals.insert(section.ordinal)
             || section.parent_id == Some(section.id)
-            || section.blocks.is_empty()
+            || (section.blocks.is_empty() && *format != BookFormat::Pdf)
         {
             return Err(AppError::new(AppErrorCode::InvalidInput));
         }

@@ -79,7 +79,7 @@ describe('PdfParser', () => {
     expect(sink.sections[0]?.blocks[0]?.id).toBe(stableBlockId(bookId, 0, 0));
   });
 
-  it('skips an empty middle page while keeping emitted IDs dense and source locators true', async () => {
+  it('keeps an empty middle page addressable with page-stable IDs', async () => {
     const pageCleanup = vi.fn();
     const documentCleanup = vi.fn();
     const destroy = vi.fn();
@@ -129,11 +129,14 @@ describe('PdfParser', () => {
         sink,
       );
 
-      expect(sink.sections).toHaveLength(2);
-      expect(sink.sections.map((section) => section.ordinal)).toEqual([0, 1]);
+      expect(sink.sections).toHaveLength(3);
+      expect(sink.sections.map((section) => section.ordinal)).toEqual([
+        0, 1, 2,
+      ]);
       expect(sink.sections.map((section) => section.id)).toEqual([
         stableSectionId(bookId, 0),
         stableSectionId(bookId, 1),
+        stableSectionId(bookId, 2),
       ]);
       expect(
         sink.sections.map((section) => {
@@ -142,10 +145,11 @@ describe('PdfParser', () => {
             ? section.locator.startPage
             : null;
         }),
-      ).toEqual([1, 3]);
+      ).toEqual([1, 2, 3]);
       expect(sink.sections.map((section) => section.blocks[0]?.id)).toEqual([
         stableBlockId(bookId, 0, 0),
-        stableBlockId(bookId, 1, 0),
+        undefined,
+        stableBlockId(bookId, 2, 0),
       ]);
       expect(sink.progress).toHaveBeenCalledTimes(3);
       expect(getPage).toHaveBeenCalledTimes(3);
@@ -156,6 +160,58 @@ describe('PdfParser', () => {
       vi.doUnmock('pdfjs-dist/legacy/build/pdf.mjs');
       vi.doUnmock('pdfjs-dist/legacy/build/pdf.worker.mjs?url');
       vi.doUnmock('./pdf-layout');
+      vi.resetModules();
+    }
+  });
+
+  it('imports a fully image-only PDF as addressable pages', async () => {
+    const cleanup = vi.fn();
+    const destroy = vi.fn();
+    vi.resetModules();
+    vi.doMock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
+      getDocument: vi.fn(() => ({
+        promise: Promise.resolve({
+          numPages: 2,
+          getMetadata: async () => ({ info: {} }),
+          getPage: async () => ({
+            getTextContent: async () => ({ items: [] }),
+            cleanup,
+          }),
+          cleanup,
+        }),
+        destroy,
+      })),
+      GlobalWorkerOptions: {},
+    }));
+    vi.doMock('pdfjs-dist/legacy/build/pdf.worker.mjs?url', () => ({
+      default: '/assets/pdf.worker.mjs',
+    }));
+
+    try {
+      const { PdfParser } = await import('./pdf-parser');
+      const sink = createSink();
+      await new PdfParser().parse(
+        {
+          bookId,
+          format: 'pdf',
+          source: new Uint8Array([37, 80, 68, 70]).buffer,
+          signal: new AbortController().signal,
+        },
+        sink,
+      );
+
+      expect(sink.sections).toHaveLength(2);
+      expect(
+        sink.sections.every((section) => section.blocks.length === 0),
+      ).toBe(true);
+      expect(sink.sections.map((section) => section.id)).toEqual([
+        stableSectionId(bookId, 0),
+        stableSectionId(bookId, 1),
+      ]);
+      expect(destroy).toHaveBeenCalledOnce();
+    } finally {
+      vi.doUnmock('pdfjs-dist/legacy/build/pdf.mjs');
+      vi.doUnmock('pdfjs-dist/legacy/build/pdf.worker.mjs?url');
       vi.resetModules();
     }
   });

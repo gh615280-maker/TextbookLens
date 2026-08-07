@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::{
     domain::{
         BookFormat, BookIndexAggregateStatus, BookSummary, DocumentLocator, ImportErrorStage,
-        ImportStatus, IndexAggregate,
+        ImportStatus, IndexAggregate, stable_section_id,
     },
     errors::{AppError, AppErrorCode, AppResult},
 };
@@ -33,7 +33,7 @@ pub async fn list_reader_sections(
         Some(_) => return Err(AppError::new(AppErrorCode::BookNotReady)),
         None => return Err(AppError::new(AppErrorCode::NotFound)),
     }
-    sqlx::query("SELECT id, parent_id, ordinal, title, locator_json FROM sections WHERE book_id = ? ORDER BY ordinal")
+    sqlx::query("SELECT id, parent_id, ordinal, title, locator_json FROM sections WHERE book_id = ? ORDER BY CASE WHEN json_extract(locator_json, '$.format') = 'pdf' THEN json_extract(locator_json, '$.startPage') ELSE ordinal END, ordinal")
         .bind(book_id.to_string()).fetch_all(pool).await?.into_iter().map(|row| Ok(ReaderSection {
             id: Uuid::parse_str(&row.try_get::<String, _>("id")?).map_err(|_| AppError::new(AppErrorCode::DatabaseError))?,
             parent_id: row.try_get::<Option<String>, _>("parent_id")?.map(|id| Uuid::parse_str(&id).map_err(|_| AppError::new(AppErrorCode::DatabaseError))).transpose()?,
@@ -41,6 +41,86 @@ pub async fn list_reader_sections(
             title: row.try_get("title")?,
             locator: serde_json::from_str(&row.try_get::<String, _>("locator_json")?).map_err(AppError::database)?,
         })).collect()
+}
+
+pub async fn ensure_pdf_page_sections(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    page_count: u32,
+) -> AppResult<Vec<ReaderSection>> {
+    if page_count == 0 || page_count > 100_000 {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+    let mut transaction = pool.begin().await?;
+    let book = sqlx::query("SELECT format, import_status FROM books WHERE id = ?")
+        .bind(book_id.to_string())
+        .fetch_optional(&mut *transaction)
+        .await?
+        .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    if book.try_get::<String, _>("import_status")? != "ready" {
+        return Err(AppError::new(AppErrorCode::BookNotReady));
+    }
+    if book.try_get::<String, _>("format")? != "pdf" {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+
+    let rows = sqlx::query(
+        "SELECT ordinal, locator_json FROM sections WHERE book_id = ? ORDER BY ordinal",
+    )
+    .bind(book_id.to_string())
+    .fetch_all(&mut *transaction)
+    .await?;
+    let mut ranges = Vec::with_capacity(rows.len());
+    let mut next_ordinal = 0_u32;
+    for row in rows {
+        let ordinal = u32::try_from(row.try_get::<i64, _>("ordinal")?)
+            .map_err(|_| AppError::new(AppErrorCode::DatabaseError))?;
+        next_ordinal = next_ordinal.max(
+            ordinal
+                .checked_add(1)
+                .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?,
+        );
+        let locator: DocumentLocator =
+            serde_json::from_str(&row.try_get::<String, _>("locator_json")?)
+                .map_err(AppError::database)?;
+        let DocumentLocator::Pdf {
+            start_page,
+            end_page,
+            ..
+        } = locator
+        else {
+            return Err(AppError::new(AppErrorCode::DatabaseError));
+        };
+        ranges.push((start_page, end_page));
+    }
+
+    for page in 1..=page_count {
+        if ranges
+            .iter()
+            .any(|(start_page, end_page)| page >= *start_page && page <= *end_page)
+        {
+            continue;
+        }
+        let section_id = stable_section_id(book_id, next_ordinal);
+        let locator = DocumentLocator::pdf(page, page, None)
+            .map_err(|_| AppError::new(AppErrorCode::InvalidInput))?;
+        let locator_json = serde_json::to_string(&locator).map_err(AppError::database)?;
+        sqlx::query(
+            "INSERT INTO sections (id, book_id, parent_id, ordinal, title, locator_json) VALUES (?, ?, NULL, ?, ?, ?)",
+        )
+        .bind(section_id.to_string())
+        .bind(book_id.to_string())
+        .bind(i64::from(next_ordinal))
+        .bind(format!("\u{7b2c} {page} \u{9875}"))
+        .bind(locator_json)
+        .execute(&mut *transaction)
+        .await?;
+        next_ordinal = next_ordinal
+            .checked_add(1)
+            .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?;
+    }
+    transaction.commit().await?;
+    list_reader_sections(pool, book_id).await
 }
 
 #[derive(Clone, Debug)]
@@ -840,5 +920,81 @@ fn ensure_changed(rows_affected: u64) -> AppResult<()> {
         Err(AppError::new(AppErrorCode::RequestConflict))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+
+    #[tokio::test]
+    async fn ensure_pdf_pages_backfills_missing_legacy_page_idempotently() {
+        let (_temporary, database) = tokio::task::spawn_blocking(|| {
+            let temporary = tempfile::tempdir().unwrap();
+            let database = Database::open(temporary.path().join("library.sqlite3")).unwrap();
+            (temporary, database)
+        })
+        .await
+        .unwrap();
+        let book_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'Legacy scan', 'pdf', 'scan.pdf', ?, 'ready', '2026-08-07T00:00:00Z', '2026-08-07T00:00:00Z')",
+        )
+        .bind(book_id.to_string())
+        .bind("a".repeat(64))
+        .bind(format!("books/{book_id}/original.pdf"))
+        .execute(database.pool())
+        .await
+        .unwrap();
+        for (ordinal, page) in [(0_u32, 1_u32), (1, 3)] {
+            let locator = DocumentLocator::pdf(page, page, None).unwrap();
+            sqlx::query(
+                "INSERT INTO sections (id, book_id, parent_id, ordinal, title, locator_json) VALUES (?, ?, NULL, ?, ?, ?)",
+            )
+            .bind(stable_section_id(book_id, ordinal).to_string())
+            .bind(book_id.to_string())
+            .bind(i64::from(ordinal))
+            .bind(format!("Page {page}"))
+            .bind(serde_json::to_string(&locator).unwrap())
+            .execute(database.pool())
+            .await
+            .unwrap();
+        }
+
+        let sections = ensure_pdf_page_sections(database.pool(), book_id, 3)
+            .await
+            .unwrap();
+        let repeated = ensure_pdf_page_sections(database.pool(), book_id, 3)
+            .await
+            .unwrap();
+
+        assert_eq!(sections.len(), 3);
+        assert_eq!(repeated.len(), 3);
+        assert_eq!(
+            sections
+                .iter()
+                .map(|section| match &section.locator {
+                    DocumentLocator::Pdf { start_page, .. } => *start_page,
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        let page_two = sections
+            .iter()
+            .find(|section| {
+                matches!(
+                    section.locator,
+                    DocumentLocator::Pdf {
+                        start_page: 2,
+                        end_page: 2,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        assert_eq!(page_two.ordinal, 2);
+        assert_eq!(page_two.id, stable_section_id(book_id, 2));
     }
 }

@@ -31,13 +31,11 @@ import {
 GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
 
 class PdfParserError extends Error implements UserFacingError {
-  readonly nextStep =
-    'Choose a readable, unencrypted PDF with selectable text.';
+  readonly nextStep = 'Choose a readable, unencrypted PDF.';
   readonly diagnosticId = null;
 
   constructor(
-    readonly code:
-      'FILE_CORRUPTED' | 'FILE_ENCRYPTED_OR_DRM' | 'NO_EXTRACTABLE_TEXT',
+    readonly code: 'FILE_CORRUPTED' | 'FILE_ENCRYPTED_OR_DRM',
     cause?: unknown,
   ) {
     super(code, { cause });
@@ -60,7 +58,6 @@ export class PdfParser implements DocumentParser {
       const info = metadata?.info as
         { Title?: string; Author?: string } | undefined;
       const sections: NormalizedSectionInput[] = [];
-      let meaningfulCharacters = 0;
 
       for (
         let pageNumber = 1;
@@ -79,38 +76,32 @@ export class PdfParser implements DocumentParser {
         } finally {
           page.cleanup();
         }
-        meaningfulCharacters += blocks.reduce(
-          (total, block) => total + countMeaningfulCharacters(block.text),
-          0,
-        );
-        if (blocks.length > 0) {
-          const sectionOrdinal = sections.length;
-          const sectionId = stableSectionId(context.bookId, sectionOrdinal);
-          sections.push({
-            id: sectionId,
-            parentId: null,
-            ordinal: sectionOrdinal,
-            title: `第 ${pageNumber} 页`,
+        const sectionOrdinal = pageNumber - 1;
+        const sectionId = stableSectionId(context.bookId, sectionOrdinal);
+        sections.push({
+          id: sectionId,
+          parentId: null,
+          ordinal: sectionOrdinal,
+          title: `第 ${pageNumber} 页`,
+          locator: {
+            format: 'pdf',
+            startPage: pageNumber,
+            endPage: pageNumber,
+            rectsByPage: null,
+          },
+          blocks: blocks.map((block, blockOrdinal): NormalizedBlockInput => ({
+            id: stableBlockId(context.bookId, sectionOrdinal, blockOrdinal),
+            ordinal: blockOrdinal,
+            kind: isEquationText(block.text) ? 'equation' : 'paragraph',
+            plainText: block.text,
             locator: {
               format: 'pdf',
               startPage: pageNumber,
               endPage: pageNumber,
               rectsByPage: null,
             },
-            blocks: blocks.map((block, blockOrdinal): NormalizedBlockInput => ({
-              id: stableBlockId(context.bookId, sectionOrdinal, blockOrdinal),
-              ordinal: blockOrdinal,
-              kind: isEquationText(block.text) ? 'equation' : 'paragraph',
-              plainText: block.text,
-              locator: {
-                format: 'pdf',
-                startPage: pageNumber,
-                endPage: pageNumber,
-                rectsByPage: null,
-              },
-            })),
-          });
-        }
+          })),
+        });
         sink.progress({
           stage: 'parsing',
           completed: pageNumber,
@@ -119,8 +110,6 @@ export class PdfParser implements DocumentParser {
         });
       }
 
-      if (meaningfulCharacters === 0)
-        throw new PdfParserError('NO_EXTRACTABLE_TEXT');
       await sink.begin({
         title: normalizeWhitespace(info?.Title ?? '') || '未命名 PDF',
         author: normalizeWhitespace(info?.Author ?? '') || null,
@@ -187,11 +176,6 @@ export async function inspectLocalPdfPageQuality(
 
 function isTextItem(item: TextItem | { type: string }): item is TextItem {
   return 'str' in item;
-}
-
-function countMeaningfulCharacters(value: string): number {
-  return [...value].filter((character) => /[\p{L}\p{N}]/u.test(character))
-    .length;
 }
 
 function classifyPdfError(error: unknown): Error {

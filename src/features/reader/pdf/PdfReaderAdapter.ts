@@ -187,6 +187,10 @@ export class PdfReaderAdapter implements ReaderAdapter {
     return this.#selection;
   }
 
+  getPageCount(): number | null {
+    return this.#document?.numPages ?? null;
+  }
+
   async navigate(locator: DocumentLocator): Promise<NavigationResult> {
     if (
       locator.format !== 'pdf' ||

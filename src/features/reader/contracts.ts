@@ -118,6 +118,7 @@ export interface ReaderAdapter {
   showAnnotations(items: AnnotationMarker[]): Promise<MarkerRelocation[]>;
   search(query: string): Promise<ReaderSearchHit[]>;
   getProgress(): ReadingProgress;
+  getPageCount?(): number | null;
   beginRegionSelection?(
     options: RegionSelectionOptions,
   ): Promise<RegionSelectionResult | null>;

@@ -63,6 +63,10 @@ export interface ReaderApi {
     locator: DocumentLocator,
   ): Promise<void>;
   listReaderSections(bookId: string): Promise<ReaderSection[]>;
+  ensurePdfPageSections?(
+    bookId: string,
+    pageCount: number,
+  ): Promise<ReaderSection[]>;
   searchBook(
     bookId: string,
     query: string,
@@ -139,6 +143,20 @@ export class TauriReaderApi implements ReaderApi {
   async listReaderSections(bookId: string): Promise<ReaderSection[]> {
     try {
       return await invoke<ReaderSection[]>('list_reader_sections', { bookId });
+    } catch (error) {
+      throw toUserError(error);
+    }
+  }
+
+  async ensurePdfPageSections(
+    bookId: string,
+    pageCount: number,
+  ): Promise<ReaderSection[]> {
+    try {
+      return await invoke<ReaderSection[]>('ensure_pdf_page_sections', {
+        bookId,
+        pageCount,
+      });
     } catch (error) {
       throw toUserError(error);
     }

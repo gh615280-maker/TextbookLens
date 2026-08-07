@@ -79,6 +79,17 @@ pub async fn list_reader_sections(
         .map_err(AppErrorDto::from)
 }
 
+#[tauri::command]
+pub async fn ensure_pdf_page_sections(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+    page_count: u32,
+) -> Result<Vec<crate::book_repository::ReaderSection>, AppErrorDto> {
+    crate::book_repository::ensure_pdf_page_sections(state.db.pool(), book_id, page_count)
+        .await
+        .map_err(AppErrorDto::from)
+}
+
 fn retry_detached_remote_cleanup(state: &AppState, resource_ids: &[Uuid]) {
     if resource_ids.is_empty() {
         return;

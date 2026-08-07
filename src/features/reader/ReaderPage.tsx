@@ -284,7 +284,13 @@ export function ReaderPage() {
       markerLayer,
     );
     controllerRef.current = controller;
-    void controller.open(bookId);
+    void controller
+      .open(bookId)
+      .then(() => api.listReaderSections(bookId))
+      .then((value) => {
+        if (controllerRef.current === controller) setSections(value);
+      })
+      .catch(() => {});
     return () => {
       owner.dispose();
       if (conversationOwnerRef.current === owner)

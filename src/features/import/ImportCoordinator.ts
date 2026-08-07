@@ -295,7 +295,7 @@ class CoordinatorSink implements ParserSink {
       section.ordinal !== this.#expectedSectionOrdinal ||
       section.id !== stableSectionId(this.bookId, section.ordinal) ||
       section.locator.format !== this.format ||
-      section.blocks.length === 0 ||
+      (section.blocks.length === 0 && this.format !== 'pdf') ||
       section.blocks.length > MAX_BATCH_BLOCKS
     ) {
       throw contractError('INVALID_INPUT');

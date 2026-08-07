@@ -94,6 +94,18 @@ export class ReaderController {
       await adapter.open(this.#source, bootstrap.lastLocator);
       if (generation !== this.#openGeneration || adapter !== this.#adapter)
         return;
+      if (
+        bootstrap.book.format === 'pdf' &&
+        this.api.ensurePdfPageSections &&
+        adapter.getPageCount
+      ) {
+        const pageCount = adapter.getPageCount();
+        if (pageCount !== null) {
+          await this.api.ensurePdfPageSections(bookId, pageCount);
+          if (generation !== this.#openGeneration || adapter !== this.#adapter)
+            return;
+        }
+      }
       try {
         const markerDtos = await this.api.listAnnotationMarkers(bookId);
         if (generation !== this.#openGeneration || adapter !== this.#adapter)
