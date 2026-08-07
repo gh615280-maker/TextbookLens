@@ -17,6 +17,7 @@ const settings: ReaderSettings = {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  window.localStorage.clear();
   delete (HTMLElement.prototype as Partial<HTMLElement>).requestFullscreen;
   delete (document as Partial<Document>).exitFullscreen;
 });
@@ -125,5 +126,58 @@ describe('ReaderLayout', () => {
 
     view.rerender(<ReaderLayout title="Fixture" firstHintVisible={false} />);
     expect(screen.queryByText('阅读提示')).not.toBeInTheDocument();
+  });
+
+  it('uses Aa as whole-textbook zoom and resizes the textbook viewport from its border', async () => {
+    const onSettingsChange = vi.fn();
+    render(
+      <ReaderLayout
+        title="Fixture"
+        format="pdf"
+        settings={{ ...settings, pdfZoom: 1.4 }}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+
+    const layout = document.querySelector<HTMLElement>('.reader-layout');
+    expect(layout?.style.getPropertyValue('--reader-content-zoom')).toBe('1.4');
+
+    await userEvent.click(screen.getByRole('button', { name: '阅读设置' }));
+    const zoom = screen.getByRole('slider', { name: '教材缩放' });
+    fireEvent.change(zoom, { target: { value: '1.5' } });
+    expect(onSettingsChange).toHaveBeenCalledWith({
+      ...settings,
+      pdfZoom: 1.5,
+    });
+
+    const frame = document.querySelector<HTMLElement>('.reader-document-frame');
+    expect(frame).not.toBeNull();
+    vi.spyOn(frame!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 720,
+      bottom: 720,
+      left: 0,
+      width: 720,
+      height: 720,
+      toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: '调整教材区域大小' }),
+      { clientX: 720, clientY: 720 },
+    );
+    fireEvent.pointerMove(window, { clientX: 800, clientY: 780 });
+    fireEvent.pointerUp(window);
+
+    expect(frame).toHaveStyle({ width: '800px', height: '780px' });
+    expect(
+      JSON.parse(
+        window.localStorage.getItem('textbooklens.reader-viewport.v1')!,
+      ),
+    ).toEqual({
+      width: 800,
+      height: 780,
+    });
   });
 });

@@ -297,6 +297,7 @@ function Panel({
   return (
     <section
       aria-label="Learning request"
+      className="floating-panel-shell"
       data-panel-id={panel.id}
       style={{
         height: rect.height,

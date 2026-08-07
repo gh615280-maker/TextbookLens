@@ -315,15 +315,96 @@ main {
 }
 
 .reader-main {
-  width: min(100%, var(--reader-width, var(--reader-column-width)));
+  width: 100%;
   margin-inline: auto;
   padding: var(--space-6) var(--space-4);
-  font-size: calc(1rem * var(--reader-font-scale, 1));
   line-height: var(--reader-line-height, var(--line-height-base));
 }
 
+.reader-main > h1,
+.reader-main > .reader-panel,
+.reader-marker-history {
+  width: min(100%, var(--reader-width, var(--reader-column-width)));
+  margin-inline: auto;
+}
+
+.reader-document-frame {
+  position: relative;
+  width: min(100%, var(--reader-width, var(--reader-column-width)));
+  max-width: 100%;
+  height: min(75vh, 56rem);
+  min-width: min(20rem, 100%);
+  min-height: 15rem;
+  margin-inline: auto;
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-small);
+  background: var(--color-surface);
+}
+
 .reader-document {
-  min-height: min(75vh, 56rem);
+  width: calc(100% / var(--reader-content-zoom, 1));
+  height: calc(100% / var(--reader-content-zoom, 1));
+  min-height: calc(100% / var(--reader-content-zoom, 1));
+  zoom: var(--reader-content-zoom, 1);
+}
+
+.reader-document.pdf-reader,
+.reader-document.epub-reader,
+.reader-document.docx-reader {
+  min-height: calc(100% / var(--reader-content-zoom, 1));
+}
+
+.reader-document-resize-handle {
+  position: absolute;
+  z-index: 8;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  touch-action: none;
+}
+
+.reader-document-resize-handle[data-reader-resize-handle='e'] {
+  inset-block: 0.75rem;
+  inset-inline-end: -0.1rem;
+  width: 0.7rem;
+  cursor: ew-resize;
+}
+
+.reader-document-resize-handle[data-reader-resize-handle='s'] {
+  inset-inline: 0.75rem;
+  inset-block-end: -0.1rem;
+  height: 0.7rem;
+  cursor: ns-resize;
+}
+
+.reader-document-resize-handle[data-reader-resize-handle='se'] {
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  cursor: nwse-resize;
+}
+
+.reader-document-resize-handle[data-reader-resize-handle='se']::after {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid var(--color-accent);
+  border-bottom: 2px solid var(--color-accent);
+  content: '';
+}
+
+.reader-document-resize-handle:hover,
+.reader-document-resize-handle:focus-visible {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  outline: 1px solid var(--color-accent);
 }
 
 .reader-marker-history {

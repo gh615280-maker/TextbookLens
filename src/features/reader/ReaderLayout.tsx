@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   useEffect,
   useRef,
   useState,
@@ -43,6 +44,9 @@ interface ReaderCopy extends ReaderToolbarLabels {
   searchFailed: string;
   searchEmpty: string;
   currentSection: string;
+  resizeDocumentWidth: string;
+  resizeDocumentHeight: string;
+  resizeDocumentBoth: string;
 }
 
 const copy: Record<UiLanguage, ReaderCopy> = {
@@ -75,6 +79,9 @@ const copy: Record<UiLanguage, ReaderCopy> = {
     searchFailed: '搜索失败，请重试。',
     searchEmpty: '没有搜索结果。',
     currentSection: '当前章节',
+    resizeDocumentWidth: '调整教材区域宽度',
+    resizeDocumentHeight: '调整教材区域高度',
+    resizeDocumentBoth: '调整教材区域大小',
   },
   'zh-TW': {
     toolbar: '閱讀工具列',
@@ -105,6 +112,9 @@ const copy: Record<UiLanguage, ReaderCopy> = {
     searchFailed: '搜尋失敗，請再試一次。',
     searchEmpty: '沒有搜尋結果。',
     currentSection: '目前章節',
+    resizeDocumentWidth: '調整教材區域寬度',
+    resizeDocumentHeight: '調整教材區域高度',
+    resizeDocumentBoth: '調整教材區域大小',
   },
   en: {
     toolbar: 'Reader toolbar',
@@ -136,6 +146,9 @@ const copy: Record<UiLanguage, ReaderCopy> = {
     searchFailed: 'Search failed. Try again.',
     searchEmpty: 'No search results.',
     currentSection: 'Current section',
+    resizeDocumentWidth: 'Resize textbook width',
+    resizeDocumentHeight: 'Resize textbook height',
+    resizeDocumentBoth: 'Resize textbook area',
   },
 };
 
@@ -259,7 +272,8 @@ export function ReaderLayout({
         '--reader-font-scale': settings.fontScale,
         '--reader-line-height': settings.lineHeight,
         '--reader-width': `${settings.readerWidth}ch`,
-        '--reader-pdf-zoom': settings.pdfZoom,
+        '--reader-content-zoom':
+          format === 'pdf' ? settings.pdfZoom : settings.fontScale,
       } as CSSProperties)
     : undefined;
 
@@ -392,20 +406,15 @@ export function ReaderLayout({
       <main className="reader-main" aria-label={labels.content} tabIndex={-1}>
         <h1>{title}</h1>
         <ReaderPanel content={panelContent} />
-        {readerContainerRef ? (
-          <div
-            ref={readerContainerRef}
-            className="reader-document"
-            role="region"
-            aria-label={labels.document}
-          />
-        ) : (
-          <div
-            className="reader-document"
-            role="region"
-            aria-label={labels.document}
-          />
-        )}
+        <ResizableReaderDocument
+          ref={readerContainerRef}
+          documentLabel={labels.document}
+          resizeLabels={{
+            e: labels.resizeDocumentWidth,
+            s: labels.resizeDocumentHeight,
+            se: labels.resizeDocumentBoth,
+          }}
+        />
         {markerHistoryRef && (
           <aside
             className="reader-marker-history"
@@ -418,4 +427,192 @@ export function ReaderLayout({
       </main>
     </div>
   );
+}
+
+type ReaderResizeHandle = 'e' | 's' | 'se';
+type ReaderViewportSize = { width: number; height: number };
+
+const READER_VIEWPORT_PREFERENCE = 'textbooklens.reader-viewport.v1';
+const MIN_READER_VIEWPORT_WIDTH = 320;
+const MIN_READER_VIEWPORT_HEIGHT = 240;
+const MAX_READER_VIEWPORT_DIMENSION = 8192;
+
+const ResizableReaderDocument = forwardRef<
+  HTMLDivElement,
+  {
+    documentLabel: string;
+    resizeLabels: Record<ReaderResizeHandle, string>;
+  }
+>(function ResizableReaderDocument(
+  { documentLabel, resizeLabels },
+  forwardedRef,
+) {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const interaction = useRef<{
+    handle: ReaderResizeHandle;
+    startX: number;
+    startY: number;
+    size: ReaderViewportSize;
+  } | null>(null);
+  const [size, setSize] = useState<ReaderViewportSize | null>(() =>
+    readReaderViewportPreference(),
+  );
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const active = interaction.current;
+      if (!active) return;
+      const next = resizedReaderViewport(
+        active.size,
+        active.handle,
+        event.clientX - active.startX,
+        event.clientY - active.startY,
+      );
+      setSize(next);
+    };
+    const onPointerUp = () => {
+      if (!interaction.current) return;
+      interaction.current = null;
+      setSize((current) => {
+        if (current) writeReaderViewportPreference(current);
+        return current;
+      });
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, []);
+
+  const currentSize = (): ReaderViewportSize => {
+    const bounds = frameRef.current?.getBoundingClientRect();
+    return {
+      width:
+        size?.width ?? (bounds?.width && bounds.width > 0 ? bounds.width : 720),
+      height:
+        size?.height ??
+        (bounds?.height && bounds.height > 0 ? bounds.height : 720),
+    };
+  };
+
+  const updateFromKeyboard = (
+    handle: ReaderResizeHandle,
+    event: React.KeyboardEvent,
+  ) => {
+    const step = event.shiftKey ? 32 : 16;
+    const delta = {
+      ArrowUp: { x: 0, y: -step },
+      ArrowDown: { x: 0, y: step },
+      ArrowLeft: { x: -step, y: 0 },
+      ArrowRight: { x: step, y: 0 },
+    } as const;
+    const movement = delta[event.key as keyof typeof delta];
+    if (!movement) return;
+    event.preventDefault();
+    const next = resizedReaderViewport(
+      currentSize(),
+      handle,
+      movement.x,
+      movement.y,
+    );
+    setSize(next);
+    writeReaderViewportPreference(next);
+  };
+
+  return (
+    <div
+      ref={frameRef}
+      className="reader-document-frame"
+      style={
+        size
+          ? ({ width: size.width, height: size.height } as CSSProperties)
+          : undefined
+      }
+    >
+      <div
+        ref={forwardedRef}
+        className="reader-document"
+        role="region"
+        aria-label={documentLabel}
+      />
+      {(['e', 's', 'se'] as const).map((handle) => (
+        <button
+          key={handle}
+          type="button"
+          className="reader-document-resize-handle"
+          data-reader-resize-handle={handle}
+          aria-label={resizeLabels[handle]}
+          onKeyDown={(event) => updateFromKeyboard(handle, event)}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            interaction.current = {
+              handle,
+              startX: event.clientX,
+              startY: event.clientY,
+              size: currentSize(),
+            };
+          }}
+        />
+      ))}
+    </div>
+  );
+});
+
+function resizedReaderViewport(
+  size: ReaderViewportSize,
+  handle: ReaderResizeHandle,
+  deltaX: number,
+  deltaY: number,
+): ReaderViewportSize {
+  return {
+    width: Math.min(
+      MAX_READER_VIEWPORT_DIMENSION,
+      Math.max(
+        MIN_READER_VIEWPORT_WIDTH,
+        size.width + (handle.includes('e') ? deltaX : 0),
+      ),
+    ),
+    height: Math.min(
+      MAX_READER_VIEWPORT_DIMENSION,
+      Math.max(
+        MIN_READER_VIEWPORT_HEIGHT,
+        size.height + (handle.includes('s') ? deltaY : 0),
+      ),
+    ),
+  };
+}
+
+function readReaderViewportPreference(): ReaderViewportSize | null {
+  try {
+    const value: unknown = JSON.parse(
+      window.localStorage.getItem(READER_VIEWPORT_PREFERENCE) ?? 'null',
+    );
+    if (!value || typeof value !== 'object') return null;
+    const { width, height } = value as Partial<ReaderViewportSize>;
+    return Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      Number(width) >= MIN_READER_VIEWPORT_WIDTH &&
+      Number(width) <= MAX_READER_VIEWPORT_DIMENSION &&
+      Number(height) >= MIN_READER_VIEWPORT_HEIGHT &&
+      Number(height) <= MAX_READER_VIEWPORT_DIMENSION
+      ? { width: Number(width), height: Number(height) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeReaderViewportPreference(size: ReaderViewportSize) {
+  try {
+    window.localStorage.setItem(
+      READER_VIEWPORT_PREFERENCE,
+      JSON.stringify(size),
+    );
+  } catch {
+    // Resizing remains available for this session when storage is unavailable.
+  }
 }

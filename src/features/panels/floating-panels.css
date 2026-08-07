@@ -8,6 +8,86 @@
   height: 100%;
   min-height: 0;
 }
+.floating-panel-shell > [data-resize-handle] {
+  position: absolute;
+  z-index: 3;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  touch-action: none;
+}
+.floating-panel-shell > [data-resize-handle='n'],
+.floating-panel-shell > [data-resize-handle='s'] {
+  right: 0.75rem;
+  left: 0.75rem;
+  height: 0.65rem;
+  cursor: ns-resize;
+}
+.floating-panel-shell > [data-resize-handle='e'],
+.floating-panel-shell > [data-resize-handle='w'] {
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 0.65rem;
+  cursor: ew-resize;
+}
+.floating-panel-shell > [data-resize-handle='n'] {
+  top: -0.325rem;
+}
+.floating-panel-shell > [data-resize-handle='s'] {
+  bottom: -0.325rem;
+}
+.floating-panel-shell > [data-resize-handle='e'] {
+  right: -0.325rem;
+}
+.floating-panel-shell > [data-resize-handle='w'] {
+  left: -0.325rem;
+}
+.floating-panel-shell > [data-resize-handle='ne'],
+.floating-panel-shell > [data-resize-handle='nw'],
+.floating-panel-shell > [data-resize-handle='se'],
+.floating-panel-shell > [data-resize-handle='sw'] {
+  width: 1rem;
+  height: 1rem;
+}
+.floating-panel-shell > [data-resize-handle='ne'] {
+  top: -0.35rem;
+  right: -0.35rem;
+  cursor: nesw-resize;
+}
+.floating-panel-shell > [data-resize-handle='se']::after {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid Highlight;
+  border-bottom: 2px solid Highlight;
+  content: '';
+}
+.floating-panel-shell > [data-resize-handle='nw'] {
+  top: -0.35rem;
+  left: -0.35rem;
+  cursor: nwse-resize;
+}
+.floating-panel-shell > [data-resize-handle='se'] {
+  right: -0.35rem;
+  bottom: -0.35rem;
+  cursor: nwse-resize;
+}
+.floating-panel-shell > [data-resize-handle='sw'] {
+  bottom: -0.35rem;
+  left: -0.35rem;
+  cursor: nesw-resize;
+}
+.floating-panel-shell > [data-resize-handle]:hover,
+.floating-panel-shell > [data-resize-handle]:focus-visible {
+  background: color-mix(in srgb, Highlight 24%, transparent);
+  outline: 1px solid Highlight;
+}
 .floating-panel-titlebar {
   align-items: center;
   border-bottom: 1px solid currentColor;

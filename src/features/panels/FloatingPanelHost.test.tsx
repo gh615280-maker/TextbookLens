@@ -36,6 +36,16 @@ describe('FloatingPanelHost', () => {
     expect(panels.snapshot().panels[0].geometry.widthPx).toBeGreaterThan(
       before,
     );
+    const afterKeyboard = panels.snapshot().panels[0].geometry.widthPx;
+    fireEvent.pointerDown(screen.getByLabelText('Resize e'), {
+      clientX: 400,
+      clientY: 300,
+    });
+    fireEvent.pointerMove(window, { clientX: 448, clientY: 300 });
+    fireEvent.pointerUp(window);
+    expect(panels.snapshot().panels[0].geometry.widthPx).toBeGreaterThan(
+      afterKeyboard,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(learningApi.cancel).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
