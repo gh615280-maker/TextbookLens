@@ -42,6 +42,7 @@
   border: 1px solid ButtonBorder;
 }
 .epub-region-preview {
+  box-sizing: border-box;
   pointer-events: none;
   position: absolute;
   z-index: 3;

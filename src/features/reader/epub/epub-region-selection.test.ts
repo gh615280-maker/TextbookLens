@@ -5,7 +5,6 @@ import {
   epubRegionContainer,
   EpubRegionSelectionError,
   iframeElementRelativeRect,
-  iframePointToReader,
 } from './epub-region-selection';
 
 describe('EPUB region selection geometry', () => {
@@ -32,16 +31,6 @@ describe('EPUB region selection geometry', () => {
         { x: 620, y: 390 },
       ),
     ).toEqual({ x: 0.1, y: 0.1, width: 0.4, height: 0.4 });
-  });
-
-  it('maps iframe-local preview points into reader coordinates without persisting them', () => {
-    expect(
-      iframePointToReader(
-        { left: 100, top: 50 },
-        { left: 250, top: 180 },
-        { x: 20, y: 30 },
-      ),
-    ).toEqual({ x: 170, y: 160 });
   });
 
   it('rejects tiny rectangles and only chooses a conservative block container', () => {

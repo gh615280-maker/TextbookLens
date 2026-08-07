@@ -57,18 +57,6 @@ export function iframeElementRelativeRect(
   );
 }
 
-/** Maps an iframe-local point to the reader container for a transient preview. */
-export function iframePointToReader(
-  readerBounds: Pick<RectBounds, 'left' | 'top'>,
-  frameBounds: Pick<RectBounds, 'left' | 'top'>,
-  point: Point,
-): Point {
-  return {
-    x: stableNumber(frameBounds.left - readerBounds.left + point.x),
-    y: stableNumber(frameBounds.top - readerBounds.top + point.y),
-  };
-}
-
 /** Chooses a conservative block/visual container that EPUB.js can turn into a CFI. */
 export function epubRegionContainer(
   target: EventTarget | null,

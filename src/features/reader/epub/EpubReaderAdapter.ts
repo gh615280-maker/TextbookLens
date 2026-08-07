@@ -13,6 +13,7 @@ import type {
   AnnotationMarker,
 } from '../contracts';
 import { groupOverlappingMarkers } from '../markers/MarkerLayer';
+import { iframeClientPointToLocal } from '../region-preview-geometry';
 import { recoverEpubCfi } from './epub-markers';
 import { sanitizeEpubDocument, snapshotEpubRange } from './epub-selection';
 import {
@@ -25,7 +26,6 @@ import {
   epubRegionContainer,
   elementAtEpubPoint,
   EpubRegionSelectionError,
-  iframePointToReader,
 } from './epub-region-selection';
 import './epub-reader.css';
 
@@ -403,11 +403,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       ) => {
         const frame = contents.document.defaultView?.frameElement;
         if (!(frame instanceof HTMLElement)) return point;
-        return iframePointToReader(
-          this.container.getBoundingClientRect(),
-          frame.getBoundingClientRect(),
-          point,
-        );
+        return iframeClientPointToLocal(this.container, frame, point);
       };
       const updatePreview = (
         contents: EpubContentsLike,

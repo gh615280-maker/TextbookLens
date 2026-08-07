@@ -12,6 +12,7 @@ import type {
   AnnotationMarker,
 } from '../contracts';
 import { groupOverlappingMarkers } from '../markers/MarkerLayer';
+import { clientSelectionRect } from '../region-preview-geometry';
 import { snapshotDocxRange, rangeFromDocxLocator } from './docx-selection';
 import {
   addDocxRangeOverlay,
@@ -248,12 +249,16 @@ export class DocxReaderAdapter implements ReaderAdapter {
       };
       const updatePreview = (x: number, y: number) => {
         if (!start || !preview) return;
-        const root = this.container.getBoundingClientRect();
+        const rect = clientSelectionRect(
+          this.container,
+          { x: start.x, y: start.y },
+          { x, y },
+        );
         Object.assign(preview.style, {
-          left: `${Math.min(start.x, x) - root.left}px`,
-          top: `${Math.min(start.y, y) - root.top}px`,
-          width: `${Math.abs(x - start.x)}px`,
-          height: `${Math.abs(y - start.y)}px`,
+          left: `${rect.left}px`,
+          top: `${rect.top}px`,
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
         });
       };
       const onMove = (event: PointerEvent) => {

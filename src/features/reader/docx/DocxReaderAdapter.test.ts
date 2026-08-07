@@ -192,6 +192,43 @@ describe('DocxReaderAdapter', () => {
     root.remove();
   });
 
+  it('keeps the preview edges aligned with the pointer at non-default zoom', async () => {
+    const { adapter, root } = await openRegionAdapter(
+      '<p data-section-id="s" data-block-id="stable">Reliable DOCX region text with enough useful characters.</p>',
+    );
+    const block = root.querySelector<HTMLElement>('[data-block-id]')!;
+    setBounds(root, 30, 40, 300, 150);
+    setBounds(block, 30, 40, 300, 150);
+    Object.defineProperties(root, {
+      offsetWidth: { configurable: true, value: 200 },
+      offsetHeight: { configurable: true, value: 100 },
+    });
+    const selecting = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+
+    block.dispatchEvent(pointer('pointerdown', 60, 70));
+    window.dispatchEvent(pointer('pointermove', 180, 130));
+
+    expect(
+      root.querySelector<HTMLElement>('.docx-region-preview'),
+    ).toMatchObject({
+      style: expect.objectContaining({
+        left: '20px',
+        top: '20px',
+        width: '80px',
+        height: '40px',
+      }),
+    });
+
+    window.dispatchEvent(new Event('pointercancel'));
+    await expect(selecting).rejects.toMatchObject({
+      instructionCode: 'docx_region_cancelled',
+    });
+    adapter.dispose();
+    root.remove();
+  });
+
   it('rejects cross-block and tiny drags without returning a viewport rect', async () => {
     const { adapter, root } = await openRegionAdapter(
       '<p data-section-id="s" data-block-id="a">First reliable block text.</p><p data-section-id="s" data-block-id="b">Second reliable block text.</p>',

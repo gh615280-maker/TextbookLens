@@ -22,6 +22,7 @@ import type {
   AnnotationMarker,
 } from '../contracts';
 import { groupOverlappingMarkers } from '../markers/MarkerLayer';
+import { clientSelectionRect } from '../region-preview-geometry';
 import {
   recoverPdfSelection,
   selectionFromRange,
@@ -48,19 +49,16 @@ interface PdfDocumentHandle {
 
 function updateRegionPreview(
   preview: HTMLElement,
-  pageBounds: DOMRect,
+  page: HTMLElement,
   start: Readonly<{ x: number; y: number }>,
   end: Readonly<{ x: number; y: number }>,
 ) {
-  const left = Math.max(pageBounds.left, Math.min(start.x, end.x));
-  const top = Math.max(pageBounds.top, Math.min(start.y, end.y));
-  const right = Math.min(pageBounds.right, Math.max(start.x, end.x));
-  const bottom = Math.min(pageBounds.bottom, Math.max(start.y, end.y));
+  const rect = clientSelectionRect(page, start, end);
   Object.assign(preview.style, {
-    left: `${left - pageBounds.left}px`,
-    top: `${top - pageBounds.top}px`,
-    width: `${Math.max(0, right - left)}px`,
-    height: `${Math.max(0, bottom - top)}px`,
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
   });
 }
 interface PdfLoadingTask {
@@ -443,21 +441,14 @@ export class PdfReaderAdapter implements ReaderAdapter {
           className: 'pdf-region-preview',
         });
         page.append(preview);
-        updateRegionPreview(
-          preview,
-          page.getBoundingClientRect(),
-          start,
-          start,
-        );
+        updateRegionPreview(preview, page, start, start);
       };
       const onMove = (event: PointerEvent) => {
         if (!start || !preview) return;
-        updateRegionPreview(
-          preview,
-          start.page.getBoundingClientRect(),
-          start,
-          { x: event.clientX, y: event.clientY },
-        );
+        updateRegionPreview(preview, start.page, start, {
+          x: event.clientX,
+          y: event.clientY,
+        });
       };
       const onUp = async (event: PointerEvent) => {
         if (!start) return;

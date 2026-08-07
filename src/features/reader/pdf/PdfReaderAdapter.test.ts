@@ -367,6 +367,47 @@ describe('PdfReaderAdapter', () => {
     adapter.dispose();
   });
 
+  it('keeps the preview edges aligned with the pointer at non-default zoom', async () => {
+    const adapter = await openRegionAdapter();
+    const page = appendPage(1, 45);
+    Object.defineProperties(page, {
+      offsetWidth: { configurable: true, value: 100 },
+      offsetHeight: { configurable: true, value: 100 },
+    });
+    page.getBoundingClientRect = () =>
+      ({
+        left: 30,
+        top: 45,
+        right: 180,
+        bottom: 195,
+        width: 150,
+        height: 150,
+      }) as DOMRect;
+    const selecting = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+
+    page.dispatchEvent(pointer('pointerdown', 45, 60));
+    window.dispatchEvent(pointer('pointermove', 120, 105));
+
+    expect(
+      page.querySelector<HTMLElement>('.pdf-region-preview'),
+    ).toMatchObject({
+      style: expect.objectContaining({
+        left: '10px',
+        top: '10px',
+        width: '50px',
+        height: '30px',
+      }),
+    });
+
+    window.dispatchEvent(new Event('pointercancel'));
+    await expect(selecting).rejects.toMatchObject({
+      instructionCode: 'pdf_region_cancelled',
+    });
+    adapter.dispose();
+  });
+
   it('rejects a cross-page drag without creating an ambiguous anchor', async () => {
     const adapter = await openRegionAdapter();
     appendPage(1, 0);
