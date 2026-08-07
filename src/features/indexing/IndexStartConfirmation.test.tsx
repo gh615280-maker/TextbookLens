@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import {
   cleanup,
   fireEvent,
@@ -35,6 +35,7 @@ describe('IndexStartConfirmation', () => {
     const createRun = vi
       .fn()
       .mockResolvedValue('44444444-4444-4444-8444-444444444444');
+    const authorizeRun = vi.fn();
     const setNoPrompt = vi.fn().mockResolvedValue(undefined);
     const started = vi.fn();
     renderConfirmation(
@@ -42,7 +43,7 @@ describe('IndexStartConfirmation', () => {
         request={request}
         profileName="Vision profile"
         modelName="Model X"
-        api={{ confirmOperation, createRun }}
+        api={{ confirmOperation, createRun, authorizeRun }}
         onReject={vi.fn()}
         onSetProfileNoPrompt={setNoPrompt}
         onStarted={started}
@@ -63,6 +64,7 @@ describe('IndexStartConfirmation', () => {
       '33333333-3333-4333-8333-333333333333',
       request,
     );
+    expect(authorizeRun).not.toHaveBeenCalled();
     expect(started).toHaveBeenCalledWith(
       '44444444-4444-4444-8444-444444444444',
     );
@@ -72,6 +74,7 @@ describe('IndexStartConfirmation', () => {
     const user = userEvent.setup();
     const confirmOperation = vi.fn();
     const createRun = vi.fn();
+    const authorizeRun = vi.fn();
     const setNoPrompt = vi.fn();
     const reject = vi.fn();
     renderConfirmation(
@@ -79,7 +82,7 @@ describe('IndexStartConfirmation', () => {
         request={request}
         profileName="Vision profile"
         modelName="Model X"
-        api={{ confirmOperation, createRun }}
+        api={{ confirmOperation, createRun, authorizeRun }}
         onReject={reject}
         onSetProfileNoPrompt={setNoPrompt}
         onStarted={vi.fn()}
@@ -93,6 +96,7 @@ describe('IndexStartConfirmation', () => {
     expect(reject).toHaveBeenCalledOnce();
     expect(confirmOperation).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();
+    expect(authorizeRun).not.toHaveBeenCalled();
     expect(setNoPrompt).not.toHaveBeenCalled();
   });
 
@@ -105,13 +109,14 @@ describe('IndexStartConfirmation', () => {
         }),
     );
     const createRun = vi.fn().mockResolvedValue(RUN_ID);
+    const authorizeRun = vi.fn();
     const started = vi.fn();
     renderConfirmation(
       <IndexStartConfirmation
         request={request}
         profileName="Vision profile"
         modelName="Model X"
-        api={{ confirmOperation, createRun }}
+        api={{ confirmOperation, createRun, authorizeRun }}
         onReject={vi.fn()}
         onStarted={started}
       />,
@@ -127,6 +132,33 @@ describe('IndexStartConfirmation', () => {
     expect(started).toHaveBeenCalledWith(RUN_ID);
   });
 
+  it('starts a run after the StrictMode effect cleanup and remount check', async () => {
+    const confirmOperation = vi
+      .fn()
+      .mockResolvedValue('33333333-3333-4333-8333-333333333333');
+    const createRun = vi.fn().mockResolvedValue(RUN_ID);
+    const authorizeRun = vi.fn();
+    const started = vi.fn();
+
+    renderConfirmation(
+      <StrictMode>
+        <IndexStartConfirmation
+          request={request}
+          profileName="Vision profile"
+          modelName="Model X"
+          api={{ confirmOperation, createRun, authorizeRun }}
+          onReject={vi.fn()}
+          onStarted={started}
+        />
+      </StrictMode>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and start' }));
+
+    await waitFor(() => expect(createRun).toHaveBeenCalledOnce());
+    expect(started).toHaveBeenCalledWith(RUN_ID);
+  });
+
   it('does not continue a late confirmation after unmount', async () => {
     let releaseToken: (token: string) => void = () => {};
     const confirmOperation = vi.fn(
@@ -136,12 +168,13 @@ describe('IndexStartConfirmation', () => {
         }),
     );
     const createRun = vi.fn();
+    const authorizeRun = vi.fn();
     const view = renderConfirmation(
       <IndexStartConfirmation
         request={request}
         profileName="Vision profile"
         modelName="Model X"
-        api={{ confirmOperation, createRun }}
+        api={{ confirmOperation, createRun, authorizeRun }}
         onReject={vi.fn()}
         onStarted={vi.fn()}
       />,
@@ -154,6 +187,38 @@ describe('IndexStartConfirmation', () => {
     await Promise.resolve();
 
     expect(createRun).not.toHaveBeenCalled();
+    expect(authorizeRun).not.toHaveBeenCalled();
+  });
+
+  it('uses a fresh token to reauthorize an unfinished durable run', async () => {
+    const resumedRequest = { ...request, runId: RUN_ID };
+    const confirmOperation = vi
+      .fn()
+      .mockResolvedValue('33333333-3333-4333-8333-333333333333');
+    const createRun = vi.fn();
+    const authorizeRun = vi.fn().mockResolvedValue(undefined);
+    const started = vi.fn();
+    renderConfirmation(
+      <IndexStartConfirmation
+        request={resumedRequest}
+        profileName="Vision profile"
+        modelName="Model X"
+        api={{ confirmOperation, createRun, authorizeRun }}
+        onReject={vi.fn()}
+        onStarted={started}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and start' }));
+
+    await waitFor(() => expect(authorizeRun).toHaveBeenCalledOnce());
+    expect(authorizeRun).toHaveBeenCalledWith(
+      RUN_ID,
+      '33333333-3333-4333-8333-333333333333',
+      resumedRequest,
+    );
+    expect(createRun).not.toHaveBeenCalled();
+    expect(started).toHaveBeenCalledWith(RUN_ID);
   });
 });
 

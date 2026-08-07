@@ -27,7 +27,13 @@ type QualityInspector = (
 export interface IndexStartPageProps {
   readerApi?: ReaderStartApi;
   providerApi?: ProviderStartApi;
-  indexingApi?: Pick<IndexingApi, 'confirmOperation' | 'createRun'>;
+  indexingApi?: Pick<
+    IndexingApi,
+    | 'confirmOperation'
+    | 'createRun'
+    | 'authorizeRun'
+    | 'findCurrentRunForBook'
+  >;
   inspectQuality?: QualityInspector;
 }
 
@@ -59,7 +65,13 @@ export function IndexStartPage({
     () => providerApi ?? new TauriProviderApi(),
   );
   const [indexing] = useState<
-    Pick<IndexingApi, 'confirmOperation' | 'createRun'>
+    Pick<
+      IndexingApi,
+      | 'confirmOperation'
+      | 'createRun'
+      | 'authorizeRun'
+      | 'findCurrentRunForBook'
+    >
   >(() => indexingApi ?? new TauriIndexingApi());
   const [qualityInspector] = useState<QualityInspector>(
     () => inspectQuality ?? inspectLocalPdfPageQuality,
@@ -118,9 +130,10 @@ export function IndexStartPage({
           return;
         }
 
-        const [settings, compatibleProfiles] = await Promise.all([
+        const [settings, compatibleProfiles, currentRun] = await Promise.all([
           providers.getSettings(),
           providers.listProfiles('structured_page_analysis'),
+          indexing.findCurrentRunForBook?.(resolvedBookId) ?? null,
         ]);
         if (!active) return;
         const profile = compatibleProfiles.find(
@@ -138,7 +151,11 @@ export function IndexStartPage({
           kind: 'ready',
           profile,
           request: {
-            runId: null,
+            runId:
+              currentRun?.controlStatus === 'running' ||
+              currentRun?.controlStatus === 'paused'
+                ? currentRun.runId
+                : null,
             bookId: resolvedBookId,
             sourceSha256,
             providerProfileId: profile.id,
@@ -166,7 +183,7 @@ export function IndexStartPage({
       wipeSource(receivedSource);
       wipeSource(localSource);
     };
-  }, [bookId, providers, qualityInspector, reader]);
+  }, [bookId, indexing, providers, qualityInspector, reader]);
 
   const readRoute = bookId
     ? `/books/${encodeURIComponent(bookId)}/read`

@@ -175,6 +175,8 @@ class SyntheticAiIndexBackend {
         return this.failure('LOCAL_IO_ERROR');
       case 'get_index_run_aggregate':
         return this.success(this.aggregate());
+      case 'find_current_index_run_for_book':
+        return this.success(this.runCreated ? this.aggregate() : null);
       case 'list_index_page_reviews':
         return this.success(this.reviews());
       case 'retry_index_page':

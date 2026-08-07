@@ -151,7 +151,7 @@ const reviewSchema = z
       })
       .strict()
       .nullable(),
-    contentVersion: z.number().int().positive(),
+    contentVersion: z.number().int().nonnegative(),
     blocks: z.array(
       z
         .object({

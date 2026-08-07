@@ -1528,6 +1528,25 @@ async fn submit_with_executor(
         )
         .await;
     }
+    let mut requested_page_numbers = Vec::with_capacity(active.len());
+    for (_, page_id, attempt_id, _) in &active {
+        requested_page_numbers.push(
+            load_page_identity(&service.pool, *page_id, *attempt_id)
+                .await?
+                .1,
+        );
+    }
+    if bind_provider_pages_to_requested_order(&mut outcome.analysis, &requested_page_numbers)
+        .is_err()
+    {
+        return fail_active_batch(
+            service,
+            active,
+            events,
+            IndexFailureCode::IndexResponseInvalid,
+        )
+        .await;
+    }
     let response_bytes = serde_json::to_vec(&outcome.analysis).map_err(AppError::database)?;
     if response_bytes.len()
         > usize::try_from(MAX_PROVIDER_PAGE_ANALYSIS_BYTES).map_err(|_| invalid_input())?
@@ -1620,6 +1639,41 @@ async fn submit_with_executor(
         events,
     )
     .await
+}
+
+pub(crate) fn bind_provider_pages_to_requested_order(
+    analysis: &mut ProviderPageAnalysis,
+    requested_page_numbers: &[u32],
+) -> Result<(), ()> {
+    if analysis.pages.len() != requested_page_numbers.len()
+        || requested_page_numbers
+            .iter()
+            .any(|page_number| *page_number == 0)
+        || analysis
+            .pages
+            .iter()
+            .map(|page| page.page_number)
+            .collect::<BTreeSet<_>>()
+            .len()
+            != analysis.pages.len()
+        || requested_page_numbers
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .len()
+            != requested_page_numbers.len()
+    {
+        return Err(());
+    }
+
+    for (page, requested_page_number) in analysis
+        .pages
+        .iter_mut()
+        .zip(requested_page_numbers.iter().copied())
+    {
+        page.page_number = requested_page_number;
+    }
+    Ok(())
 }
 
 async fn validate_and_commit_received(

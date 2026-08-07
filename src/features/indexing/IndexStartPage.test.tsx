@@ -52,6 +52,7 @@ describe('IndexStartPage', () => {
     ).toBeVisible();
     expect(dependencies.confirmOperation).not.toHaveBeenCalled();
     expect(dependencies.createRun).not.toHaveBeenCalled();
+    expect(dependencies.authorizeRun).not.toHaveBeenCalled();
     expect(dependencies.updateConsent).not.toHaveBeenCalled();
   });
 
@@ -86,6 +87,7 @@ describe('IndexStartPage', () => {
     ).toBeVisible();
     expect(dependencies.confirmOperation).not.toHaveBeenCalled();
     expect(dependencies.createRun).not.toHaveBeenCalled();
+    expect(dependencies.authorizeRun).not.toHaveBeenCalled();
     expect(dependencies.updateConsent).not.toHaveBeenCalled();
     if (transferredSource) new Uint8Array(transferredSource).fill(0);
   });
@@ -137,6 +139,50 @@ describe('IndexStartPage', () => {
       '33333333-3333-4333-8333-333333333333',
       request,
     );
+    expect(dependencies.authorizeRun).not.toHaveBeenCalled();
+  });
+
+  it('reauthorizes an unfinished durable run instead of creating a competing run', async () => {
+    const dependencies = createDependencies({
+      source: new Uint8Array([1, 2, 3]),
+    });
+    dependencies.findCurrentRunForBook.mockResolvedValue({
+      runId: RUN_ID,
+      bookId: BOOK_ID,
+      controlStatus: 'running',
+      aggregateStatus: 'partial',
+      pages: {
+        total: 1,
+        notRequired: 0,
+        queued: 1,
+        rendering: 0,
+        sending: 0,
+        parsing: 0,
+        validating: 0,
+        indexed: 0,
+        needsReview: 0,
+        failed: 0,
+        cancelled: 0,
+      },
+      updatedAt: '2026-08-04T00:00:00Z',
+    });
+    renderPage(dependencies);
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Confirm and start' }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(`location:/quality/${RUN_ID}`)).toBeVisible(),
+    );
+    const request = dependencies.confirmOperation.mock.calls[0]?.[0];
+    expect(request?.runId).toBe(RUN_ID);
+    expect(dependencies.authorizeRun).toHaveBeenCalledWith(
+      RUN_ID,
+      '33333333-3333-4333-8333-333333333333',
+      request,
+    );
+    expect(dependencies.createRun).not.toHaveBeenCalled();
   });
 
   it('fails safely when no exact verified vision default is available', async () => {
@@ -284,6 +330,8 @@ function createDependencies({
       .fn()
       .mockResolvedValue('33333333-3333-4333-8333-333333333333'),
     createRun: vi.fn().mockResolvedValue(RUN_ID),
+    authorizeRun: vi.fn().mockResolvedValue(undefined),
+    findCurrentRunForBook: vi.fn().mockResolvedValue(null),
     inspectQuality: vi
       .fn()
       .mockResolvedValue([quality(2, 'no_text', 'needs_review')]),
@@ -325,6 +373,8 @@ function renderPage(dependencies: ReturnType<typeof createDependencies>) {
     indexingApi: {
       confirmOperation: dependencies.confirmOperation,
       createRun: dependencies.createRun,
+      authorizeRun: dependencies.authorizeRun,
+      findCurrentRunForBook: dependencies.findCurrentRunForBook,
     },
     inspectQuality: dependencies.inspectQuality,
   };

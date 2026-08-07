@@ -33,3 +33,35 @@ describe('TauriIndexingApi.findCurrentRunForBook', () => {
     expect(calls).toHaveLength(0);
   });
 });
+
+describe('TauriIndexingApi.listPageReviews', () => {
+  it('accepts a failed page before any indexed content version exists', async () => {
+    installTauriMock((command) => {
+      expect(command).toBe('list_index_page_reviews');
+      return [
+        {
+          id: '33333333-3333-4333-8333-333333333333',
+          runId: RUN_ID,
+          bookId: BOOK_ID,
+          pageNumber: 1,
+          qualityReason: 'no_text',
+          status: 'failed',
+          reviewReason: null,
+          safeError: {
+            code: 'INDEX_RESPONSE_INVALID',
+            message: 'The page analysis response was invalid.',
+            retryable: true,
+          },
+          contentVersion: 0,
+          blocks: [],
+          corrections: [],
+          updatedAt: '2026-08-07T08:28:15.588Z',
+        },
+      ];
+    });
+
+    await expect(
+      new TauriIndexingApi().listPageReviews(RUN_ID),
+    ).resolves.toMatchObject([{ status: 'failed', contentVersion: 0 }]);
+  });
+});

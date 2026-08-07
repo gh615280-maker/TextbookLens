@@ -17,7 +17,7 @@ use uuid::Uuid;
 use super::coordinator::{
     AnalysisExecutor, ConfirmIndexOperationRequest, IndexCoordinatorService,
     IndexOperationRegistry, IndexPageSeed, RenderedPageCaptureMetadata, RenderedPageSubmission,
-    decode_rendered_submissions,
+    bind_provider_pages_to_requested_order, decode_rendered_submissions,
 };
 use crate::{
     ai::{registry::ProviderCapabilityRegistry, structured::PAGE_ANALYSIS_SCHEMA_VERSION},
@@ -45,6 +45,31 @@ struct FakeExecutor {
     block_until_cancel: bool,
     mutate_profile_before_return: bool,
     entered: Notify,
+}
+
+#[test]
+fn provider_batch_pages_are_bound_to_original_pdf_pages_by_input_order() {
+    let mut analysis = ProviderPageAnalysis {
+        schema_version: PAGE_ANALYSIS_SCHEMA_VERSION.to_owned(),
+        pages: [0, 1]
+            .into_iter()
+            .map(|page_number| UntrustedPageAnalysis {
+                page_number,
+                blocks: Vec::new(),
+            })
+            .collect(),
+    };
+
+    bind_provider_pages_to_requested_order(&mut analysis, &[75, 76]).unwrap();
+
+    assert_eq!(
+        analysis
+            .pages
+            .iter()
+            .map(|page| page.page_number)
+            .collect::<Vec<_>>(),
+        vec![75, 76]
+    );
 }
 
 #[async_trait]

@@ -7,7 +7,10 @@ export interface IndexStartConfirmationProps {
   request: ConfirmIndexOperationRequest;
   profileName: string;
   modelName: string;
-  api: Pick<IndexingApi, 'confirmOperation' | 'createRun'>;
+  api: Pick<
+    IndexingApi,
+    'confirmOperation' | 'createRun' | 'authorizeRun'
+  >;
   onSetProfileNoPrompt?(profileId: string): Promise<void>;
   onReject(): void;
   onStarted(runId: string): void;
@@ -30,12 +33,12 @@ export function IndexStartConfirmation({
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
 
   async function confirm() {
     if (inFlightRef.current) return;
@@ -48,7 +51,14 @@ export function IndexStartConfirmation({
       if (!mountedRef.current) return;
       if (noPrompt) await onSetProfileNoPrompt?.(request.providerProfileId);
       if (!mountedRef.current) return;
-      const runId = await api.createRun(token, request);
+      const runId = request.runId;
+      if (runId) {
+        await api.authorizeRun(runId, token, request);
+      } else {
+        const createdRunId = await api.createRun(token, request);
+        if (mountedRef.current) onStarted(createdRunId);
+        return;
+      }
       if (mountedRef.current) onStarted(runId);
     } catch {
       if (mountedRef.current) setError(message('indexStart.startFailed'));
