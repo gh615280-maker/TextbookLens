@@ -6,11 +6,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LanguageContext } from '../../app/LanguageProvider';
 import { formatMessage, type UiLanguage } from '../../lib/i18n';
+import { LearningRequestProvider } from '../learning/LearningRequestProvider';
+import { LearningRequestStore } from '../learning/learning-request-store';
 import { ReaderPage } from './ReaderPage';
 
 const state = vi.hoisted(() => ({
   pdfOpen: vi.fn(async () => {}),
   pdfDispose: vi.fn(),
+  pdfShowAnnotations: vi.fn(async () => []),
+  annotationMarkers: [] as unknown[],
   commands: [] as string[],
 }));
 
@@ -74,11 +78,8 @@ vi.mock('@tauri-apps/api/core', () => ({
         pdfZoom: 1.1,
         theme: 'system',
       };
-    if (
-      command === 'list_reader_sections' ||
-      command === 'list_annotation_markers'
-    )
-      return [];
+    if (command === 'list_reader_sections') return [];
+    if (command === 'list_annotation_markers') return state.annotationMarkers;
     throw new Error(`Unexpected command: ${command}`);
   }),
 }));
@@ -90,7 +91,7 @@ vi.mock('./pdf/PdfReaderAdapter', () => ({
     dispose = state.pdfDispose;
     getSelectionSnapshot = () => null;
     navigate = async () => ({ found: true });
-    showAnnotations = async () => [];
+    showAnnotations = state.pdfShowAnnotations;
     search = async () => [];
     getProgress = () => ({ fraction: 0, locator: null });
   },
@@ -107,6 +108,7 @@ vi.mock('./docx/DocxReaderAdapter', () => ({
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  state.annotationMarkers.length = 0;
   state.commands.length = 0;
 });
 
@@ -168,6 +170,77 @@ describe('ReaderPage', () => {
 
     view.unmount();
     expect(state.pdfDispose).toHaveBeenCalledOnce();
+  });
+
+  it('refreshes persisted highlights when a selection request completes', async () => {
+    const store = new LearningRequestStore();
+    render(
+      <LearningRequestProvider store={store}>
+        <LanguageHarness>
+          <MemoryRouter initialEntries={['/reader/book-1']}>
+            <Routes>
+              <Route path="/reader/:bookId" element={<ReaderPage />} />
+            </Routes>
+          </MemoryRouter>
+        </LanguageHarness>
+      </LearningRequestProvider>,
+    );
+    await waitFor(() =>
+      expect(state.pdfShowAnnotations).toHaveBeenCalledOnce(),
+    );
+
+    const requestId = '11111111-1111-4111-8111-111111111111';
+    store.applySnapshot({
+      requestId,
+      conversationId: null,
+      status: 'preparing',
+      text: '',
+      usage: null,
+      safeError: null,
+      lastSeq: 0,
+    });
+    store.setPresentation(requestId, {
+      action: 'explain',
+      selectionLabel: 'Selected region',
+      provider: 'Kimi',
+      model: 'moonshot-v1-8k',
+    });
+    state.annotationMarkers.push({
+      id: 'marker-1',
+      kind: 'ai_conversation',
+      conversationId: '22222222-2222-4222-8222-222222222222',
+      label: 'View AI conversation marker',
+      relocationStatus: 'primary',
+      anchor: {
+        kind: 'region',
+        region: {
+          locator: { format: 'pdf', page: 1 },
+          rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+          contentSha256: 'f'.repeat(64),
+          textFallback: null,
+        },
+      },
+    });
+    store.applyEvent({
+      requestId,
+      seq: 1,
+      event: { type: 'text_delta', text: 'Answer' },
+    });
+    store.applyEvent({
+      requestId,
+      seq: 2,
+      event: {
+        type: 'completed',
+        conversationId: '22222222-2222-4222-8222-222222222222',
+      },
+    });
+
+    await waitFor(() =>
+      expect(state.pdfShowAnnotations).toHaveBeenCalledTimes(2),
+    );
+    expect(state.pdfShowAnnotations).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: 'marker-1' }),
+    ]);
   });
 });
 

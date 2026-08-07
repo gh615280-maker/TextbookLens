@@ -238,6 +238,8 @@ describe('PdfReaderAdapter', () => {
         },
       ]),
     ).toEqual([{ annotationId: 'region-marker', relocationStatus: 'primary' }]);
+    expect(document.body.querySelector('.pdf-marker-rect')).not.toBeNull();
+    expect(document.body.querySelector('.reader-marker-button')).not.toBeNull();
     const movedRegion = {
       id: 'moved-region-marker',
       kind: 'ai_conversation' as const,
@@ -316,6 +318,35 @@ describe('PdfReaderAdapter', () => {
     await expect(pointerCancel).rejects.toMatchObject({
       instructionCode: 'pdf_region_cancelled',
     });
+    adapter.dispose();
+  });
+
+  it('shows the bounded region while the pointer is dragging', async () => {
+    const adapter = await openRegionAdapter();
+    appendPage(1, 0);
+    const selecting = adapter.beginRegionSelection({
+      confirmVisualCapture: () => false,
+    });
+
+    document.body.dispatchEvent(pointer('pointerdown', 10, 15));
+    window.dispatchEvent(pointer('pointermove', 70, 55));
+
+    expect(
+      document.body.querySelector<HTMLElement>('.pdf-region-preview'),
+    ).toMatchObject({
+      style: expect.objectContaining({
+        left: '10px',
+        top: '15px',
+        width: '60px',
+        height: '40px',
+      }),
+    });
+
+    window.dispatchEvent(new Event('pointercancel'));
+    await expect(selecting).rejects.toMatchObject({
+      instructionCode: 'pdf_region_cancelled',
+    });
+    expect(document.body.querySelector('.pdf-region-preview')).toBeNull();
     adapter.dispose();
   });
 

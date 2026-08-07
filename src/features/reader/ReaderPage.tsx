@@ -7,6 +7,7 @@ import type { DocumentLocator } from '../../lib/generated/document';
 import type { ProviderProfileSummary } from '../../lib/generated/provider';
 import type { AppSettingsDto } from '../../lib/generated/settings';
 import { TauriLearningApi } from '../learning/api';
+import { useLearningRequestSnapshot } from '../learning/LearningRequestProvider';
 import {
   ConversationPanelOwner,
   conversationPanels,
@@ -40,6 +41,7 @@ export function ReaderPage() {
   const { message, uiLanguage } = useLanguage();
   const api = useMemo(() => new TauriReaderApi(), []);
   const learningApi = useMemo(() => new TauriLearningApi(), []);
+  const learningRequests = useLearningRequestSnapshot();
   const noteApi = useMemo(() => new TauriNotesApi(), []);
   const [settings, setSettings] = useState<ReaderSettings | null>(null);
   const [bootstrap, setBootstrap] = useState<ReaderBootstrap | null>(null);
@@ -65,6 +67,7 @@ export function ReaderPage() {
   const conversationOwnerRef = useRef<ConversationPanelOwner>(null);
   const hintCompletionInFlight = useRef(false);
   const learningProfileRef = useRef<LearningProfile | null>(null);
+  const refreshedMarkerRequestsRef = useRef(new Set<string>());
   const sectionsRef = useRef<ReaderSection[]>([]);
   const messageRef = useRef(message);
   const noteLabels = {
@@ -92,6 +95,21 @@ export function ReaderPage() {
   useEffect(() => {
     messageRef.current = message;
   }, [message]);
+  useEffect(() => {
+    let shouldRefresh = false;
+    for (const request of learningRequests.requests) {
+      if (
+        request.status !== 'completed' ||
+        !request.conversationId ||
+        request.presentation?.bookId ||
+        refreshedMarkerRequestsRef.current.has(request.requestId)
+      )
+        continue;
+      refreshedMarkerRequestsRef.current.add(request.requestId);
+      shouldRefresh = true;
+    }
+    if (shouldRefresh) void controllerRef.current?.refreshAnnotations();
+  }, [learningRequests]);
   const activateMarker = useCallback(
     (marker: AnnotationMarker) => {
       if (!bookId) return;

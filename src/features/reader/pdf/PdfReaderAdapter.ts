@@ -38,6 +38,24 @@ interface PdfDocumentHandle {
   numPages: number;
   cleanup(): Promise<void> | void;
 }
+
+function updateRegionPreview(
+  preview: HTMLElement,
+  pageBounds: DOMRect,
+  start: Readonly<{ x: number; y: number }>,
+  end: Readonly<{ x: number; y: number }>,
+) {
+  const left = Math.max(pageBounds.left, Math.min(start.x, end.x));
+  const top = Math.max(pageBounds.top, Math.min(start.y, end.y));
+  const right = Math.min(pageBounds.right, Math.max(start.x, end.x));
+  const bottom = Math.min(pageBounds.bottom, Math.max(start.y, end.y));
+  Object.assign(preview.style, {
+    left: `${left - pageBounds.left}px`,
+    top: `${top - pageBounds.top}px`,
+    width: `${Math.max(0, right - left)}px`,
+    height: `${Math.max(0, bottom - top)}px`,
+  });
+}
 interface PdfLoadingTask {
   promise: Promise<PdfDocumentHandle>;
   destroy(): Promise<void> | void;
@@ -339,6 +357,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
       let preview: HTMLElement | undefined;
       const finish = () => {
         this.container.removeEventListener('pointerdown', onDown);
+        window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onCancel);
         window.removeEventListener('keydown', onKeyDown);
@@ -368,6 +387,21 @@ export class PdfReaderAdapter implements ReaderAdapter {
           className: 'pdf-region-preview',
         });
         page.append(preview);
+        updateRegionPreview(
+          preview,
+          page.getBoundingClientRect(),
+          start,
+          start,
+        );
+      };
+      const onMove = (event: PointerEvent) => {
+        if (!start || !preview) return;
+        updateRegionPreview(
+          preview,
+          start.page.getBoundingClientRect(),
+          start,
+          { x: event.clientX, y: event.clientY },
+        );
       };
       const onUp = async (event: PointerEvent) => {
         if (!start) return;
@@ -461,6 +495,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
         }
       };
       this.container.addEventListener('pointerdown', onDown);
+      window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
       window.addEventListener('pointercancel', onCancel);
       window.addEventListener('keydown', onKeyDown);

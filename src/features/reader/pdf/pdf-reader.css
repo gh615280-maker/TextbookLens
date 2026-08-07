@@ -37,6 +37,8 @@
 }
 .pdf-region-preview {
   position: absolute;
+  z-index: 5;
+  box-sizing: border-box;
   pointer-events: none;
   border: 2px solid CanvasText;
   background: color-mix(in srgb, Highlight 24%, transparent);
