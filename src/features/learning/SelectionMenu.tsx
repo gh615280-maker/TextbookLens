@@ -176,7 +176,13 @@ export function SelectionMenu({
         inFlight.current = false;
         return;
       }
-      await finishHandoff(action, summary);
+      let operationToken: string | null = null;
+      if (summary.willSendImage) {
+        if (!snapshot.capture) throw new Error('missing visual capture');
+        operationToken = await api.authorize(summary.preparationId, 'allow');
+        if (!operationToken) throw new Error('missing authorization');
+      }
+      await finishHandoff(action, summary, operationToken);
     } catch {
       fail();
       inFlight.current = false;

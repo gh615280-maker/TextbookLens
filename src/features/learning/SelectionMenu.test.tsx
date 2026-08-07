@@ -191,6 +191,95 @@ describe('SelectionMenu', () => {
     expect(api.prepare).toHaveBeenCalledOnce();
   });
 
+  it('silently authorizes and stages a consented visual capture before handoff', async () => {
+    const bytes = new Uint8Array([137, 80, 78, 71]);
+    const visualSnapshot = menuSnapshotFromRegion(
+      {
+        page: 100,
+        rect: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+        text: '!',
+        anchor: {
+          kind: 'region',
+          region: {
+            locator: { format: 'pdf', page: 100 },
+            rect: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+            contentSha256: 'a'.repeat(64),
+            textFallback: { exact: '!', prefix: '', suffix: '' },
+          },
+        },
+        capture: {
+          mimeType: 'image/png',
+          width: 1,
+          height: 1,
+          bytes,
+          release: vi.fn(() => bytes.fill(0)),
+        },
+      },
+      {
+        bookId: '11111111-1111-4111-8111-111111111111',
+        sectionId: '22222222-2222-4222-8222-222222222222',
+        profile: {
+          id: '33333333-3333-4333-8333-333333333333',
+          modelId: 'vision-model',
+        },
+        position: { x: 0, y: 0 },
+      },
+    );
+    const api = {
+      prepare: vi.fn(async () => ({
+        preparationId: '44444444-4444-4444-8444-444444444444',
+        providerDisplayName: 'Provider',
+        profileDisplayName: 'Profile',
+        modelDisplayName: 'Vision model',
+        estimatedInputTokens: 1,
+        sourceCount: 1,
+        citationCount: 1,
+        omittedSourceCount: 0,
+        willSendImage: true,
+        riskFlags: ['image_send' as const],
+        requiresBlockingConfirmation: false,
+        expiresAt: '2026-08-05T00:00:00Z',
+        actionCategory: 'explain' as const,
+      })),
+      authorize: vi.fn(async () => '55555555-5555-4555-8555-555555555555'),
+      stageRegionCapture: vi.fn(async () => {}),
+      discard: vi.fn(),
+      invalidate: vi.fn(),
+    };
+    const surface = { handoff: vi.fn(async () => {}) };
+    render(
+      <SelectionMenu
+        api={api}
+        noteApi={{
+          create: vi.fn(),
+          update: vi.fn(),
+          delete: vi.fn(),
+          get: vi.fn(),
+          list: vi.fn(),
+        }}
+        labels={labels}
+        snapshot={visualSnapshot}
+        surface={surface}
+        onClose={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Explain' }));
+    await waitFor(() => expect(surface.handoff).toHaveBeenCalledOnce());
+    expect(api.authorize).toHaveBeenCalledWith(
+      '44444444-4444-4444-8444-444444444444',
+      'allow',
+    );
+    expect(api.stageRegionCapture).toHaveBeenCalledOnce();
+    expect(api.authorize.mock.invocationCallOrder[0]).toBeLessThan(
+      api.stageRegionCapture.mock.invocationCallOrder[0],
+    );
+    expect(api.stageRegionCapture.mock.invocationCallOrder[0]).toBeLessThan(
+      surface.handoff.mock.invocationCallOrder[0],
+    );
+  });
+
   it('creates a note through the local API without preparation or surface handoff', async () => {
     const api = {
       prepare: vi.fn(),
