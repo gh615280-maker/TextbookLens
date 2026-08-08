@@ -106,6 +106,7 @@ pub(crate) async fn validate_and_save_provider_profile_impl(
             context_window_tokens: validated.context_window_tokens,
             credential: validated.credential,
             validated_at: validated.validated_at,
+            kimi_api_region: validated.kimi_api_region,
         },
     )
     .await
@@ -170,6 +171,7 @@ pub(crate) async fn replace_provider_profile_credential_impl(
             context_window_tokens: validated.context_window_tokens,
             credential: validated.credential,
             validated_at: validated.validated_at,
+            kimi_api_region: validated.kimi_api_region,
         },
     )
     .await

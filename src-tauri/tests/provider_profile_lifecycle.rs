@@ -176,6 +176,7 @@ fn replacement_compensation_finishes_before_profile_list_returns() {
                     context_window_tokens: 64_000,
                     credential: SecretString::from(new_value),
                     validated_at: Utc::now(),
+                    kimi_api_region: None,
                 },
             )
             .await

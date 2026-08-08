@@ -84,6 +84,7 @@ async function installPhaseSevenMock(page: Page) {
         importErrorMessage: null,
         importErrorStage: null,
         readingProgress: 0,
+        fullTextQaReady: false,
         indexAggregate: {
           status: 'not_required',
           totalPages: 0,
@@ -431,6 +432,7 @@ test('book-first onboarding keeps import through invalid and valid synthetic key
     page.getByText(/Book: Synthetic Phase 7 Textbook/),
   ).toBeVisible();
   await expect(page.getByText(/local import continues/i)).toBeVisible();
+  await switchApplicationLanguageToEnglish(page);
 
   const key = page.getByLabel('Key');
   await key.fill(invalidKey);
@@ -480,6 +482,7 @@ test('AI Services adds, switches, and deletes profiles without retaining credent
 }) => {
   const external = collectExternalRequests(page);
   await page.goto('/ai-services');
+  await switchApplicationLanguageToEnglish(page);
   const form = page.getByRole('form', { name: 'Connect AI provider' });
 
   await form.getByLabel('Key').fill(validOpenAiKey);
@@ -507,6 +510,14 @@ test('AI Services adds, switches, and deletes profiles without retaining credent
   await assertSyntheticKeysAreGone(page);
   expect([...external]).toEqual([]);
 });
+
+async function switchApplicationLanguageToEnglish(page: Page) {
+  const trigger = page.locator('header').getByRole('button').first();
+  if ((await trigger.textContent())?.trim() === 'English') return;
+  await trigger.click();
+  await page.getByRole('menuitemradio', { name: 'English' }).click();
+  await expect(trigger).toHaveText('English');
+}
 
 test('three language entry points persist and onboarding passes axe', async ({
   page,

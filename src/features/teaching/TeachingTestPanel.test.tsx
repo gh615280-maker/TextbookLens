@@ -1,9 +1,31 @@
 import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { PropsWithChildren } from 'react';
 
+import { LanguageProvider } from '../../app/LanguageProvider';
 import type { TeachingApi, TeachingTestEvent } from './api';
 import { TeachingTestPanel } from './TeachingTestPanel';
+
+const languageApi = {
+  getAppSettings: async () => ({
+    onboardingCompleted: false,
+    activeProviderProfileId: null,
+    defaultLearningProfileId: null,
+    defaultVisionProfileId: null,
+    theme: 'system' as const,
+    contextMode: 'standard' as const,
+    uiLanguage: 'en' as const,
+    uiLanguageInitialized: true,
+    firstReaderHintCompleted: false,
+  }),
+  initializeUiLanguage: vi.fn(),
+  updateUiLanguage: vi.fn(),
+};
+
+function EnglishLanguage({ children }: PropsWithChildren) {
+  return <LanguageProvider api={languageApi}>{children}</LanguageProvider>;
+}
 
 function fakeApi(onEvent: {
   current?: (event: TeachingTestEvent) => void;
@@ -34,8 +56,9 @@ describe('TeachingTestPanel', () => {
         enabled
         instruction="Unsaved current draft"
       />,
+      { wrapper: EnglishLanguage },
     );
-    await user.click(screen.getByRole('button', { name: 'Show test' }));
+    await user.click(await screen.findByRole('button', { name: 'Show test' }));
     await user.type(
       screen.getByLabelText('Test question'),
       'Synthetic question',
@@ -67,7 +90,7 @@ describe('TeachingTestPanel', () => {
     });
 
     expect(screen.getByTestId('teaching-test-stage')).toHaveTextContent(
-      'completed',
+      'Completed',
     );
     expect(screen.getByLabelText('Temporary test answer')).toHaveTextContent(
       'Synthetic answer',
@@ -80,8 +103,9 @@ describe('TeachingTestPanel', () => {
     const user = userEvent.setup();
     const view = render(
       <TeachingTestPanel api={api} enabled instruction="Draft" />,
+      { wrapper: EnglishLanguage },
     );
-    await user.click(screen.getByRole('button', { name: 'Show test' }));
+    await user.click(await screen.findByRole('button', { name: 'Show test' }));
     await user.type(screen.getByLabelText('Test question'), 'Question');
     await user.click(
       screen.getByRole('button', { name: 'Run temporary test' }),

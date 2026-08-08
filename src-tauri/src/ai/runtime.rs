@@ -1,5 +1,8 @@
 use std::{fmt, sync::Arc};
 
+#[cfg(test)]
+use std::time::Duration;
+
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use sqlx::SqlitePool;
@@ -7,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::{
+    error::{AiError, AiErrorKind},
     provider::{
         AiProvider, ProviderStream, UnifiedChatRequest, validate_credential, validate_model_id,
     },
@@ -20,8 +24,8 @@ use crate::{
     credentials::CredentialStore,
     db::providers,
     domain::{
-        AiOperation, CapabilitySupport, ProviderKind, ProviderProfileSummary, RemoteCleanupHandle,
-        StructuredAnalysisOutcome, StructuredPageRequest, ValidationResult,
+        AiOperation, CapabilitySupport, KimiApiRegion, ProviderKind, ProviderProfileSummary,
+        RemoteCleanupHandle, StructuredAnalysisOutcome, StructuredPageRequest, ValidationResult,
     },
     errors::{AppError, AppErrorCode, AppResult},
 };
@@ -31,6 +35,10 @@ pub struct ProviderRuntime {
     registry: ProviderCapabilityRegistry,
     #[cfg(test)]
     loopback_origin: Option<String>,
+    #[cfg(test)]
+    kimi_loopback_origins: Option<(String, String)>,
+    #[cfg(test)]
+    kimi_loopback_timeout: Option<Duration>,
 }
 
 pub struct LoadedProvider {
@@ -46,6 +54,7 @@ pub(crate) struct ValidatedProviderCredential {
     pub context_window_tokens: u32,
     pub credential: SecretString,
     pub validated_at: DateTime<Utc>,
+    pub kimi_api_region: Option<KimiApiRegion>,
 }
 
 impl ProviderRuntime {
@@ -58,6 +67,10 @@ impl ProviderRuntime {
             registry,
             #[cfg(test)]
             loopback_origin: None,
+            #[cfg(test)]
+            kimi_loopback_origins: None,
+            #[cfg(test)]
+            kimi_loopback_timeout: None,
         }
     }
 
@@ -72,6 +85,47 @@ impl ProviderRuntime {
             credential_store,
             registry,
             loopback_origin: Some(loopback_origin.to_owned()),
+            kimi_loopback_origins: Some((loopback_origin.to_owned(), loopback_origin.to_owned())),
+            kimi_loopback_timeout: None,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test_with_kimi_origins(
+        credential_store: Arc<dyn CredentialStore>,
+        registry: ProviderCapabilityRegistry,
+        cn_origin: &str,
+        international_origin: &str,
+    ) -> AppResult<Self> {
+        KimiProvider::new_for_test(cn_origin).map_err(AiError::into_app_error)?;
+        KimiProvider::new_for_test(international_origin).map_err(AiError::into_app_error)?;
+        Ok(Self {
+            credential_store,
+            registry,
+            loopback_origin: Some(cn_origin.to_owned()),
+            kimi_loopback_origins: Some((cn_origin.to_owned(), international_origin.to_owned())),
+            kimi_loopback_timeout: None,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test_with_kimi_origins_and_timeout(
+        credential_store: Arc<dyn CredentialStore>,
+        registry: ProviderCapabilityRegistry,
+        cn_origin: &str,
+        international_origin: &str,
+        timeout: Duration,
+    ) -> AppResult<Self> {
+        KimiProvider::new_for_test_with_timeout(cn_origin, timeout)
+            .map_err(AiError::into_app_error)?;
+        KimiProvider::new_for_test_with_timeout(international_origin, timeout)
+            .map_err(AiError::into_app_error)?;
+        Ok(Self {
+            credential_store,
+            registry,
+            loopback_origin: Some(cn_origin.to_owned()),
+            kimi_loopback_origins: Some((cn_origin.to_owned(), international_origin.to_owned())),
+            kimi_loopback_timeout: Some(timeout),
         })
     }
 
@@ -81,9 +135,35 @@ impl ProviderRuntime {
         profile_id: Uuid,
         operation: AiOperation,
     ) -> AppResult<LoadedProvider> {
+        self.load_with_kimi_region(pool, profile_id, operation, None)
+            .await
+    }
+
+    pub(crate) async fn load_for_remote_cleanup(
+        &self,
+        pool: &SqlitePool,
+        profile_id: Uuid,
+        operation: AiOperation,
+        handle: &RemoteCleanupHandle,
+    ) -> AppResult<LoadedProvider> {
+        self.load_with_kimi_region(pool, profile_id, operation, handle.kimi_api_region())
+            .await
+    }
+
+    async fn load_with_kimi_region(
+        &self,
+        pool: &SqlitePool,
+        profile_id: Uuid,
+        operation: AiOperation,
+        region_override: Option<KimiApiRegion>,
+    ) -> AppResult<LoadedProvider> {
         let mut profile = providers::load_provider_profile_metadata(pool, profile_id).await?;
         self.ensure_model_support(&profile.kind, &profile.model_id, operation)?;
-        let adapter = self.adapter(&profile.kind)?;
+        if profile.kind != ProviderKind::Kimi && region_override.is_some() {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
+        let region = region_override.or(profile.kimi_api_region);
+        let adapter = self.adapter(&profile.kind, region)?;
         if adapter.kind() != profile.kind {
             return Err(AppError::new(AppErrorCode::ProviderUnavailable));
         }
@@ -110,14 +190,21 @@ impl ProviderRuntime {
         validate_credential(&credential).map_err(|error| error.into_app_error())?;
         let model_id = self.resolve_model(&kind, requested_model)?;
         self.ensure_model_support(&kind, &model_id, operation)?;
-        let adapter = self.adapter(&kind)?;
-        if adapter.kind() != kind {
-            return Err(AppError::new(AppErrorCode::ProviderUnavailable));
-        }
-        let validation = adapter
-            .validate(&credential, &model_id)
-            .await
-            .map_err(|error| error.into_app_error())?;
+        let (validation, kimi_api_region) = if kind == ProviderKind::Kimi {
+            self.validate_kimi_candidate(&credential, &model_id).await?
+        } else {
+            let adapter = self.adapter(&kind, None)?;
+            if adapter.kind() != kind {
+                return Err(AppError::new(AppErrorCode::ProviderUnavailable));
+            }
+            (
+                adapter
+                    .validate(&credential, &model_id)
+                    .await
+                    .map_err(AiError::into_app_error)?,
+                None,
+            )
+        };
         if validation.model != model_id || validation.context_window_tokens == 0 {
             return Err(AppError::new(AppErrorCode::ProviderUnavailable));
         }
@@ -128,7 +215,29 @@ impl ProviderRuntime {
             context_window_tokens: validation.context_window_tokens,
             credential,
             validated_at: Utc::now(),
+            kimi_api_region,
         })
+    }
+
+    async fn validate_kimi_candidate(
+        &self,
+        credential: &SecretString,
+        model_id: &str,
+    ) -> AppResult<(ValidationResult, Option<KimiApiRegion>)> {
+        let cn = self.adapter(&ProviderKind::Kimi, Some(KimiApiRegion::Cn))?;
+        match cn.validate(credential, model_id).await {
+            Ok(validation) => Ok((validation, Some(KimiApiRegion::Cn))),
+            Err(error) if should_probe_alternate_kimi_region(&error) => {
+                let international =
+                    self.adapter(&ProviderKind::Kimi, Some(KimiApiRegion::International))?;
+                international
+                    .validate(credential, model_id)
+                    .await
+                    .map(|validation| (validation, Some(KimiApiRegion::International)))
+                    .map_err(AiError::into_app_error)
+            }
+            Err(error) => Err(error.into_app_error()),
+        }
     }
 
     fn resolve_model(
@@ -173,7 +282,11 @@ impl ProviderRuntime {
         Ok(())
     }
 
-    fn adapter(&self, kind: &ProviderKind) -> AppResult<Box<dyn AiProvider>> {
+    fn adapter(
+        &self,
+        kind: &ProviderKind,
+        kimi_api_region: Option<KimiApiRegion>,
+    ) -> AppResult<Box<dyn AiProvider>> {
         #[cfg(test)]
         if let Some(origin) = self.loopback_origin.as_deref() {
             return match kind {
@@ -185,8 +298,23 @@ impl ProviderRuntime {
                     .map(|provider| Box::new(provider) as Box<dyn AiProvider>),
                 ProviderKind::DeepSeek => DeepSeekProvider::new_for_test(origin)
                     .map(|provider| Box::new(provider) as Box<dyn AiProvider>),
-                ProviderKind::Kimi => KimiProvider::new_for_test(origin)
-                    .map(|provider| Box::new(provider) as Box<dyn AiProvider>),
+                ProviderKind::Kimi => {
+                    let region = kimi_api_region
+                        .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?;
+                    let origins = self
+                        .kimi_loopback_origins
+                        .as_ref()
+                        .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?;
+                    let origin = match region {
+                        KimiApiRegion::Cn => origins.0.as_str(),
+                        KimiApiRegion::International => origins.1.as_str(),
+                    };
+                    match self.kimi_loopback_timeout {
+                        Some(timeout) => KimiProvider::new_for_test_with_timeout(origin, timeout),
+                        None => KimiProvider::new_for_test(origin),
+                    }
+                }
+                .map(|provider| Box::new(provider) as Box<dyn AiProvider>),
             }
             .map_err(|error| error.into_app_error());
         }
@@ -204,12 +332,20 @@ impl ProviderRuntime {
             ProviderKind::DeepSeek => {
                 DeepSeekProvider::new().map(|provider| Box::new(provider) as Box<dyn AiProvider>)
             }
-            ProviderKind::Kimi => {
-                KimiProvider::new().map(|provider| Box::new(provider) as Box<dyn AiProvider>)
-            }
+            ProviderKind::Kimi => KimiProvider::new_for_region(
+                kimi_api_region.ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?,
+            )
+            .map(|provider| Box::new(provider) as Box<dyn AiProvider>),
         }
         .map_err(|error| error.into_app_error())
     }
+}
+
+fn should_probe_alternate_kimi_region(error: &AiError) -> bool {
+    matches!(
+        error.kind(),
+        AiErrorKind::InvalidApiKey | AiErrorKind::ProviderRegionRestricted
+    )
 }
 
 impl LoadedProvider {
@@ -333,6 +469,7 @@ impl fmt::Debug for ValidatedProviderCredential {
             .field("model_id", &self.model_id)
             .field("context_window_tokens", &self.context_window_tokens)
             .field("validated_at", &self.validated_at)
+            .field("kimi_api_region", &self.kimi_api_region)
             .finish_non_exhaustive()
     }
 }

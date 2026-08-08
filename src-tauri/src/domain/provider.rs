@@ -16,6 +16,14 @@ pub enum ProviderKind {
     Kimi,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "provider.ts")]
+pub enum KimiApiRegion {
+    Cn,
+    International,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "provider.ts")]
@@ -188,4 +196,7 @@ pub struct ProviderProfileSummary {
     pub is_active: bool,
     pub credential_status: CredentialStatus,
     pub validated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub kimi_api_region: Option<KimiApiRegion>,
 }

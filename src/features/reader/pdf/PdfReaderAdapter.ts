@@ -107,6 +107,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
   #annotationsNeedRefresh = false;
   #annotationRefreshFrame: number | null = null;
   #eventBus: EventBus | null = null;
+  #scaleObserver: MutationObserver | null = null;
   #onPageRendered = () => {
     if (this.#annotationItems.length) this.#annotationsNeedRefresh = true;
     if (
@@ -174,6 +175,15 @@ export class PdfReaderAdapter implements ReaderAdapter {
       return;
     this.#page = initial?.format === 'pdf' ? initial.startPage : 1;
     viewer.currentPageNumber = this.#page;
+    this.#syncScale();
+    const layout = this.container.closest<HTMLElement>('.reader-layout');
+    if (layout) {
+      this.#scaleObserver = new MutationObserver(() => this.#syncScale());
+      this.#scaleObserver.observe(layout, {
+        attributes: true,
+        attributeFilter: ['style'],
+      });
+    }
     eventBus.on('pagechanging', (event: { pageNumber: number }) => {
       this.#page = event.pageNumber;
       this.events.onProgress(this.getProgress());
@@ -581,6 +591,8 @@ export class PdfReaderAdapter implements ReaderAdapter {
     this.#annotationsNeedRefresh = false;
     this.#eventBus?.off('pagerendered', this.#onPageRendered);
     this.#eventBus = null;
+    this.#scaleObserver?.disconnect();
+    this.#scaleObserver = null;
     this.container.removeEventListener('mouseup', this.#onMouseUp);
     this.#selection = null;
     const documentHandle = this.#document;
@@ -593,6 +605,18 @@ export class PdfReaderAdapter implements ReaderAdapter {
     void task?.destroy();
     this.container.replaceChildren();
     this.container.classList.remove('pdf-reader');
+  }
+
+  #syncScale(): void {
+    if (!this.#viewer) return;
+    const value = Number.parseFloat(
+      getComputedStyle(this.container).getPropertyValue(
+        '--reader-content-zoom',
+      ),
+    );
+    const scale = Number.isFinite(value) && value > 0 ? value : 1;
+    if (Math.abs(this.#viewer.currentScale - scale) > 1e-9)
+      this.#viewer.currentScale = scale;
   }
 
   private captureSelection(): void {

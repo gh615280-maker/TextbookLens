@@ -574,6 +574,7 @@ test('local overview stays offline, source-explicit, trilingual, accessible, and
   await expect(
     page.getByRole('heading', { name: 'Learning overview' }),
   ).toBeVisible();
+  await page.getByText('Local learning overview', { exact: true }).click();
   await expect(page.getByText('This local overview never sends')).toBeVisible();
   for (const source of [
     'local_text',
@@ -620,6 +621,7 @@ test('local overview stays offline, source-explicit, trilingual, accessible, and
 
   await context.setOffline(true);
   await navigateSpa(page, `/books/${BOOK_B}/overview`);
+  await page.getByText('Local learning overview', { exact: true }).click();
   await expect(page.getByText('Synthetic beta')).toBeVisible();
   await context.setOffline(false);
   expect(backend.providerAvailable).toBe(false);
@@ -702,6 +704,7 @@ test('book requests authorize, stream independently, reconnect across routes, an
 
   await emit(page, backend, betaRequest, { type: 'completed' });
   await navigateSpa(page, `/books/${BOOK_B}/overview`);
+  await page.getByText('Book conversations', { exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Beta question' }),
   ).toBeVisible();
@@ -724,6 +727,7 @@ test('history is lazy and durable; follow-up captures current provider; delete r
   );
   await installBackend(page, backend);
   await page.goto(`/books/${BOOK_A}/overview`);
+  await page.getByText('Book conversations', { exact: true }).click();
 
   await expect(
     page.getByRole('button', { name: 'Durable safe question' }),
@@ -786,6 +790,7 @@ test('history is lazy and durable; follow-up captures current provider; delete r
 
   backend.restart();
   await page.reload();
+  await page.getByText('Book conversations', { exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Durable safe question' }),
   ).toBeVisible();

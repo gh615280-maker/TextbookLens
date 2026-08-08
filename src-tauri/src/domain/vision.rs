@@ -6,7 +6,7 @@ use ts_rs::TS;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::{ProviderKind, UnifiedChatRequest};
+use super::{KimiApiRegion, ProviderKind, UnifiedChatRequest};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -195,6 +195,7 @@ pub enum RemoteCleanupStatus {
 pub struct RemoteCleanupHandle {
     provider: ProviderKind,
     opaque_id: SecretString,
+    kimi_api_region: Option<KimiApiRegion>,
 }
 
 impl RemoteCleanupHandle {
@@ -202,6 +203,15 @@ impl RemoteCleanupHandle {
         Self {
             provider,
             opaque_id,
+            kimi_api_region: None,
+        }
+    }
+
+    pub fn new_kimi(opaque_id: SecretString, region: KimiApiRegion) -> Self {
+        Self {
+            provider: ProviderKind::Kimi,
+            opaque_id,
+            kimi_api_region: Some(region),
         }
     }
 
@@ -212,6 +222,10 @@ impl RemoteCleanupHandle {
     pub fn opaque_id(&self) -> &SecretString {
         &self.opaque_id
     }
+
+    pub const fn kimi_api_region(&self) -> Option<KimiApiRegion> {
+        self.kimi_api_region
+    }
 }
 
 impl fmt::Debug for RemoteCleanupHandle {
@@ -219,6 +233,7 @@ impl fmt::Debug for RemoteCleanupHandle {
         formatter
             .debug_struct("RemoteCleanupHandle")
             .field("provider", &self.provider)
+            .field("kimi_api_region", &self.kimi_api_region)
             .field("opaque_id", &"[REDACTED]")
             .finish()
     }

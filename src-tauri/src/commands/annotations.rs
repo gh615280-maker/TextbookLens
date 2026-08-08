@@ -22,6 +22,25 @@ pub async fn list_annotation_markers(
 }
 
 #[tauri::command]
+pub async fn update_ai_annotation_summary(
+    state: State<'_, AppState>,
+    book_id: Uuid,
+    annotation_id: Uuid,
+    expected_revision: u32,
+    summary_text: String,
+) -> Result<(), AppErrorDto> {
+    annotations::update_ai_annotation_summary(
+        state.db.pool(),
+        book_id,
+        annotation_id,
+        expected_revision,
+        summary_text,
+    )
+    .await
+    .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
 pub async fn create_note(
     state: State<'_, AppState>,
     book_id: Uuid,

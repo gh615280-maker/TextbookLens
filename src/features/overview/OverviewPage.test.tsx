@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -30,7 +31,7 @@ describe('OverviewPage', () => {
       discard: vi.fn(),
       start: vi.fn(),
     };
-    render(
+    const { container } = render(
       <LanguageProvider
         api={{
           getAppSettings: async () => ({
@@ -63,6 +64,19 @@ describe('OverviewPage', () => {
       </LanguageProvider>,
     );
     await screen.findByText('Synthetic safe question');
+    const questionHeading = screen.getByRole('heading', {
+      name: 'Ask about this textbook',
+    });
+    const collapsibles = Array.from(container.querySelectorAll('details'));
+    expect(collapsibles).toHaveLength(2);
+    expect(collapsibles.every((details) => !details.open)).toBe(true);
+    expect(questionHeading.compareDocumentPosition(collapsibles[0]!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    await userEvent.click(screen.getByText('Local learning overview'));
+    expect(collapsibles[0]).toHaveAttribute('open');
+
     expect(screen.getByText('local_text')).toBeInTheDocument();
     expect(screen.getByText('ai_transcribed')).toBeInTheDocument();
     expect(screen.getByText('ai_description')).toBeInTheDocument();

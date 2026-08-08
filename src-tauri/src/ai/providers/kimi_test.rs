@@ -23,7 +23,7 @@ use crate::{
         structured::PAGE_ANALYSIS_SCHEMA_VERSION,
     },
     domain::{
-        ImageLimits, ImageMime, ProviderKind, RemoteCleanupHandle, StructuredPageRequest,
+        ImageLimits, ImageMime, KimiApiRegion, RemoteCleanupHandle, StructuredPageRequest,
         UnifiedVisionRequest,
     },
     errors::AppErrorCode,
@@ -40,9 +40,9 @@ async fn file_cleanup_delete_is_idempotent_and_keeps_remote_id_out_of_debug() {
             .expect(1)
             .mount(server.mock_server())
             .await;
-        let handle = RemoteCleanupHandle::new(
-            ProviderKind::Kimi,
+        let handle = RemoteCleanupHandle::new_kimi(
             SecretString::from("file_fixture_cleanup"),
+            KimiApiRegion::Cn,
         );
         let result = KimiProvider::new_for_test(&format!("{}/v1", server.uri()))
             .unwrap()

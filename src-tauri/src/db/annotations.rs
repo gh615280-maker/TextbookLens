@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, fmt};
 
+use chrono::Utc;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -12,6 +13,11 @@ use crate::{
     },
     errors::{AppError, AppErrorCode, AppResult},
 };
+
+use super::indexing::database_timestamp;
+
+const MAX_SUMMARY_CODE_POINTS: usize = 512;
+const DEFAULT_SUMMARY_CODE_POINTS: usize = 120;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,6 +36,9 @@ pub struct AnnotationMarkerDto {
     pub anchor: Option<ContentAnchor>,
     pub relocation_status: MarkerRelocationStatus,
     pub accessibility_label: &'static str,
+    pub sequence: Option<u32>,
+    pub summary_text: String,
+    pub revision: u32,
 }
 
 impl fmt::Debug for AnnotationMarkerDto {
@@ -45,6 +54,9 @@ impl fmt::Debug for AnnotationMarkerDto {
             .field("anchor", &"<redacted>")
             .field("relocation_status", &self.relocation_status)
             .field("accessibility_label", &self.accessibility_label)
+            .field("sequence", &self.sequence)
+            .field("summary_text", &"<redacted>")
+            .field("revision", &self.revision)
             .finish()
     }
 }
@@ -64,13 +76,14 @@ pub async fn list_annotation_markers(
     let format: String = book.try_get("format")?;
     let relocation = MarkerRelocationContext::load(pool, book_id).await?;
     let rows = sqlx::query(
-        "SELECT id, kind, section_id, anchor_json, conversation_id FROM annotations WHERE book_id = ? ORDER BY created_at, id",
+        "SELECT annotation.id, annotation.kind, annotation.section_id, annotation.anchor_json, annotation.conversation_id, annotation.selected_text, annotation.note_text, annotation.summary_text, annotation.revision, (SELECT message.content FROM messages message WHERE message.conversation_id = annotation.conversation_id AND message.role = 'assistant' ORDER BY message.ordinal LIMIT 1) AS assistant_content FROM annotations annotation WHERE annotation.book_id = ? ORDER BY annotation.created_at, annotation.id",
     )
     .bind(book_id.to_string())
     .fetch_all(pool)
     .await?;
 
     let mut markers = Vec::with_capacity(rows.len());
+    let mut ai_sequence = 0u32;
     for row in rows {
         let id = parse_uuid(&row.try_get::<String, _>("id")?)?;
         let (kind, accessibility_label) = match row.try_get::<String, _>("kind")?.as_str() {
@@ -99,6 +112,29 @@ pub async fn list_annotation_markers(
             .as_ref()
             .and_then(|anchor| relocation.resolve(&format, section_id, anchor))
             .unwrap_or(MarkerRelocationStatus::Unresolved);
+        let sequence = if matches!(kind, AnnotationKind::AiConversation) {
+            ai_sequence = ai_sequence
+                .checked_add(1)
+                .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?;
+            Some(ai_sequence)
+        } else {
+            None
+        };
+        let stored_summary = row.try_get::<Option<String>, _>("summary_text")?;
+        let assistant_content = row.try_get::<Option<String>, _>("assistant_content")?;
+        let selected_text = row.try_get::<Option<String>, _>("selected_text")?;
+        let note_text = row.try_get::<Option<String>, _>("note_text")?;
+        let summary_text = stored_summary.unwrap_or_else(|| {
+            default_summary(
+                assistant_content
+                    .as_deref()
+                    .or(selected_text.as_deref())
+                    .or(note_text.as_deref())
+                    .unwrap_or("Question"),
+            )
+        });
+        let revision = u32::try_from(row.try_get::<i64, _>("revision")?)
+            .map_err(|_| AppError::new(AppErrorCode::DatabaseError))?;
         markers.push(AnnotationMarkerDto {
             id,
             kind,
@@ -106,9 +142,77 @@ pub async fn list_annotation_markers(
             relocation_status,
             anchor,
             accessibility_label,
+            sequence,
+            summary_text,
+            revision,
         });
     }
     Ok(markers)
+}
+
+pub async fn update_ai_annotation_summary(
+    pool: &SqlitePool,
+    book_id: Uuid,
+    annotation_id: Uuid,
+    expected_revision: u32,
+    summary_text: String,
+) -> AppResult<()> {
+    if expected_revision == 0 {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+    let summary_text = normalize_summary(&summary_text)?;
+    let timestamp = database_timestamp(Utc::now());
+    let result = sqlx::query(
+        "UPDATE annotations SET summary_text = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND book_id = ? AND kind = 'ai_conversation' AND revision = ? AND revision < 1000000",
+    )
+    .bind(summary_text)
+    .bind(timestamp)
+    .bind(annotation_id.to_string())
+    .bind(book_id.to_string())
+    .bind(i64::from(expected_revision))
+    .execute(pool)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::new(AppErrorCode::RequestConflict));
+    }
+    Ok(())
+}
+
+fn normalize_summary(value: &str) -> AppResult<String> {
+    let normalized = value.trim().replace("\r\n", "\n");
+    let count = normalized.chars().count();
+    if count == 0
+        || count > MAX_SUMMARY_CODE_POINTS
+        || normalized.contains('\0')
+        || normalized.contains('\r')
+    {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+    Ok(normalized)
+}
+
+fn default_summary(value: &str) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut summary = String::new();
+    for character in compact.chars().take(DEFAULT_SUMMARY_CODE_POINTS) {
+        summary.push(character);
+        if matches!(character, '。' | '！' | '？' | '.' | '!' | '?') {
+            break;
+        }
+    }
+    if compact.chars().count() > summary.chars().count()
+        && !summary
+            .chars()
+            .last()
+            .is_some_and(|character| matches!(character, '。' | '！' | '？' | '.' | '!' | '?'))
+    {
+        summary.push('…');
+    }
+    if summary.is_empty() {
+        "Question".to_owned()
+    } else {
+        summary
+    }
 }
 
 struct MarkerRelocationContext {
@@ -711,4 +815,27 @@ async fn block_info(
 
 fn parse_uuid(value: &str) -> AppResult<Uuid> {
     Uuid::parse_str(value).map_err(|_| AppError::new(AppErrorCode::DatabaseError))
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::{default_summary, normalize_summary};
+
+    #[test]
+    fn default_summary_uses_the_first_short_ai_sentence() {
+        assert_eq!(
+            default_summary("  This is the short explanation. More detail follows.  "),
+            "This is the short explanation."
+        );
+    }
+
+    #[test]
+    fn edited_summary_is_trimmed_and_bounded() {
+        assert_eq!(
+            normalize_summary("  My description  ").unwrap(),
+            "My description"
+        );
+        assert!(normalize_summary("").is_err());
+        assert!(normalize_summary(&"x".repeat(513)).is_err());
+    }
 }

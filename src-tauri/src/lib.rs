@@ -80,6 +80,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::annotations::list_annotation_markers,
+            commands::annotations::update_ai_annotation_summary,
             commands::annotations::create_note,
             commands::annotations::update_note,
             commands::annotations::delete_note,

@@ -17,7 +17,7 @@ use crate::{
     ai::registry::ProviderCapabilityRegistry,
     credentials::CredentialStore,
     domain::{
-        AiOperation, CapabilitySupport, ProviderKind, ProviderOperationConsent,
+        AiOperation, CapabilitySupport, KimiApiRegion, ProviderKind, ProviderOperationConsent,
         ProviderOperationConsentCategory, ProviderOperationConsentDecision, ProviderProfileSummary,
     },
     errors::{AppError, AppErrorCode, AppResult},
@@ -44,6 +44,7 @@ pub(crate) struct NewProviderProfile {
     pub context_window_tokens: u32,
     pub credential: SecretString,
     pub validated_at: DateTime<Utc>,
+    pub kimi_api_region: Option<KimiApiRegion>,
 }
 
 #[doc(hidden)]
@@ -52,6 +53,7 @@ pub struct ReplacementProviderCredential {
     pub context_window_tokens: u32,
     pub credential: SecretString,
     pub validated_at: DateTime<Utc>,
+    pub kimi_api_region: Option<KimiApiRegion>,
 }
 
 pub fn credential_key(profile_id: Uuid) -> String {
@@ -102,7 +104,7 @@ pub async fn list_provider_profiles(
 ) -> AppResult<Vec<ProviderProfileSummary>> {
     let _guard = wait_for_provider_lifecycle(pool).await?;
     let rows = sqlx::query(
-        "SELECT id, provider_kind, display_name, model_id, context_window_tokens, is_active, validated_at FROM provider_profiles ORDER BY created_at, id",
+        "SELECT id, provider_kind, display_name, model_id, context_window_tokens, is_active, validated_at, kimi_api_region FROM provider_profiles ORDER BY created_at, id",
     )
     .fetch_all(pool)
     .await
@@ -127,7 +129,7 @@ pub(crate) async fn load_provider_profile_metadata(
     profile_id: Uuid,
 ) -> AppResult<ProviderProfileSummary> {
     let row = sqlx::query(
-        "SELECT id, provider_kind, display_name, model_id, context_window_tokens, is_active, validated_at FROM provider_profiles WHERE id = ?",
+        "SELECT id, provider_kind, display_name, model_id, context_window_tokens, is_active, validated_at, kimi_api_region FROM provider_profiles WHERE id = ?",
     )
     .bind(profile_id.to_string())
     .fetch_optional(pool)
@@ -290,6 +292,7 @@ pub(crate) async fn insert_validated_provider_profile(
             context_window_tokens,
             credential,
             validated_at,
+            kimi_api_region,
         } = profile;
         let profile_id = Uuid::new_v4();
         let derived_key = credential_key(profile_id);
@@ -305,7 +308,7 @@ pub(crate) async fn insert_validated_provider_profile(
             let becomes_learning_default = learning_default.is_none();
             let timestamp = validated_at.to_rfc3339();
             sqlx::query(
-                "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, is_active, created_at, updated_at, validated_at) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
+                "INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, is_active, created_at, updated_at, validated_at, kimi_api_region) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
             )
             .bind(profile_id.to_string())
             .bind(provider_kind_name(&kind))
@@ -315,6 +318,7 @@ pub(crate) async fn insert_validated_provider_profile(
             .bind(&timestamp)
             .bind(&timestamp)
             .bind(&timestamp)
+            .bind(kimi_api_region.map(kimi_api_region_name))
             .execute(&mut *transaction)
             .await?;
             for category in consent_categories() {
@@ -356,6 +360,7 @@ pub(crate) async fn insert_validated_provider_profile(
             is_active,
             credential_status: CredentialStatus::Available,
             validated_at: Some(validated_at),
+            kimi_api_region,
         })
     }))
     .await
@@ -376,6 +381,7 @@ pub async fn replace_validated_provider_credential(
             context_window_tokens,
             credential,
             validated_at,
+            kimi_api_region,
         } = replacement;
         let derived_key = credential_key(profile.id);
         let old_credential = store.get(&derived_key).await?;
@@ -384,11 +390,12 @@ pub async fn replace_validated_provider_credential(
         let database_result: AppResult<()> = async {
             let mut transaction = pool.begin().await?;
             let result = sqlx::query(
-                "UPDATE provider_profiles SET context_window_tokens = ?, updated_at = ?, validated_at = ? WHERE id = ? AND provider_kind = ? AND model_id = ?",
+                "UPDATE provider_profiles SET context_window_tokens = ?, updated_at = ?, validated_at = ?, kimi_api_region = ? WHERE id = ? AND provider_kind = ? AND model_id = ?",
             )
             .bind(i64::from(context_window_tokens))
             .bind(validated_at.to_rfc3339())
             .bind(validated_at.to_rfc3339())
+            .bind(kimi_api_region.map(kimi_api_region_name))
             .bind(profile.id.to_string())
             .bind(provider_kind_name(&profile.kind))
             .bind(&profile.model_id)
@@ -414,6 +421,7 @@ pub async fn replace_validated_provider_credential(
         profile.context_window_tokens = context_window_tokens;
         profile.credential_status = CredentialStatus::Available;
         profile.validated_at = Some(validated_at);
+        profile.kimi_api_region = kimi_api_region;
         Ok(profile)
     }))
     .await
@@ -659,9 +667,17 @@ fn profile_summary_from_row(
     row: &SqliteRow,
     credential_status: CredentialStatus,
 ) -> AppResult<ProviderProfileSummary> {
+    let kind = parse_provider_kind(row.try_get("provider_kind")?)?;
+    let kimi_api_region = row
+        .try_get::<Option<String>, _>("kimi_api_region")?
+        .map(|value| parse_kimi_api_region(&value))
+        .transpose()?;
+    if (kind == ProviderKind::Kimi) != kimi_api_region.is_some() {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
     Ok(ProviderProfileSummary {
         id: parse_uuid(row.try_get("id")?)?,
-        kind: parse_provider_kind(row.try_get("provider_kind")?)?,
+        kind,
         display_name: row.try_get("display_name")?,
         model_id: row.try_get("model_id")?,
         context_window_tokens: parse_positive_u32(row.try_get::<i64, _>("context_window_tokens")?)?,
@@ -671,7 +687,42 @@ fn profile_summary_from_row(
             .try_get::<Option<String>, _>("validated_at")?
             .map(parse_timestamp)
             .transpose()?,
+        kimi_api_region,
     })
+}
+
+pub(crate) async fn load_kimi_api_region(
+    pool: &SqlitePool,
+    profile_id: Uuid,
+) -> AppResult<KimiApiRegion> {
+    let row =
+        sqlx::query("SELECT provider_kind, kimi_api_region FROM provider_profiles WHERE id = ?")
+            .bind(profile_id.to_string())
+            .fetch_optional(pool)
+            .await?
+            .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    if row.try_get::<String, _>("provider_kind")? != "kimi" {
+        return Err(AppError::unsupported_provider_capability());
+    }
+    parse_kimi_api_region(
+        &row.try_get::<Option<String>, _>("kimi_api_region")?
+            .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?,
+    )
+}
+
+pub(crate) const fn kimi_api_region_name(value: KimiApiRegion) -> &'static str {
+    match value {
+        KimiApiRegion::Cn => "cn",
+        KimiApiRegion::International => "international",
+    }
+}
+
+pub(crate) fn parse_kimi_api_region(value: &str) -> AppResult<KimiApiRegion> {
+    match value {
+        "cn" => Ok(KimiApiRegion::Cn),
+        "international" => Ok(KimiApiRegion::International),
+        _ => Err(AppError::new(AppErrorCode::DatabaseError)),
+    }
 }
 
 fn provider_kind_name(value: &ProviderKind) -> &'static str {

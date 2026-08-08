@@ -84,15 +84,15 @@ describe('AppShell', () => {
     expect(
       await screen.findByRole('heading', { name: '教学指令' }),
     ).toBeVisible();
-    expect(screen.getByRole('textbox', { name: 'Instruction' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: '指令内容' })).toBeVisible();
 
     teaching.unmount();
     render(<App initialEntries={['/ai-services']} />);
 
     expect(
-      await screen.findByRole('heading', { name: 'AI services' }),
+      await screen.findByRole('heading', { name: 'AI 服务' }),
     ).toBeVisible();
-    expect(screen.getByText('No provider is connected yet.')).toBeVisible();
+    expect(screen.getByText('尚未连接任何 AI 服务。')).toBeVisible();
   });
 
   it('keeps the navigation keyboard reachable in a narrow viewport', async () => {

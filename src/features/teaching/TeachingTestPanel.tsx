@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { useMessage } from '../../app/LanguageProvider';
 import { toUserError, type UserFacingError } from '../../lib/errors';
 import type { TeachingApi, TeachingTestEvent } from './api';
 
@@ -16,6 +17,7 @@ export function TeachingTestPanel({
   instruction: string;
   enabled: boolean;
 }) {
+  const message = useMessage();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
@@ -88,18 +90,20 @@ export function TeachingTestPanel({
 
   return (
     <section aria-labelledby="teaching-test-title">
-      <h2 id="teaching-test-title">Temporary test</h2>
-      <p>This preview is temporary and is not saved to learning history.</p>
+      <h2 id="teaching-test-title">{message('teaching.test.title')}</h2>
+      <p>{message('teaching.test.description')}</p>
       <button
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        {open ? 'Hide test' : 'Show test'}
+        {open ? message('teaching.test.hide') : message('teaching.test.show')}
       </button>
       {open ? (
         <fieldset disabled={!enabled}>
-          <label htmlFor="teaching-test-question">Test question</label>
+          <label htmlFor="teaching-test-question">
+            {message('teaching.test.question')}
+          </label>
           <textarea
             id="teaching-test-question"
             maxLength={500}
@@ -112,32 +116,51 @@ export function TeachingTestPanel({
             onClick={() => void start()}
             type="button"
           >
-            Run temporary test
+            {message('teaching.test.run')}
           </button>
           {stage === 'running' ? (
             <button onClick={cancelActive} type="button">
-              Stop test
+              {message('teaching.test.stop')}
             </button>
           ) : null}
-          {!enabled ? (
-            <p>A default learning profile must be available.</p>
-          ) : null}
+          {!enabled ? <p>{message('teaching.test.profileRequired')}</p> : null}
         </fieldset>
       ) : null}
       <p aria-live="polite" data-testid="teaching-test-stage" role="status">
-        {stage}
+        {stageLabel(message, stage)}
       </p>
-      {error ? <p role="alert">{error.message}</p> : null}
+      {error ? <p role="alert">{message('teaching.test.error')}</p> : null}
       {answer ? (
-        <output aria-label="Temporary test answer">{answer}</output>
+        <output aria-label={message('teaching.test.answer')}>{answer}</output>
       ) : null}
       {usage.input !== undefined || usage.output !== undefined ? (
         <p>
-          Usage: {usage.input ?? 0} input / {usage.output ?? 0} output tokens
+          {message('teaching.test.usage', {
+            input: usage.input ?? 0,
+            output: usage.output ?? 0,
+          })}
         </p>
       ) : null}
     </section>
   );
+}
+
+function stageLabel(
+  message: ReturnType<typeof useMessage>,
+  stage: TestStage,
+): string {
+  switch (stage) {
+    case 'idle':
+      return message('teaching.test.stage.idle');
+    case 'running':
+      return message('teaching.test.stage.running');
+    case 'completed':
+      return message('teaching.test.stage.completed');
+    case 'cancelled':
+      return message('teaching.test.stage.cancelled');
+    case 'error':
+      return message('teaching.test.stage.error');
+  }
 }
 
 function handleEvent(

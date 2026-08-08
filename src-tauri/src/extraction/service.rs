@@ -12,9 +12,12 @@ use crate::{
     ai::registry::ProviderCapabilityRegistry,
     app_state::AppPaths,
     credentials::CredentialStore,
-    db::{indexing::database_timestamp, providers::credential_key},
+    db::{
+        indexing::database_timestamp,
+        providers::{credential_key, kimi_api_region_name, parse_kimi_api_region},
+    },
     documents::source::read_book_source_bytes,
-    domain::{ProviderKind, RemoteCleanupHandle},
+    domain::{KimiApiRegion, RemoteCleanupHandle},
     errors::{AppError, AppErrorCode, AppResult},
     indexing::remote_cleanup::{
         RuntimeRemoteResourceCleaner, finish_failed_tracking_compensation,
@@ -66,17 +69,31 @@ pub struct ExtractionSummary {
     pub reused: bool,
 }
 
+pub struct PrepareDependencies<'a> {
+    pub pool: &'a SqlitePool,
+    pub paths: &'a AppPaths,
+    pub credentials: Arc<dyn CredentialStore>,
+    pub capabilities: ProviderCapabilityRegistry,
+    pub client: &'a KimiFilesClient,
+}
+
 pub async fn prepare(
-    pool: &SqlitePool,
-    paths: &AppPaths,
-    credentials: Arc<dyn CredentialStore>,
-    capabilities: ProviderCapabilityRegistry,
-    client: &KimiFilesClient,
+    dependencies: PrepareDependencies<'_>,
     book_id: Uuid,
     profile_id: Uuid,
     cancel: CancellationToken,
 ) -> AppResult<ExtractionSummary> {
+    let PrepareDependencies {
+        pool,
+        paths,
+        credentials,
+        capabilities,
+        client,
+    } = dependencies;
     let binding = load_binding(pool, book_id, profile_id).await?;
+    if client.region() != binding.kimi_api_region {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
     let existing = sqlx::query("SELECT id, status, credential_fingerprint FROM book_extractions WHERE source_sha256 = ? AND provider_kind = 'kimi' AND extraction_version = ?")
         .bind(&binding.source_sha256).bind(EXTRACTION_VERSION).fetch_optional(pool).await?;
     let extraction_id = if let Some(row) = existing {
@@ -119,11 +136,15 @@ pub async fn prepare(
         let uploaded = match client.upload(&credential, bytes, cancel.clone()).await {
             Ok(uploaded) => uploaded,
             Err(error) => {
+                if cancellation_error(&error, &cancel) {
+                    return cancel_extraction(pool, extraction_id, None, credentials, capabilities)
+                        .await;
+                }
                 mark_failure(pool, extraction_id, &error).await?;
                 return Err(error);
             }
         };
-        let remote = RemoteCleanupHandle::new(ProviderKind::Kimi, uploaded.id().clone());
+        let remote = RemoteCleanupHandle::new_kimi(uploaded.id().clone(), binding.kimi_api_region);
         match store_extraction_remote_handle(pool, credentials.as_ref(), extraction_id, &remote)
             .await
         {
@@ -175,6 +196,16 @@ pub async fn prepare(
                 {
                     Ok(content) => content,
                     Err(error) => {
+                        if cancellation_error(&error, &cancel) {
+                            return cancel_extraction(
+                                pool,
+                                extraction_id,
+                                Some(&handle),
+                                credentials,
+                                capabilities,
+                            )
+                            .await;
+                        }
                         mark_failure(pool, extraction_id, &error).await?;
                         cleanup_existing(pool, credentials, capabilities, extraction_id).await;
                         return Err(error);
@@ -189,6 +220,16 @@ pub async fn prepare(
                 return summary(pool, extraction_id, false).await;
             }
             Err(error) => {
+                if cancellation_error(&error, &cancel) {
+                    return cancel_extraction(
+                        pool,
+                        extraction_id,
+                        Some(&handle),
+                        credentials,
+                        capabilities,
+                    )
+                    .await;
+                }
                 mark_failure(pool, extraction_id, &error).await?;
                 return Err(error);
             }
@@ -206,10 +247,11 @@ struct Binding {
     source_sha256: String,
     model_id: String,
     fingerprint: String,
+    kimi_api_region: KimiApiRegion,
 }
 
 async fn load_binding(pool: &SqlitePool, book_id: Uuid, profile_id: Uuid) -> AppResult<Binding> {
-    let row = sqlx::query("SELECT b.sha256, b.format, b.import_status, p.provider_kind, p.model_id, p.validated_at FROM books b JOIN provider_profiles p ON p.id = ? WHERE b.id = ?")
+    let row = sqlx::query("SELECT b.sha256, b.format, b.import_status, p.provider_kind, p.model_id, p.validated_at, p.kimi_api_region FROM books b JOIN provider_profiles p ON p.id = ? WHERE b.id = ?")
         .bind(profile_id.to_string()).bind(book_id.to_string()).fetch_optional(pool).await?
         .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
     if row.try_get::<String, _>("format")? != "pdf"
@@ -225,13 +267,22 @@ async fn load_binding(pool: &SqlitePool, book_id: Uuid, profile_id: Uuid) -> App
         .ok_or_else(|| AppError::new(AppErrorCode::BookNotReady))?;
     let model_id: String = row.try_get("model_id")?;
     let validated_at: String = row.try_get("validated_at")?;
+    let kimi_api_region = parse_kimi_api_region(
+        &row.try_get::<Option<String>, _>("kimi_api_region")?
+            .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))?,
+    )?;
     let fingerprint = hex(Sha256::digest(
-        format!("{profile_id}\0{model_id}\0{validated_at}").as_bytes(),
+        format!(
+            "{profile_id}\0{model_id}\0{validated_at}\0{}",
+            kimi_api_region_name(kimi_api_region)
+        )
+        .as_bytes(),
     ));
     Ok(Binding {
         source_sha256,
         model_id,
         fingerprint,
+        kimi_api_region,
     })
 }
 
@@ -243,15 +294,17 @@ async fn create_extraction(
 ) -> AppResult<Uuid> {
     let id = Uuid::new_v4();
     let now = database_timestamp(Utc::now());
-    sqlx::query("INSERT INTO book_extractions (id, book_id, source_sha256, provider_profile_id, provider_kind, model_id, extraction_version, credential_fingerprint, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'kimi', ?, ?, ?, 'queued', ?, ?)")
+    sqlx::query("INSERT INTO book_extractions (id, book_id, source_sha256, provider_profile_id, provider_kind, model_id, extraction_version, credential_fingerprint, status, created_at, updated_at, kimi_api_region) VALUES (?, ?, ?, ?, 'kimi', ?, ?, ?, 'queued', ?, ?, ?)")
         .bind(id.to_string()).bind(book_id.to_string()).bind(&b.source_sha256).bind(profile_id.to_string())
-        .bind(&b.model_id).bind(EXTRACTION_VERSION).bind(&b.fingerprint).bind(&now).bind(&now).execute(pool).await?;
+        .bind(&b.model_id).bind(EXTRACTION_VERSION).bind(&b.fingerprint).bind(&now).bind(&now)
+        .bind(kimi_api_region_name(b.kimi_api_region)).execute(pool).await?;
     Ok(id)
 }
 
 async fn reset_binding(pool: &SqlitePool, id: Uuid, b: &Binding) -> AppResult<()> {
-    sqlx::query("UPDATE book_extractions SET model_id = ?, credential_fingerprint = ?, status = 'queued', safe_error_code = NULL, retryable = 0, cancel_requested_at = NULL, completed_at = NULL, updated_at = ? WHERE id = ? AND status != 'ready'")
-        .bind(&b.model_id).bind(&b.fingerprint).bind(database_timestamp(Utc::now())).bind(id.to_string()).execute(pool).await?;
+    sqlx::query("UPDATE book_extractions SET model_id = ?, credential_fingerprint = ?, kimi_api_region = ?, status = 'queued', safe_error_code = NULL, retryable = 0, cancel_requested_at = NULL, completed_at = NULL, updated_at = ? WHERE id = ? AND status != 'ready'")
+        .bind(&b.model_id).bind(&b.fingerprint).bind(kimi_api_region_name(b.kimi_api_region))
+        .bind(database_timestamp(Utc::now())).bind(id.to_string()).execute(pool).await?;
     Ok(())
 }
 
@@ -283,6 +336,10 @@ async fn mark_failure(pool: &SqlitePool, id: Uuid, error: &AppError) -> AppResul
     .await
 }
 
+fn cancellation_error(error: &AppError, cancel: &CancellationToken) -> bool {
+    error.code == AppErrorCode::ImportCancelled || cancel.is_cancelled()
+}
+
 async fn persist_content(pool: &SqlitePool, id: Uuid, book_id: Uuid, raw: &str) -> AppResult<()> {
     let normalized = normalize(raw)?;
     let chunks = chunk(&normalized);
@@ -301,7 +358,7 @@ async fn persist_content(pool: &SqlitePool, id: Uuid, book_id: Uuid, raw: &str) 
         sqlx::query("INSERT INTO extraction_chunks (id, extraction_id, book_id, ordinal, char_start, char_end, paragraph_start, paragraph_end, text, text_fingerprint, token_estimate, locator_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(Uuid::new_v4().to_string()).bind(id.to_string()).bind(book_id.to_string()).bind(c.ordinal as i64)
             .bind(c.start as i64).bind(c.end as i64).bind(c.paragraph_start as i64).bind(c.paragraph_end as i64)
-            .bind(&c.text).bind(hex(Sha256::digest(c.text.as_bytes()))).bind(((c.text.chars().count()+3)/4).max(1) as i64)
+            .bind(&c.text).bind(hex(Sha256::digest(c.text.as_bytes()))).bind(c.text.chars().count().div_ceil(4).max(1) as i64)
             .bind(serde_json::json!({"format":"extracted_text","charStart":c.start,"charEnd":c.end,"paragraphStart":c.paragraph_start,"paragraphEnd":c.paragraph_end,"textFingerprint":hex(Sha256::digest(c.text.as_bytes()))}).to_string())
             .bind(&now).execute(&mut *tx).await?;
     }
@@ -447,9 +504,19 @@ fn hex(bytes: impl AsRef<[u8]>) -> String {
 mod tests {
     use super::*;
     use crate::{
+        ai::registry::ProviderCapabilityRegistry,
+        app_state::AppPaths,
+        credentials::{CredentialStore, MemoryCredentialStore},
         db::Database,
         domain::DocumentLocator,
         retrieval::{context::book_candidate_from_search_hit, search::search_book},
+    };
+    use secrecy::SecretString;
+    use std::{fs, sync::Arc};
+    use tokio::sync::Notify;
+    use wiremock::{
+        Mock, MockServer, Request, ResponseTemplate,
+        matchers::{method, path},
     };
 
     #[test]
@@ -522,5 +589,109 @@ mod tests {
         assert!(token.is_cancelled());
         registry.finish(book);
         assert!(registry.begin(book).is_ok());
+    }
+
+    #[test]
+    fn cancellation_during_upload_is_durable_cancelled_not_failed() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("app-data");
+        let paths = AppPaths {
+            books: root.join("books"),
+            cache: root.join("cache"),
+            logs: root.join("logs"),
+            database: root.join("library.sqlite3"),
+            root,
+        };
+        for path in [&paths.root, &paths.books, &paths.cache, &paths.logs] {
+            fs::create_dir_all(path).unwrap();
+        }
+        let database = Database::open(&paths.database).unwrap();
+        tauri::async_runtime::block_on(async {
+            let book_id = Uuid::new_v4();
+            let profile_id = Uuid::new_v4();
+            let timestamp = database_timestamp(Utc::now());
+            let bytes = b"%PDF synthetic cancellable extraction";
+            let source_hash = hex(Sha256::digest(bytes));
+            let book_directory = paths.books.join(book_id.to_string());
+            fs::create_dir_all(&book_directory).unwrap();
+            fs::write(book_directory.join("original.pdf"), bytes).unwrap();
+            sqlx::query("INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'Cancellation fixture', 'pdf', 'fixture.pdf', ?, 'ready', ?, ?)")
+                .bind(book_id.to_string()).bind(&source_hash)
+                .bind(format!("books/{book_id}/original.pdf"))
+                .bind(&timestamp).bind(&timestamp).execute(database.pool()).await.unwrap();
+            sqlx::query("INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, created_at, updated_at, validated_at, kimi_api_region) VALUES (?, 'kimi', 'Cancellation Kimi', 'kimi-k3', 1000000, ?, ?, ?, 'cn')")
+                .bind(profile_id.to_string()).bind(&timestamp).bind(&timestamp).bind(&timestamp)
+                .execute(database.pool()).await.unwrap();
+            let credentials = Arc::new(MemoryCredentialStore::new());
+            credentials
+                .set(
+                    &credential_key(profile_id),
+                    SecretString::from("synthetic-cancel-upload-credential"),
+                )
+                .await
+                .unwrap();
+            let server = MockServer::start().await;
+            let upload_started = Arc::new(Notify::new());
+            let responder_signal = upload_started.clone();
+            Mock::given(method("POST"))
+                .and(path("/v1/files"))
+                .respond_with(move |_: &Request| {
+                    responder_signal.notify_one();
+                    ResponseTemplate::new(200)
+                        .set_delay(Duration::from_millis(250))
+                        .set_body_json(
+                            serde_json::json!({"id":"file_cancel_fixture","status":"uploaded"}),
+                        )
+                })
+                .expect(1)
+                .mount(&server)
+                .await;
+            let client = KimiFilesClient::new_for_test_region(
+                KimiApiRegion::Cn,
+                &format!("{}/v1", server.uri()),
+            )
+            .unwrap();
+            let cancel = CancellationToken::new();
+            let task_cancel = cancel.clone();
+            let pool = database.pool().clone();
+            let task_paths = paths.clone();
+            let task_credentials = credentials.clone();
+            let task = tokio::spawn(async move {
+                prepare(
+                    PrepareDependencies {
+                        pool: &pool,
+                        paths: &task_paths,
+                        credentials: task_credentials,
+                        capabilities: ProviderCapabilityRegistry::load_embedded().unwrap(),
+                        client: &client,
+                    },
+                    book_id,
+                    profile_id,
+                    task_cancel,
+                )
+                .await
+            });
+            tokio::time::timeout(Duration::from_secs(5), upload_started.notified())
+                .await
+                .expect("synthetic upload request did not reach the loopback server");
+            cancel.cancel();
+            let summary = task.await.unwrap().unwrap();
+            assert_eq!(summary.status, "cancelled");
+            let durable_status: String =
+                sqlx::query_scalar("SELECT status FROM book_extractions WHERE id = ?")
+                    .bind(summary.id.to_string())
+                    .fetch_one(database.pool())
+                    .await
+                    .unwrap();
+            assert_eq!(durable_status, "cancelled");
+            let remote_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM provider_remote_resources WHERE extraction_id = ?",
+            )
+            .bind(summary.id.to_string())
+            .fetch_one(database.pool())
+            .await
+            .unwrap();
+            assert_eq!(remote_count, 0);
+        });
     }
 }

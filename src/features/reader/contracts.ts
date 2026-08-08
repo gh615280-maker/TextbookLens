@@ -37,6 +37,9 @@ export interface AnnotationMarker {
   /** Display-only anchor supplied by a later persistence phase; adapters never rewrite it. */
   anchor?: ContentAnchor;
   relocationStatus: MarkerRelocationStatus;
+  sequence?: number | null;
+  summaryText?: string;
+  revision?: number;
 }
 
 export type MarkerRelocationStatus = 'primary' | 'fallback' | 'unresolved';
@@ -84,7 +87,7 @@ export interface RegionSelectionOptions {
 export interface RegionSelectionResult {
   /** Present only for PDF. Screen/page coordinates are never retained. */
   page?: number;
-  /** Present only for EPUB and copied from the rendition section. */
+  /** Adapter section identifier; resolved to the persisted section before use. */
   sectionId?: string;
   /** Present only for EPUB and identifies the primary region container. */
   cfi?: string;

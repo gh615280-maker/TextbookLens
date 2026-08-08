@@ -217,6 +217,7 @@ class SyntheticAiIndexBackend {
       importErrorMessage: null,
       importErrorStage: null,
       readingProgress: 0,
+      fullTextQaReady: false,
       indexAggregate: {
         status: 'not_required',
         totalPages: 0,
@@ -515,7 +516,7 @@ test('J: rejecting the real ready-PDF entry stays local and authorizes nothing',
   backend,
 }) => {
   await page.goto('/library');
-  await page.getByRole('button', { name: 'AI-assisted index' }).click();
+  await openAdvancedIndex(page);
   await expect(
     page.getByRole('dialog', { name: 'Start AI-assisted indexing?' }),
   ).toBeVisible();
@@ -642,7 +643,7 @@ test('L: partial failure retries only the stale-version-matched page', async ({
 
 async function startConfirmedRun(page: Page) {
   await page.goto('/library');
-  await page.getByRole('button', { name: 'AI-assisted index' }).click();
+  await openAdvancedIndex(page);
   await expect(
     page.getByRole('dialog', { name: 'Start AI-assisted indexing?' }),
   ).toContainText(
@@ -655,6 +656,16 @@ async function startConfirmedRun(page: Page) {
   await expect(page).toHaveURL(
     new RegExp(`/books/${bookId}/index-quality/${runId}$`),
   );
+}
+
+async function openAdvancedIndex(page: Page) {
+  await page.getByRole('button', { name: 'Prepare full-text Q&A' }).click();
+  await expect(page).toHaveURL(new RegExp(`/books/${bookId}/index-start$`));
+  await page
+    .getByRole('button', {
+      name: 'Advanced: full page-by-page visual index',
+    })
+    .click();
 }
 
 async function installMock(page: Page, backend: SyntheticAiIndexBackend) {

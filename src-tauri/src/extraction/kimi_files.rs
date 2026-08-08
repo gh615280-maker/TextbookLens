@@ -9,10 +9,10 @@ use zeroize::Zeroizing;
 
 use crate::{
     ai::{error::AiError, provider::validate_credential},
+    domain::KimiApiRegion,
     errors::{AppError, AppErrorCode, AppResult},
 };
 
-const PRODUCTION_ORIGIN: &str = "https://api.moonshot.ai/v1/";
 pub const MAX_FILE_BYTES: usize = 100 * 1024 * 1024;
 pub const MAX_EXTRACTED_CONTENT_BYTES: usize = 64 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
@@ -45,17 +45,28 @@ impl fmt::Debug for UploadedFile {
 pub struct KimiFilesClient {
     client: Client,
     origin: Url,
+    region: KimiApiRegion,
     max_extracted_content_bytes: usize,
 }
 
 impl KimiFilesClient {
-    pub fn new() -> AppResult<Self> {
-        Self::build(PRODUCTION_ORIGIN, false, MAX_EXTRACTED_CONTENT_BYTES)
+    pub fn new(region: KimiApiRegion) -> AppResult<Self> {
+        Self::build(
+            region,
+            crate::ai::kimi_region::production_origin(region),
+            false,
+            MAX_EXTRACTED_CONTENT_BYTES,
+        )
     }
 
     #[cfg(test)]
     pub(crate) fn new_for_test(origin: &str) -> AppResult<Self> {
-        Self::build(origin, true, MAX_EXTRACTED_CONTENT_BYTES)
+        Self::new_for_test_region(KimiApiRegion::Cn, origin)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test_region(region: KimiApiRegion, origin: &str) -> AppResult<Self> {
+        Self::build(region, origin, true, MAX_EXTRACTED_CONTENT_BYTES)
     }
 
     #[cfg(test)]
@@ -63,10 +74,11 @@ impl KimiFilesClient {
         if limit == 0 || limit > MAX_EXTRACTED_CONTENT_BYTES {
             return Err(invalid());
         }
-        Self::build(origin, true, limit)
+        Self::build(KimiApiRegion::Cn, origin, true, limit)
     }
 
     fn build(
+        region: KimiApiRegion,
         origin: &str,
         allow_loopback: bool,
         max_extracted_content_bytes: usize,
@@ -103,8 +115,13 @@ impl KimiFilesClient {
         Ok(Self {
             client,
             origin,
+            region,
             max_extracted_content_bytes,
         })
+    }
+
+    pub const fn region(&self) -> KimiApiRegion {
+        self.region
     }
 
     pub async fn upload(

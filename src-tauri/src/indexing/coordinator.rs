@@ -1646,9 +1646,7 @@ pub(crate) fn bind_provider_pages_to_requested_order(
     requested_page_numbers: &[u32],
 ) -> Result<(), ()> {
     if analysis.pages.len() != requested_page_numbers.len()
-        || requested_page_numbers
-            .iter()
-            .any(|page_number| *page_number == 0)
+        || requested_page_numbers.contains(&0)
         || analysis
             .pages
             .iter()

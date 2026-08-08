@@ -1,3 +1,5 @@
+import { useMessage } from '../../app/LanguageProvider';
+
 interface Props {
   draft: string;
   dirty: boolean;
@@ -17,24 +19,27 @@ export function TeachingInstructionEditor({
   onClear,
   onDefault,
 }: Props) {
+  const message = useMessage();
   const scalarCount = Array.from(draft).length;
   const status =
     stage === 'saving'
-      ? 'Saving'
+      ? message('teaching.status.saving')
       : stage === 'conflict'
-        ? 'Conflict'
+        ? message('teaching.status.conflict')
         : stage === 'error'
-          ? 'Error'
+          ? message('teaching.status.error')
           : dirty
-            ? 'Unsaved changes'
-            : 'Saved';
+            ? message('teaching.status.unsaved')
+            : message('teaching.status.saved');
   return (
     <section aria-labelledby="teaching-editor-title">
-      <h2 id="teaching-editor-title">Teaching instruction</h2>
+      <h2 id="teaching-editor-title">{message('teaching.editor.title')}</h2>
       <p aria-live="polite" role="status">
         {status}
       </p>
-      <label htmlFor="teaching-instruction">Instruction</label>
+      <label htmlFor="teaching-instruction">
+        {message('teaching.instructionLabel')}
+      </label>
       <textarea
         id="teaching-instruction"
         maxLength={1000}
@@ -48,21 +53,21 @@ export function TeachingInstructionEditor({
         onClick={onSave}
         type="button"
       >
-        Save
+        {message('teaching.save')}
       </button>
       <button
         disabled={stage === 'saving' || !dirty}
         onClick={onClear}
         type="button"
       >
-        Clear draft
+        {message('teaching.clear')}
       </button>
       <button
         disabled={stage === 'saving' || !dirty}
         onClick={onDefault}
         type="button"
       >
-        Restore default
+        {message('teaching.restoreDefault')}
       </button>
     </section>
   );

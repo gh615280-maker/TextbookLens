@@ -177,6 +177,7 @@ describe('DocxReaderAdapter', () => {
     block.dispatchEvent(pointer('pointerup', 70, 70));
     await expect(pending).resolves.toMatchObject({
       blockId: 'stable',
+      sectionId: 's',
       rect: { x: 0.1, y: 0.1, width: 0.6, height: 0.6 },
       capture: null,
       anchor: {

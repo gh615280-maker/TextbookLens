@@ -419,6 +419,44 @@ async fn owned_copy_bytes_and_hash_allow_parsing_after_source_deletion() {
 }
 
 #[tokio::test]
+async fn generated_untitled_metadata_keeps_the_original_filename_as_title() {
+    let (temp, database, service) = test_service().await;
+    let source = source_file(
+        &temp,
+        "泛函分析讲义.pdf",
+        b"%PDF-1.7\nfilename title fallback\n%%EOF",
+    );
+    let book = created_book(
+        service
+            .begin_import(
+                BeginImportRequest::new(source.to_string_lossy().into_owned()),
+                Arc::new(no_progress),
+            )
+            .await
+            .unwrap(),
+    );
+
+    service
+        .begin_parse(
+            book.id,
+            ParsedBookMetadata {
+                title: "未命名 PDF".to_owned(),
+                author: None,
+                language: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    let title: String = sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
+        .bind(book.id.to_string())
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+    assert_eq!(title, "泛函分析讲义");
+}
+
+#[tokio::test]
 async fn source_reads_fail_closed_when_the_owned_copy_hash_changes() {
     let (temp, _database, service) = test_service().await;
     let source = source_file(&temp, "synthetic.pdf", b"%PDF-1.7\nsource\n%%EOF");

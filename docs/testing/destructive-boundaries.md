@@ -15,16 +15,16 @@ This note records the release-test contract for destructive local operations. It
 
 ## Automated ownership
 
-| Boundary | Primary executable evidence |
-| --- | --- |
+| Boundary                                                                                                | Primary executable evidence                                                         |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | Migration hashes, every cutoff, fresh/reopen, malicious history, atomic failure, Windows lock/read-only | `src-tauri/tests/destructive_boundaries.rs`; `src-tauri/tests/database_contract.rs` |
-| Canonical root, path syntax, junction/reparse, hardlink and storage identity | `src-tauri/tests/destructive_boundaries.rs`; `maintenance::storage::tests` |
-| Journal grammar, temp/write/rename/parent-sync faults | `maintenance::journal::tests` |
-| Complete target-book deletion, crash replay, decoys, remote retry | `src-tauri/tests/delete_book_complete.rs` |
-| Backup manifest, identity races, write/publish faults | `maintenance::archive::tests` |
-| Restore validation and every staging/swap/finalization boundary | `maintenance::restore::tests` |
-| Clear confirmation, credential retry, local move/finalization boundaries | `maintenance::clear_all::tests`; `src-tauri/tests/local_data_privacy_checkpoint.rs` |
-| Cross-operation restart ordering and idempotence | `src-tauri/tests/interrupted_operations.rs` |
+| Canonical root, path syntax, junction/reparse, hardlink and storage identity                            | `src-tauri/tests/destructive_boundaries.rs`; `maintenance::storage::tests`          |
+| Journal grammar, temp/write/rename/parent-sync faults                                                   | `maintenance::journal::tests`                                                       |
+| Complete target-book deletion, crash replay, decoys, remote retry                                       | `src-tauri/tests/delete_book_complete.rs`                                           |
+| Backup manifest, identity races, write/publish faults                                                   | `maintenance::archive::tests`                                                       |
+| Restore validation and every staging/swap/finalization boundary                                         | `maintenance::restore::tests`                                                       |
+| Clear confirmation, credential retry, local move/finalization boundaries                                | `maintenance::clear_all::tests`; `src-tauri/tests/local_data_privacy_checkpoint.rs` |
+| Cross-operation restart ordering and idempotence                                                        | `src-tauri/tests/interrupted_operations.rs`                                         |
 
 ## Remaining Windows lock limitation
 

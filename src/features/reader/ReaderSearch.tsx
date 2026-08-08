@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react';
 
-import type { ReaderSearchHit } from './api';
 import type { DocumentLocator } from '../../lib/generated/document';
+import type { ReaderSearchHit, ReaderSearchScope } from './api';
 
 interface ReaderSearchProps {
   bookId: string | null;
@@ -10,6 +10,7 @@ interface ReaderSearchProps {
     bookId: string,
     query: string,
     limit: number,
+    scope: ReaderSearchScope,
   ): Promise<ReaderSearchHit[]>;
   onNavigate(locator: DocumentLocator): Promise<boolean> | boolean;
   labels?: {
@@ -18,11 +19,17 @@ interface ReaderSearchProps {
     submit: string;
     loading: string;
     failed: string;
+    navigateFailed: string;
     empty: string;
     page(page: number): string;
     currentSection: string;
+    scope: string;
+    all: string;
+    book: string;
+    question: string;
   };
 }
+
 export function ReaderSearch({
   bookId,
   format,
@@ -34,15 +41,21 @@ export function ReaderSearch({
     submit: '搜索',
     loading: '正在搜索…',
     failed: '搜索失败，请重试。',
+    navigateFailed: '无法精确恢复此结果的原文位置。',
     empty: '没有搜索结果。',
     page: (page) => `第 ${page} 页`,
     currentSection: '当前章节',
+    scope: '搜索范围',
+    all: '全部',
+    book: '仅原文',
+    question: '仅问题简述',
   },
 }: ReaderSearchProps) {
   const [query, setQuery] = useState('');
+  const [scope, setScope] = useState<ReaderSearchScope>('all');
   const [results, setResults] = useState<ReaderSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<'search' | 'navigate' | null>(null);
   const sequence = useRef(0);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -55,10 +68,10 @@ export function ReaderSearch({
     setLoading(true);
     setError(null);
     try {
-      const next = await search(bookId, trimmed, 50);
+      const next = await search(bookId, trimmed, 50, scope);
       if (current === sequence.current) setResults(next);
     } catch {
-      if (current === sequence.current) setError(labels.failed);
+      if (current === sequence.current) setError('search');
     } finally {
       if (current === sequence.current) setLoading(false);
     }
@@ -77,10 +90,35 @@ export function ReaderSearch({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
+        <fieldset className="reader-search__scope">
+          <legend>{labels.scope}</legend>
+          {(
+            [
+              ['all', labels.all],
+              ['book', labels.book],
+              ['question', labels.question],
+            ] as const
+          ).map(([value, label]) => (
+            <label key={value}>
+              <input
+                type="radio"
+                name="reader-search-scope"
+                value={value}
+                checked={scope === value}
+                onChange={() => setScope(value)}
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
         <button type="submit">{labels.submit}</button>
       </form>
       {loading && <p role="status">{labels.loading}</p>}
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <p role="alert">
+          {error === 'search' ? labels.failed : labels.navigateFailed}
+        </p>
+      )}
       {!loading && !error && query.trim() && results.length === 0 && (
         <p>{labels.empty}</p>
       )}
@@ -90,10 +128,19 @@ export function ReaderSearch({
             <button
               type="button"
               onClick={() => {
-                void onNavigate(hit.locator);
+                setError(null);
+                void Promise.resolve(onNavigate(hit.locator))
+                  .then((restored) => {
+                    if (!restored) setError('navigate');
+                  })
+                  .catch(() => setError('navigate'));
               }}
             >
-              <span>{citation(hit, format, labels)}</span>
+              <span>
+                {hit.source === 'question'
+                  ? labels.question
+                  : citation(hit, format, labels)}
+              </span>
               <span>{hit.snippet}</span>
             </button>
           </li>
@@ -102,6 +149,7 @@ export function ReaderSearch({
     </section>
   );
 }
+
 function citation(
   hit: ReaderSearchHit,
   format: ReaderSearchProps['format'],

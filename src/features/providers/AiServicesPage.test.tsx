@@ -1,6 +1,8 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LanguageProvider, useLanguage } from '../../app/LanguageProvider';
+import type { UiLanguage } from '../../lib/i18n';
 import type { ProviderApi } from './api';
 import { AiServicesPage } from './AiServicesPage';
 
@@ -68,12 +70,42 @@ function fakeApi(): ProviderApi {
   };
 }
 afterEach(() => cleanup());
+
+function languageSettings(language: UiLanguage) {
+  const value = (uiLanguage: UiLanguage) => ({
+    onboardingCompleted: false,
+    activeProviderProfileId: null,
+    defaultLearningProfileId: null,
+    defaultVisionProfileId: null,
+    theme: 'system' as const,
+    contextMode: 'standard' as const,
+    uiLanguage,
+    uiLanguageInitialized: true,
+    firstReaderHintCompleted: false,
+  });
+  return {
+    getAppSettings: vi.fn(async () => value(language)),
+    initializeUiLanguage: vi.fn(async (detected: UiLanguage) =>
+      value(detected),
+    ),
+    updateUiLanguage: vi.fn(async (next: UiLanguage) => value(next)),
+  };
+}
+
+function renderPage(api: ProviderApi, language: UiLanguage = 'en') {
+  return render(
+    <LanguageProvider api={languageSettings(language)}>
+      <AiServicesPage api={api} />
+    </LanguageProvider>,
+  );
+}
+
 describe('AI services', () => {
   it('shows Unknown rather than treating unverified vision support as supported', async () => {
-    render(<AiServicesPage api={fakeApi()} />);
+    renderPage(fakeApi());
     expect(await screen.findByText(/Vision: Unknown/)).toBeVisible();
   });
-  it('keeps an invalid key only in the mounted password field', async () => {
+  it('keeps an invalid key only in the mounted password field and localizes the error', async () => {
     const api = fakeApi();
     api.validateAndSave = vi.fn(async () => {
       throw {
@@ -84,16 +116,73 @@ describe('AI services', () => {
       };
     });
     const user = userEvent.setup();
-    render(<AiServicesPage api={api} />);
+    const settings = languageSettings('en');
+    function SwitchLanguage() {
+      const { switchLanguage } = useLanguage();
+      return (
+        <button type="button" onClick={() => void switchLanguage('zh-CN')}>
+          switch error language
+        </button>
+      );
+    }
+    render(
+      <LanguageProvider api={settings}>
+        <SwitchLanguage />
+        <AiServicesPage api={api} />
+      </LanguageProvider>,
+    );
     const input = await screen.findByLabelText('Key');
     await user.type(input, 'synthetic-secret');
     await user.click(
       screen.getByRole('button', { name: 'Validate & Connect' }),
     );
     await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent('Invalid key'),
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'The AI service request failed.',
+      ),
     );
     expect(input).toHaveValue('synthetic-secret');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Invalid key');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Check it');
     expect(document.body.innerHTML).not.toContain('"credential"');
+
+    await user.click(
+      screen.getByRole('button', { name: 'switch error language' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'AI 服务请求失败。',
+    );
+  });
+
+  it('updates the whole AI services surface when the application language changes', async () => {
+    const settings = languageSettings('en');
+    function SwitchLanguage() {
+      const { switchLanguage } = useLanguage();
+      return (
+        <button type="button" onClick={() => void switchLanguage('zh-CN')}>
+          switch language
+        </button>
+      );
+    }
+    const user = userEvent.setup();
+    render(
+      <LanguageProvider api={settings}>
+        <SwitchLanguage />
+        <AiServicesPage api={fakeApi()} />
+      </LanguageProvider>,
+    );
+    expect(
+      await screen.findByRole('heading', { name: 'AI services' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Key')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'switch language' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'AI 服务' }),
+    ).toBeVisible();
+    expect(screen.getByLabelText('密钥')).toBeVisible();
+    expect(screen.getByRole('button', { name: '设为学习服务' })).toBeVisible();
+    expect(screen.queryByText('Connected profiles')).not.toBeInTheDocument();
   });
 });

@@ -27,7 +27,7 @@ use super::{
     },
 };
 use crate::{
-    domain::ProviderKind,
+    domain::{KimiApiRegion, ProviderKind},
     errors::{AppErrorCode, AppErrorDto},
 };
 use provider_server::{ChunkedSseServer, ProviderServer, TEST_CREDENTIAL};
@@ -110,12 +110,19 @@ fn production_origins_and_policy_are_fixed_and_hardened() {
         ),
         (ProviderKind::Anthropic, "https://api.anthropic.com/"),
         (ProviderKind::DeepSeek, "https://api.deepseek.com/"),
-        (ProviderKind::Kimi, "https://api.moonshot.cn/v1/"),
     ];
     for (kind, origin) in expected {
         let transport = ProviderTransport::new(kind).unwrap();
         assert_eq!(transport.origin_for_test(), origin);
         assert!(transport.origin_for_test().starts_with("https://"));
+    }
+    assert!(ProviderTransport::new(ProviderKind::Kimi).is_err());
+    for (region, expected_origin) in [
+        (KimiApiRegion::Cn, "https://api.moonshot.cn/v1/"),
+        (KimiApiRegion::International, "https://api.moonshot.ai/v1/"),
+    ] {
+        let transport = ProviderTransport::new_for_kimi_region(region).unwrap();
+        assert_eq!(transport.origin_for_test(), expected_origin);
     }
 
     assert_eq!(

@@ -5,7 +5,7 @@ use sqlx::{Row, SqlitePool};
 use textbooklens_lib::{
     db::{
         Database,
-        annotations::list_annotation_markers,
+        annotations::{list_annotation_markers, update_ai_annotation_summary},
         conversations::{
             BookFollowupCompletion, DeleteBookConversation, LearningPersistenceFaultInjector,
             LearningPersistenceStep, LearningRepository, NewBookQuestionCompletion,
@@ -472,6 +472,66 @@ fn book_delete_is_atomic_and_does_not_touch_selection_marker() {
                 .unwrap(),
             1
         );
+    });
+}
+
+#[test]
+fn ai_marker_sequence_default_summary_and_revision_edit_are_durable() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        let first = fixture
+            .repository()
+            .persist_new_selection(selection_completion(&fixture))
+            .await
+            .unwrap();
+        let mut second_completion = selection_completion(&fixture);
+        second_completion.question = "Explain the second selection.".to_owned();
+        second_completion.assistant.answer =
+            "Second compact explanation. Additional detail is not the brief.".to_owned();
+        let second = fixture
+            .repository()
+            .persist_new_selection(second_completion)
+            .await
+            .unwrap();
+
+        let markers = list_annotation_markers(fixture.pool(), fixture.book_id)
+            .await
+            .unwrap();
+        assert_eq!(markers.len(), 2);
+        assert_eq!(markers[0].id, first.annotation_id);
+        assert_eq!(markers[0].sequence, Some(1));
+        assert_eq!(markers[0].summary_text, "Selection answer.");
+        assert_eq!(markers[1].id, second.annotation_id);
+        assert_eq!(markers[1].sequence, Some(2));
+        assert_eq!(markers[1].summary_text, "Second compact explanation.");
+        assert_eq!(markers[1].revision, 1);
+        assert!(!format!("{:?}", markers[1]).contains("Second compact"));
+
+        update_ai_annotation_summary(
+            fixture.pool(),
+            fixture.book_id,
+            second.annotation_id,
+            markers[1].revision,
+            "  User-edited brief  ".to_owned(),
+        )
+        .await
+        .unwrap();
+        let stale = update_ai_annotation_summary(
+            fixture.pool(),
+            fixture.book_id,
+            second.annotation_id,
+            markers[1].revision,
+            "Stale overwrite".to_owned(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(stale.code, AppErrorCode::RequestConflict);
+
+        let edited = list_annotation_markers(fixture.pool(), fixture.book_id)
+            .await
+            .unwrap();
+        assert_eq!(edited[1].summary_text, "User-edited brief");
+        assert_eq!(edited[1].revision, 2);
     });
 }
 

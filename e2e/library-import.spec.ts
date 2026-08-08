@@ -13,6 +13,7 @@ const readyBook = {
   importErrorMessage: null,
   importErrorStage: null,
   readingProgress: 0.375,
+  fullTextQaReady: false,
   indexAggregate: {
     status: 'partial',
     totalPages: 4,

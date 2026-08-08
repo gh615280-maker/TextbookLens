@@ -24,6 +24,9 @@ const markers: AnnotationMarker[] = [
   {
     id: 'ai',
     kind: 'ai_conversation',
+    sequence: 1,
+    summaryText: 'A short AI-generated description.',
+    revision: 1,
     label: '查看 AI 对话标记',
     anchor: pdfAnchor,
     relocationStatus: 'primary',
@@ -59,6 +62,71 @@ function adapter(
 }
 
 describe('MarkerLayer', () => {
+  it('uses question numbers to navigate and saves editable descriptions', async () => {
+    const root = document.createElement('aside');
+    const update = vi.fn(async () => {});
+    const currentAdapter = adapter(
+      vi.fn(async () => [
+        { annotationId: 'ai', relocationStatus: 'primary' as const },
+      ]),
+    );
+    const layer = new MarkerLayer(root, vi.fn(), update);
+    await layer.show(currentAdapter, markers.slice(0, 1));
+
+    const locate = root.querySelector<HTMLButtonElement>(
+      '[aria-label="Locate question 1 in the textbook"]',
+    )!;
+    expect(locate).toHaveTextContent('1');
+    locate.click();
+    expect(currentAdapter.navigate).toHaveBeenCalledWith(
+      pdfAnchor.selection.locator,
+    );
+
+    Array.from(root.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Edit description')!
+      .click();
+    const input = root.querySelector<HTMLInputElement>('input')!;
+    input.value = 'User-edited description';
+    input.form!.dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }),
+    );
+    await vi.waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        markers[0],
+        'User-edited description',
+      ),
+    );
+    expect(root).toHaveTextContent('User-edited description');
+  });
+
+  it('rerenders existing question controls when the interface language changes', async () => {
+    const root = document.createElement('aside');
+    const layer = new MarkerLayer(root);
+    await layer.show(
+      adapter(async () => [
+        { annotationId: 'ai', relocationStatus: 'primary' as const },
+      ]),
+      markers.slice(0, 1),
+    );
+
+    layer.setLabels({
+      locate: (sequence) => `定位问题 ${sequence} 的原文位置`,
+      open: '打开回答',
+      edit: '编辑简述',
+      save: '保存',
+      cancel: '取消',
+      description: (sequence) => `问题 ${sequence} 的简短说明`,
+      unresolved: '无法精确恢复原文位置。',
+      saveFailed: '无法保存简述。',
+    });
+
+    expect(root).toHaveTextContent('打开回答');
+    expect(root).toHaveTextContent('编辑简述');
+    expect(
+      root.querySelector('[aria-label="定位问题 1 的原文位置"]'),
+    ).not.toBeNull();
+  });
+
   it('keeps unresolved markers in history while attaching only resolvable markers and cleans listeners', async () => {
     const root = document.createElement('aside');
     const activate = vi.fn();
@@ -81,6 +149,9 @@ describe('MarkerLayer', () => {
       '[data-annotation-id="lost"]',
     )!;
     expect(unresolved).toHaveAttribute('data-relocation-status', 'unresolved');
+    expect(
+      unresolved.querySelector('[data-marker-shape="note"]'),
+    ).not.toBeNull();
     unresolved.querySelector('button')!.click();
     expect(activate).toHaveBeenCalledWith([markers[2]]);
     layer.dispose();

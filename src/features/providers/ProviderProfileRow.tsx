@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+
+import { useMessage } from '../../app/LanguageProvider';
 import type {
   ProviderCapabilityRegistryDto,
   ProviderProfileSummary,
@@ -19,13 +21,9 @@ interface Props {
   onReplace(id: string, key: string): Promise<void>;
   onResetConsents(id: string): Promise<void>;
 }
-const label = (value: 'supported' | 'unsupported' | 'unknown') =>
-  value === 'supported'
-    ? 'Supported'
-    : value === 'unsupported'
-      ? 'Unsupported'
-      : 'Unknown';
+
 export function ProviderProfileRow(props: Props) {
+  const message = useMessage();
   const { profile, registry } = props;
   const [mode, setMode] = useState<'none' | 'delete' | 'replace'>('none');
   const [key, setKey] = useState('');
@@ -57,33 +55,38 @@ export function ProviderProfileRow(props: Props) {
       <h3>{profile.displayName}</h3>
       <p>
         {profile.credentialStatus === 'available'
-          ? 'Connected'
-          : 'Credential missing'}{' '}
+          ? message('aiServices.connected')
+          : message('aiServices.credentialMissing')}{' '}
         · {profile.modelId}
       </p>
       <p>
-        Text: {label(model?.textChat ?? 'unknown')} · Vision:{' '}
-        {label(model?.imageInput ?? 'unknown')} · Structured:{' '}
-        {label(model?.strictStructuredOutput ?? 'unknown')}
+        {message('aiServices.capability.text')}:{' '}
+        {capabilityLabel(message, model?.textChat ?? 'unknown')} ·{' '}
+        {message('aiServices.capability.vision')}:{' '}
+        {capabilityLabel(message, model?.imageInput ?? 'unknown')} ·{' '}
+        {message('aiServices.capability.structured')}:{' '}
+        {capabilityLabel(message, model?.strictStructuredOutput ?? 'unknown')}
       </p>
-      <p>
-        {props.learningDefault ? 'Learning default' : ''}
-        {props.learningDefault && props.visionDefault ? ' · ' : ''}
-        {props.visionDefault ? 'Vision default' : ''}
-      </p>
+      {props.learningDefault || props.visionDefault ? (
+        <p>
+          {props.learningDefault ? message('aiServices.learningDefault') : ''}
+          {props.learningDefault && props.visionDefault ? ' · ' : ''}
+          {props.visionDefault ? message('aiServices.visionDefault') : ''}
+        </p>
+      ) : null}
       <button
         type="button"
         disabled={props.busy}
         onClick={() => void props.onDefault('text_learning', profile.id)}
       >
-        Use for learning
+        {message('aiServices.useForLearning')}
       </button>
       <button
         type="button"
         disabled={props.busy || model?.imageInput !== 'supported'}
         onClick={() => void props.onDefault('vision_learning', profile.id)}
       >
-        Use for vision
+        {message('aiServices.useForVision')}
       </button>
       <button
         ref={trigger}
@@ -91,22 +94,24 @@ export function ProviderProfileRow(props: Props) {
         disabled={props.busy}
         onClick={() => setMode('replace')}
       >
-        Replace key
+        {message('aiServices.replaceKey')}
       </button>
       <button
         type="button"
         disabled={props.busy}
         onClick={() => setMode('delete')}
       >
-        Delete
+        {message('aiServices.delete')}
       </button>
       {mode === 'replace' ? (
         <form
           onSubmit={(event) => void replace(event)}
-          aria-label={`Replace key for ${profile.displayName}`}
+          aria-label={message('aiServices.replaceForm', {
+            provider: profile.displayName,
+          })}
         >
           <label>
-            New key
+            {message('aiServices.newKey')}
             <input
               ref={replacementInput}
               type="password"
@@ -117,10 +122,10 @@ export function ProviderProfileRow(props: Props) {
             />
           </label>
           <button type="submit" disabled={props.busy || key.length === 0}>
-            Validate &amp; Replace
+            {message('aiServices.validateReplace')}
           </button>
           <button type="button" onClick={close}>
-            Cancel
+            {message('aiServices.cancel')}
           </button>
         </form>
       ) : null}
@@ -128,18 +133,20 @@ export function ProviderProfileRow(props: Props) {
         <div
           role="alertdialog"
           aria-modal="true"
-          aria-label={`Delete ${profile.displayName}`}
+          aria-label={message('aiServices.deleteDialog', {
+            provider: profile.displayName,
+          })}
         >
-          <p>Delete this provider profile and its saved key?</p>
+          <p>{message('aiServices.deleteConfirm')}</p>
           <button
             ref={confirmation}
             type="button"
             onClick={() => void props.onDelete(profile.id).finally(close)}
           >
-            Delete
+            {message('aiServices.delete')}
           </button>
           <button type="button" onClick={close}>
-            Cancel
+            {message('aiServices.cancel')}
           </button>
         </div>
       ) : null}
@@ -150,4 +157,14 @@ export function ProviderProfileRow(props: Props) {
       />
     </article>
   );
+}
+
+function capabilityLabel(
+  message: ReturnType<typeof useMessage>,
+  value: 'supported' | 'unsupported' | 'unknown',
+) {
+  if (value === 'supported') return message('aiServices.capability.supported');
+  if (value === 'unsupported')
+    return message('aiServices.capability.unsupported');
+  return message('aiServices.capability.unknown');
 }

@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{method, path},
+    matchers::{header, method, path},
 };
 
 use super::{
@@ -30,9 +30,9 @@ use crate::{
     credentials::CredentialStore,
     db::{Database, providers},
     domain::{
-        AiOperation, ImageLimits, ImageMime, ProviderKind, ProviderOperationConsentDecision,
-        RemoteCleanupHandle, StructuredPageRequest, UnifiedChatRequest, UnifiedMessage,
-        UnifiedRole, UnifiedStreamEvent,
+        AiOperation, ImageLimits, ImageMime, KimiApiRegion, ProviderKind,
+        ProviderOperationConsentDecision, RemoteCleanupHandle, StructuredPageRequest,
+        UnifiedChatRequest, UnifiedMessage, UnifiedRole, UnifiedStreamEvent,
     },
     errors::{AppError, AppErrorCode, AppErrorDto, AppResult},
 };
@@ -198,6 +198,234 @@ async fn runtime_uses_fixed_kind_adapter_and_rejects_non_loopback_or_wrong_model
         .unwrap();
     assert!(!format!("{validated:?}").contains(credential));
     assert!(!format!("{runtime:?}").contains(&server.uri()));
+}
+
+#[tokio::test]
+async fn kimi_cn_probe_persists_region_and_restart_routes_chat_without_reprobing_or_uploading() {
+    let (_temporary, database) = test_database();
+    let store = Arc::new(ScriptedStore::default());
+    let cn = MockServer::start().await;
+    let international = MockServer::start().await;
+    let credential = "synthetic-kimi-cn-credential";
+    mount_kimi_models(&cn, credential, 200, 1).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("authorization", format!("Bearer {credential}")))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            include_str!("../../../fixtures/providers/kimi/stream-ok.sse"),
+            "text/event-stream",
+        ))
+        .expect(1)
+        .mount(&cn)
+        .await;
+
+    let runtime = kimi_runtime(store.clone(), &cn, &international);
+    let profile = validate_and_save_provider_profile_impl(
+        SaveProviderProfileRequest::synthetic(
+            ProviderKind::Kimi,
+            "Synthetic Kimi CN",
+            Some("kimi-k3"),
+            credential,
+        ),
+        database.pool(),
+        store.clone(),
+        &runtime,
+    )
+    .await
+    .unwrap();
+    assert_eq!(profile.kimi_api_region, Some(KimiApiRegion::Cn));
+    assert_eq!(profile_region(database.pool(), profile.id).await, "cn");
+
+    let restarted = kimi_runtime(store, &cn, &international);
+    let loaded = restarted
+        .load(database.pool(), profile.id, AiOperation::TextLearning)
+        .await
+        .unwrap();
+    let events = loaded
+        .stream_text_learning(test_chat_request("kimi-k3"), CancellationToken::new())
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert!(matches!(
+        events.last(),
+        Some(Ok(UnifiedStreamEvent::Completed))
+    ));
+
+    let cn_paths = cn
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|request| request.url.path().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(cn_paths, vec!["/v1/models", "/v1/chat/completions"]);
+    assert!(international.received_requests().await.unwrap().is_empty());
+    assert!(cn_paths.iter().all(|path| path != "/v1/files"));
+}
+
+#[tokio::test]
+async fn kimi_international_fallback_persists_and_key_replacement_reprobes_to_cn() {
+    let (_temporary, database) = test_database();
+    let store = Arc::new(ScriptedStore::default());
+    let cn = MockServer::start().await;
+    let international = MockServer::start().await;
+    let international_key = "synthetic-kimi-international-credential";
+    let cn_key = "synthetic-kimi-replacement-cn-credential";
+
+    mount_kimi_models(&cn, international_key, 403, 1).await;
+    mount_kimi_models(&international, international_key, 200, 1).await;
+    mount_kimi_models(&cn, cn_key, 200, 1).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header(
+            "authorization",
+            format!("Bearer {international_key}"),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            include_str!("../../../fixtures/providers/kimi/stream-ok.sse"),
+            "text/event-stream",
+        ))
+        .expect(1)
+        .mount(&international)
+        .await;
+
+    let runtime = kimi_runtime(store.clone(), &cn, &international);
+    let profile = validate_and_save_provider_profile_impl(
+        SaveProviderProfileRequest::synthetic(
+            ProviderKind::Kimi,
+            "Synthetic Kimi International",
+            Some("kimi-k3"),
+            international_key,
+        ),
+        database.pool(),
+        store.clone(),
+        &runtime,
+    )
+    .await
+    .unwrap();
+    assert_eq!(profile.kimi_api_region, Some(KimiApiRegion::International));
+    assert_eq!(
+        profile_region(database.pool(), profile.id).await,
+        "international"
+    );
+    let loaded = runtime
+        .load(database.pool(), profile.id, AiOperation::TextLearning)
+        .await
+        .unwrap();
+    let events = loaded
+        .stream_text_learning(test_chat_request("kimi-k3"), CancellationToken::new())
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+    assert!(matches!(
+        events.last(),
+        Some(Ok(UnifiedStreamEvent::Completed))
+    ));
+
+    let replaced = replace_provider_profile_credential_impl(
+        profile.id,
+        SecretString::from(cn_key),
+        database.pool(),
+        store.clone(),
+        &runtime,
+    )
+    .await
+    .unwrap();
+    assert_eq!(replaced.kimi_api_region, Some(KimiApiRegion::Cn));
+    assert_eq!(profile_region(database.pool(), profile.id).await, "cn");
+    assert_eq!(
+        store.exposed_value(&providers::credential_key(profile.id)),
+        Some(cn_key.to_owned())
+    );
+
+    let all_paths = cn
+        .received_requests()
+        .await
+        .unwrap()
+        .into_iter()
+        .chain(international.received_requests().await.unwrap())
+        .map(|request| request.url.path().to_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        all_paths
+            .iter()
+            .all(|path| matches!(path.as_str(), "/v1/models" | "/v1/chat/completions"))
+    );
+}
+
+#[tokio::test]
+async fn kimi_probe_only_falls_back_for_explicit_auth_or_region_failures() {
+    let credential = "synthetic-kimi-probe-sensitive-credential";
+
+    let cn = MockServer::start().await;
+    let international = MockServer::start().await;
+    mount_kimi_models(&cn, credential, 401, 1).await;
+    mount_kimi_models(&international, credential, 401, 1).await;
+    let error = kimi_runtime(Arc::new(ScriptedStore::default()), &cn, &international)
+        .validate_candidate(
+            ProviderKind::Kimi,
+            Some("kimi-k3"),
+            SecretString::from(credential),
+            AiOperation::TextLearning,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, AppErrorCode::InvalidApiKey);
+    assert!(!format!("{error:?} {error}").contains(credential));
+
+    for (status, expected) in [
+        (429, AppErrorCode::RateLimited),
+        (503, AppErrorCode::ProviderUnavailable),
+    ] {
+        let cn = MockServer::start().await;
+        let international = MockServer::start().await;
+        mount_kimi_models(&cn, credential, status, 1).await;
+        let error = kimi_runtime(Arc::new(ScriptedStore::default()), &cn, &international)
+            .validate_candidate(
+                ProviderKind::Kimi,
+                Some("kimi-k3"),
+                SecretString::from(credential),
+                AiOperation::TextLearning,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, expected);
+        assert!(international.received_requests().await.unwrap().is_empty());
+    }
+
+    let cn = MockServer::start().await;
+    let international = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(250))
+                .set_body_json(kimi_models_body()),
+        )
+        .expect(1)
+        .mount(&cn)
+        .await;
+    let runtime = ProviderRuntime::new_for_test_with_kimi_origins_and_timeout(
+        Arc::new(ScriptedStore::default()),
+        ProviderCapabilityRegistry::load_embedded().unwrap(),
+        &format!("{}/v1", cn.uri()),
+        &format!("{}/v1", international.uri()),
+        Duration::from_millis(30),
+    )
+    .unwrap();
+    let error = runtime
+        .validate_candidate(
+            ProviderKind::Kimi,
+            Some("kimi-k3"),
+            SecretString::from(credential),
+            AiOperation::TextLearning,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, AppErrorCode::ProviderUnavailable);
+    assert!(international.received_requests().await.unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -745,6 +973,50 @@ fn test_runtime(store: Arc<ScriptedStore>, server: &MockServer) -> ProviderRunti
     .unwrap()
 }
 
+fn kimi_runtime(
+    store: Arc<ScriptedStore>,
+    cn: &MockServer,
+    international: &MockServer,
+) -> ProviderRuntime {
+    ProviderRuntime::new_for_test_with_kimi_origins(
+        store,
+        ProviderCapabilityRegistry::load_embedded().unwrap(),
+        &format!("{}/v1", cn.uri()),
+        &format!("{}/v1", international.uri()),
+    )
+    .unwrap()
+}
+
+async fn mount_kimi_models(
+    server: &MockServer,
+    credential: &str,
+    status: u16,
+    expected_calls: u64,
+) {
+    let response = if status == 200 {
+        ResponseTemplate::new(status).set_body_json(kimi_models_body())
+    } else {
+        let code = match status {
+            401 => "invalid_api_key",
+            403 => "region_restricted",
+            429 => "rate_limit",
+            _ => "provider_unavailable",
+        };
+        ResponseTemplate::new(status).set_body_json(serde_json::json!({"error":{"code":code}}))
+    };
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(header("authorization", format!("Bearer {credential}")))
+        .respond_with(response)
+        .expect(expected_calls)
+        .mount(server)
+        .await;
+}
+
+fn kimi_models_body() -> serde_json::Value {
+    serde_json::json!({"object":"list","data":[{"id":"kimi-k3"}]})
+}
+
 fn test_chat_request(model: &str) -> UnifiedChatRequest {
     UnifiedChatRequest {
         model: model.to_owned(),
@@ -860,6 +1132,14 @@ async fn profile_count(pool: &sqlx::SqlitePool) -> i64 {
 
 async fn profile_context(pool: &sqlx::SqlitePool, profile_id: Uuid) -> i64 {
     sqlx::query_scalar("SELECT context_window_tokens FROM provider_profiles WHERE id = ?")
+        .bind(profile_id.to_string())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn profile_region(pool: &sqlx::SqlitePool, profile_id: Uuid) -> String {
+    sqlx::query_scalar("SELECT kimi_api_region FROM provider_profiles WHERE id = ?")
         .bind(profile_id.to_string())
         .fetch_one(pool)
         .await

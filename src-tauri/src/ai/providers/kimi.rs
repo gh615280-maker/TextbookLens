@@ -1,5 +1,8 @@
 use std::fmt;
 
+#[cfg(test)]
+use std::time::Duration;
+
 use async_trait::async_trait;
 use reqwest::Method;
 use secrecy::{ExposeSecret, SecretString};
@@ -10,7 +13,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     domain::{
-        AiOperation, CapabilitySupport, ImageLimits, ImageMime, ProviderKind,
+        AiOperation, CapabilitySupport, ImageLimits, ImageMime, KimiApiRegion, ProviderKind,
         StructuredAnalysisOutcome, StructuredPageRequest, UnifiedMessage, UnifiedVisionRequest,
         ValidationResult,
     },
@@ -43,8 +46,8 @@ pub struct KimiProvider {
     registry: ProviderCapabilityRegistry,
 }
 impl KimiProvider {
-    pub fn new() -> Result<Self, AiError> {
-        Self::build(ProviderTransport::new(ProviderKind::Kimi)?)
+    pub(crate) fn new_for_region(region: KimiApiRegion) -> Result<Self, AiError> {
+        Self::build(ProviderTransport::new_for_kimi_region(region)?)
     }
     fn build(transport: ProviderTransport) -> Result<Self, AiError> {
         Ok(Self {
@@ -56,6 +59,17 @@ impl KimiProvider {
     #[cfg(test)]
     pub(crate) fn new_for_test(origin: &str) -> Result<Self, AiError> {
         Self::build(ProviderTransport::new_for_test(ProviderKind::Kimi, origin)?)
+    }
+    #[cfg(test)]
+    pub(crate) fn new_for_test_with_timeout(
+        origin: &str,
+        timeout: Duration,
+    ) -> Result<Self, AiError> {
+        Self::build(ProviderTransport::new_for_test_with_timeout(
+            ProviderKind::Kimi,
+            origin,
+            timeout,
+        )?)
     }
 }
 impl fmt::Debug for KimiProvider {

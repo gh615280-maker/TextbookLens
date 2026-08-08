@@ -13,6 +13,7 @@ const book = {
   importErrorMessage: null,
   importErrorStage: null,
   readingProgress: 0,
+  fullTextQaReady: false,
   indexAggregate: {
     status: 'needs_review',
     totalPages: 3,

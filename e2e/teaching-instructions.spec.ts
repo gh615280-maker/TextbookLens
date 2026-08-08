@@ -319,9 +319,7 @@ test('scenario C exposes five normal-text presets in all three languages and pas
           .getByRole('button', { name: /替换|替換|Replace/ })
           .click();
       }
-      const value = await page
-        .getByRole('textbox', { name: 'Instruction' })
-        .inputValue();
+      const value = await page.locator('#teaching-instruction').inputValue();
       expect(Array.from(value).length).toBeGreaterThan(0);
       expect(Array.from(value).length).toBeLessThanOrEqual(1000);
       expect(value).not.toMatch(
@@ -433,7 +431,7 @@ test('scenario C freezes unsaved instruction data and the exact TextLearning pro
     requestId: firstRequestId,
     type: 'completed',
   });
-  await expect(page.getByTestId('teaching-test-stage')).toHaveText('completed');
+  await expect(page.getByTestId('teaching-test-stage')).toHaveText('Completed');
   await expect(page.getByLabel('Temporary test answer')).toHaveText(
     'Bounded synthetic snapshot preview.',
   );
@@ -470,7 +468,7 @@ test('scenario C makes Stop, active replacement, and unmount cancellation win wi
   await page.getByRole('button', { name: 'Run temporary test' }).click();
   const stoppedRequestId = backend.requests[0]!.requestId;
   await page.getByRole('button', { name: 'Stop test' }).click();
-  await expect(page.getByTestId('teaching-test-stage')).toHaveText('cancelled');
+  await expect(page.getByTestId('teaching-test-stage')).toHaveText('Cancelled');
   await emitProviderEvent(page, {
     requestId: stoppedRequestId,
     type: 'text_delta',

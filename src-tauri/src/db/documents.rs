@@ -30,15 +30,24 @@ pub async fn begin_parse(
         return Err(AppError::new(AppErrorCode::InvalidInput));
     }
     let mut transaction = pool.begin().await?;
-    let status: Option<String> = sqlx::query_scalar("SELECT import_status FROM books WHERE id = ?")
-        .bind(book_id.to_string())
-        .fetch_optional(&mut *transaction)
-        .await?;
-    match status.as_deref() {
-        Some("parsing" | "ready") => {}
-        Some(_) => return Err(AppError::new(AppErrorCode::RequestConflict)),
-        None => return Err(AppError::new(AppErrorCode::NotFound)),
+    let book =
+        sqlx::query("SELECT import_status, title, original_filename FROM books WHERE id = ?")
+            .bind(book_id.to_string())
+            .fetch_optional(&mut *transaction)
+            .await?
+            .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
+    let status: String = book.try_get("import_status")?;
+    match status.as_str() {
+        "parsing" | "ready" => {}
+        _ => return Err(AppError::new(AppErrorCode::RequestConflict)),
     }
+    let original_filename: String = book.try_get("original_filename")?;
+    let existing_title: String = book.try_get("title")?;
+    let title = if is_generated_untitled_title(title) {
+        filename_title(&original_filename).unwrap_or(existing_title)
+    } else {
+        title.trim().to_owned()
+    };
     sqlx::query("DELETE FROM sections WHERE book_id = ?")
         .bind(book_id.to_string())
         .execute(&mut *transaction)
@@ -46,7 +55,7 @@ pub async fn begin_parse(
     let updated = sqlx::query(
         "UPDATE books SET title = ?, author = ?, language = ?, import_status = 'parsing', import_error_code = NULL, import_error_message = NULL, import_error_stage = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ? AND import_status IN ('parsing', 'ready')",
     )
-    .bind(title.trim())
+    .bind(title)
     .bind(author)
     .bind(language)
     .bind(book_id.to_string())
@@ -55,6 +64,29 @@ pub async fn begin_parse(
     ensure_changed(updated.rows_affected())?;
     transaction.commit().await?;
     Ok(())
+}
+
+fn is_generated_untitled_title(title: &str) -> bool {
+    matches!(
+        title.trim().to_lowercase().as_str(),
+        "未命名"
+            | "未命名 pdf"
+            | "未命名 epub"
+            | "未命名 docx"
+            | "untitled"
+            | "untitled pdf"
+            | "untitled epub"
+            | "untitled docx"
+    )
+}
+
+fn filename_title(original_filename: &str) -> Option<String> {
+    std::path::Path::new(original_filename)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(str::trim)
+        .filter(|stem| !stem.is_empty())
+        .map(str::to_owned)
 }
 
 pub async fn append_parsed_sections(

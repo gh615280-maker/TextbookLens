@@ -10,8 +10,14 @@ export function sectionIdForTextSelection(
     return supplied;
   }
   const locator = selection.anchor.locator;
-  return locator.format === 'pdf'
-    ? sectionIdForPdfRange(sections, locator.startPage, locator.endPage)
+  if (locator.format === 'pdf') {
+    return sectionIdForPdfRange(sections, locator.startPage, locator.endPage);
+  }
+  if (locator.format === 'epub') {
+    return sectionIdForEpubRendition(sections, supplied);
+  }
+  return locator.format === 'docx'
+    ? sectionIdForDocxBlock(sections, locator.startBlockId)
     : undefined;
 }
 
@@ -28,9 +34,38 @@ export function sectionIdForRegionSelection(
   const anchor = region.anchor;
   if (anchor.kind !== 'region') return undefined;
   const locator = anchor.region.locator;
-  return locator.format === 'pdf'
-    ? sectionIdForPdfRange(sections, locator.page, locator.page)
-    : undefined;
+  if (locator.format === 'pdf') {
+    return sectionIdForPdfRange(sections, locator.page, locator.page);
+  }
+  if (locator.format === 'epub') {
+    return sectionIdForEpubRendition(sections, region.sectionId);
+  }
+  return sectionIdForDocxBlock(sections, locator.blockId);
+}
+
+function sectionIdForEpubRendition(
+  sections: readonly ReaderSection[],
+  renditionSectionId: string | null | undefined,
+): string | undefined {
+  const match = /^spine-(\d+)$/u.exec(renditionSectionId ?? '');
+  if (!match) return undefined;
+  const ordinal = Number(match[1]);
+  return sections.find(
+    (section) =>
+      section.locator.format === 'epub' && section.ordinal === ordinal,
+  )?.id;
+}
+
+function sectionIdForDocxBlock(
+  sections: readonly ReaderSection[],
+  blockId: string,
+): string | undefined {
+  return sections.find(
+    (section) =>
+      section.locator.format === 'docx' &&
+      (section.locator.startBlockId === blockId ||
+        section.locator.endBlockId === blockId),
+  )?.id;
 }
 
 function sectionIdForPdfRange(

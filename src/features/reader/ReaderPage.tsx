@@ -30,6 +30,7 @@ import { TauriReaderApi } from './api';
 import { DocxReaderAdapter } from './docx/DocxReaderAdapter';
 import { EpubReaderAdapter } from './epub/EpubReaderAdapter';
 import { MarkerLayer } from './markers/MarkerLayer';
+import type { MarkerHistoryLabels } from './markers/MarkerLayer';
 import { OverlappingMarkerMenu } from './markers/OverlappingMarkerMenu';
 import type { AnnotationMarker } from './contracts';
 import { PdfReaderAdapter } from './pdf/PdfReaderAdapter';
@@ -71,12 +72,14 @@ export function ReaderPage() {
   const readerContainerRef = useRef<HTMLDivElement>(null);
   const markerHistoryRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<ReaderController>(null);
+  const markerLayerRef = useRef<MarkerLayer>(null);
   const conversationOwnerRef = useRef<ConversationPanelOwner>(null);
   const hintCompletionInFlight = useRef(false);
   const learningProfileRef = useRef<LearningProfile | null>(null);
   const refreshedMarkerRequestsRef = useRef(new Set<string>());
   const sectionsRef = useRef<ReaderSection[]>([]);
   const messageRef = useRef(message);
+  const uiLanguageRef = useRef(uiLanguage);
   const noteLabels = {
     input: message('notes.input'),
     save: message('notes.save'),
@@ -102,6 +105,10 @@ export function ReaderPage() {
   useEffect(() => {
     messageRef.current = message;
   }, [message]);
+  useEffect(() => {
+    uiLanguageRef.current = uiLanguage;
+    markerLayerRef.current?.setLabels(markerHistoryLabels(uiLanguage));
+  }, [uiLanguage]);
   useEffect(() => {
     let shouldRefresh = false;
     for (const request of learningRequests.requests) {
@@ -224,19 +231,34 @@ export function ReaderPage() {
     if (!bookId || !container) return;
     const owner = new ConversationPanelOwner(bookId);
     conversationOwnerRef.current = owner;
-    const markerLayer = new MarkerLayer(markerHistoryRef.current, (markers) => {
-      if (markers.length === 1) {
-        activateMarker(markers[0]);
-        return;
-      }
-      setOverlappingMarkers({
-        markers,
-        returnFocus:
-          document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null,
-      });
-    });
+    const markerLayer = new MarkerLayer(
+      markerHistoryRef.current,
+      (markers) => {
+        if (markers.length === 1) {
+          activateMarker(markers[0]);
+          return;
+        }
+        setOverlappingMarkers({
+          markers,
+          returnFocus:
+            document.activeElement instanceof HTMLElement
+              ? document.activeElement
+              : null,
+        });
+      },
+      async (marker, summaryText) => {
+        if (!marker.revision) throw new Error('ANNOTATION_REVISION_MISSING');
+        await api.updateAiAnnotationSummary(
+          bookId,
+          marker.id,
+          marker.revision,
+          summaryText,
+        );
+        marker.revision += 1;
+      },
+      markerHistoryLabels(uiLanguageRef.current),
+    );
+    markerLayerRef.current = markerLayer;
     const controller = new ReaderController(
       api,
       {
@@ -296,6 +318,7 @@ export function ReaderPage() {
       if (conversationOwnerRef.current === owner)
         conversationOwnerRef.current = null;
       controller.dispose();
+      if (markerLayerRef.current === markerLayer) markerLayerRef.current = null;
       setOverlappingMarkers(null);
       setLearningSelection((current) => {
         releaseSnapshotCapture(current);
@@ -474,6 +497,45 @@ export function ReaderPage() {
       ) : null}
     </>
   );
+}
+
+function markerHistoryLabels(
+  language: 'zh-CN' | 'zh-TW' | 'en',
+): MarkerHistoryLabels {
+  if (language === 'en') {
+    return {
+      locate: (sequence) => `Locate question ${sequence} in the textbook`,
+      open: 'Open answer',
+      edit: 'Edit description',
+      save: 'Save',
+      cancel: 'Cancel',
+      description: (sequence) => `Description for question ${sequence}`,
+      unresolved: 'The original location could not be restored precisely.',
+      saveFailed: 'The description could not be saved.',
+    };
+  }
+  if (language === 'zh-TW') {
+    return {
+      locate: (sequence) => `定位問題 ${sequence} 的原文位置`,
+      open: '查看回答',
+      edit: '編輯簡述',
+      save: '儲存',
+      cancel: '取消',
+      description: (sequence) => `問題 ${sequence} 的簡短說明`,
+      unresolved: '原文位置無法精確恢復。',
+      saveFailed: '簡述儲存失敗。',
+    };
+  }
+  return {
+    locate: (sequence) => `定位问题 ${sequence} 的原文位置`,
+    open: '查看回答',
+    edit: '编辑简述',
+    save: '保存',
+    cancel: '取消',
+    description: (sequence) => `问题 ${sequence} 的简短说明`,
+    unresolved: '原文位置无法精确恢复。',
+    saveFailed: '简述保存失败。',
+  };
 }
 
 function selectionPosition() {

@@ -4,7 +4,8 @@ use uuid::Uuid;
 
 use super::registry::{ProviderCapabilityRegistry, RegistryError};
 use crate::domain::{
-    AiOperation, CapabilitySupport, CredentialStatus, ProviderKind, ProviderProfileSummary,
+    AiOperation, CapabilitySupport, CredentialStatus, KimiApiRegion, ProviderKind,
+    ProviderProfileSummary,
 };
 
 const EMBEDDED_REGISTRY: &str = include_str!("../../resources/provider-models.json");
@@ -220,6 +221,7 @@ fn assert_invalid(document: Value) {
 }
 
 fn profile(kind: ProviderKind, model_id: &str, validated: bool) -> ProviderProfileSummary {
+    let kimi_api_region = (kind == ProviderKind::Kimi).then_some(KimiApiRegion::Cn);
     ProviderProfileSummary {
         id: Uuid::new_v4(),
         kind,
@@ -229,5 +231,6 @@ fn profile(kind: ProviderKind, model_id: &str, validated: bool) -> ProviderProfi
         is_active: false,
         credential_status: CredentialStatus::Available,
         validated_at: validated.then(Utc::now),
+        kimi_api_region,
     }
 }

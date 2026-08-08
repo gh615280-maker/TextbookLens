@@ -11,18 +11,25 @@ use secrecy::{ExposeSecret, SecretString};
 use sqlx::{Row, SqlitePool};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+use wiremock::{
+    Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path},
+};
 
 use super::remote_cleanup::{
-    RemoteResourceCleaner, finish_failed_tracking_compensation, recover_remote_cleanup_on_startup,
-    safely_dispose_failed_resource, store_remote_handle, sweep_remote_resources,
+    RemoteResourceCleaner, RuntimeRemoteResourceCleaner, finish_failed_tracking_compensation,
+    recover_remote_cleanup_on_startup, safely_dispose_failed_resource,
+    store_extraction_remote_handle, store_remote_handle, sweep_remote_resources,
 };
 use crate::{
+    ai::registry::ProviderCapabilityRegistry,
     credentials::CredentialStore,
     db::{
         Database,
         indexing::{CreateIndexRun, create_index_run},
+        providers,
     },
-    domain::{IndexQualityReason, ProviderKind, RemoteCleanupHandle},
+    domain::{IndexQualityReason, KimiApiRegion, ProviderKind, RemoteCleanupHandle},
     errors::{AppError, AppErrorCode, AppResult},
     indexing::state,
 };
@@ -393,6 +400,97 @@ fn cancellation_failure_remains_durable_and_does_not_block_local_page_state() {
             .await
             .unwrap();
         assert_eq!(page_status, "queued");
+    });
+}
+
+#[test]
+fn kimi_cleanup_uses_the_resource_creation_region_after_profile_region_changes() {
+    let temporary = tempfile::tempdir().unwrap();
+    let database = Database::open(temporary.path().join("kimi-region-cleanup.sqlite3")).unwrap();
+    tauri::async_runtime::block_on(async {
+        let timestamp = "2026-08-08T00:00:00.000Z";
+        let book_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+        let extraction_id = Uuid::new_v4();
+        let store = Arc::new(TestStore::default());
+        let credential = "synthetic-kimi-cleanup-credential";
+        let opaque_id = "file_old_international_region";
+        sqlx::query("INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'Kimi cleanup fixture', 'pdf', 'fixture.pdf', 'fixture/source.pdf', 'ready', ?, ?)")
+            .bind(book_id.to_string()).bind("b".repeat(64)).bind(timestamp).bind(timestamp)
+            .execute(database.pool()).await.unwrap();
+        sqlx::query("INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, created_at, updated_at, validated_at, kimi_api_region) VALUES (?, 'kimi', 'Kimi current CN profile', 'kimi-k3', 1000000, ?, ?, ?, 'cn')")
+            .bind(profile_id.to_string()).bind(timestamp).bind(timestamp).bind(timestamp)
+            .execute(database.pool()).await.unwrap();
+        sqlx::query("INSERT INTO book_extractions (id, book_id, source_sha256, provider_profile_id, provider_kind, model_id, extraction_version, credential_fingerprint, status, created_at, updated_at, kimi_api_region) VALUES (?, ?, ?, ?, 'kimi', 'kimi-k3', 'kimi-file-extract-v1', ?, 'processing', ?, ?, 'international')")
+            .bind(extraction_id.to_string()).bind(book_id.to_string()).bind("b".repeat(64))
+            .bind(profile_id.to_string()).bind("c".repeat(64)).bind(timestamp).bind(timestamp)
+            .execute(database.pool()).await.unwrap();
+        store
+            .set(
+                &providers::credential_key(profile_id),
+                SecretString::from(credential),
+            )
+            .await
+            .unwrap();
+        let resource_id = store_extraction_remote_handle(
+            database.pool(),
+            store.as_ref(),
+            extraction_id,
+            &RemoteCleanupHandle::new_kimi(
+                SecretString::from(opaque_id),
+                KimiApiRegion::International,
+            ),
+        )
+        .await
+        .unwrap();
+        let stored_region: String = sqlx::query_scalar(
+            "SELECT kimi_api_region FROM provider_remote_resources WHERE id = ?",
+        )
+        .bind(resource_id.to_string())
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+        assert_eq!(stored_region, "international");
+
+        let cn = MockServer::start().await;
+        let international = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path(format!("/v1/files/{opaque_id}")))
+            .and(header("authorization", format!("Bearer {credential}")))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&international)
+            .await;
+        let cleaner = RuntimeRemoteResourceCleaner::new_for_test(
+            store.clone(),
+            ProviderCapabilityRegistry::load_embedded().unwrap(),
+            &format!("{}/v1", cn.uri()),
+            &format!("{}/v1", international.uri()),
+        )
+        .unwrap();
+        let summary = sweep_remote_resources(
+            database.pool(),
+            store.as_ref(),
+            &cleaner,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(summary.succeeded, 1);
+        assert!(cn.received_requests().await.unwrap().is_empty());
+        assert_eq!(international.received_requests().await.unwrap().len(), 1);
+        assert_eq!(
+            cleanup_status(database.pool(), resource_id).await,
+            "succeeded"
+        );
+        let local_reference: String = sqlx::query_scalar(
+            "SELECT encrypted_reference FROM provider_remote_resources WHERE id = ?",
+        )
+        .bind(resource_id.to_string())
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+        assert!(!local_reference.contains(opaque_id));
     });
 }
 

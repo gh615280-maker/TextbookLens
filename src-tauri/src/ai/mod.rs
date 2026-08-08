@@ -1,4 +1,5 @@
 pub mod error;
+pub(crate) mod kimi_region;
 pub mod multimodal;
 pub mod provider;
 pub mod providers;

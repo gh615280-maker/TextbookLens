@@ -44,11 +44,11 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: '目录' })).toBeVisible();
   });
 
-  it('mounts the real AI index start route inside the product shell', async () => {
+  it('mounts the one-shot full-text preparation route inside the product shell', async () => {
     render(<App initialEntries={['/books/book-1/index-start']} />);
 
     expect(
-      await screen.findByRole('heading', { name: 'AI-assisted indexing' }),
+      await screen.findByRole('heading', { name: '准备全文问答' }),
     ).toBeVisible();
     expect(screen.getByRole('navigation')).toBeVisible();
   });

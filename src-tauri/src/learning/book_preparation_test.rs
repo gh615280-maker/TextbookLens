@@ -263,12 +263,16 @@ fn command_boundary_permit_allows_consume_to_finish_ahead_of_queued_maintenance(
         let queued = tokio::spawn(async move {
             let _exclusive = queued_gate.acquire_maintenance().await.unwrap();
         });
-        for _ in 0..100 {
-            if fixture.gate.status().code == MaintenanceStatusCode::MaintenanceWaiting {
-                break;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if fixture.gate.status().code == MaintenanceStatusCode::MaintenanceWaiting {
+                    return;
+                }
+                tokio::task::yield_now().await;
             }
-            tokio::task::yield_now().await;
-        }
+        })
+        .await
+        .expect("queued maintenance did not register within the test deadline");
         assert_eq!(
             fixture.gate.status().code,
             MaintenanceStatusCode::MaintenanceWaiting

@@ -88,6 +88,30 @@ const MIGRATION_HASHES: &[(i64, &str, &[u8], &str)] = &[
         include_bytes!("../migrations/0011_learning_panels.sql"),
         "bc92621c832409a17c7838d30aa3465c5b8eff198d7aa7e5d8c0baf3cb295002",
     ),
+    (
+        12,
+        "0012_kimi_file_extraction.sql",
+        include_bytes!("../migrations/0012_kimi_file_extraction.sql"),
+        "f3b1c82e74c9defca104017046e0a996ed5a25f9ae63c98087454a53c1d17905",
+    ),
+    (
+        13,
+        "0013_annotation_summaries.sql",
+        include_bytes!("../migrations/0013_annotation_summaries.sql"),
+        "e1634648f547d59241470434374ec4a8f151fe14daa0bd5648f1eebf776213c5",
+    ),
+    (
+        14,
+        "0014_filename_title_fallback.sql",
+        include_bytes!("../migrations/0014_filename_title_fallback.sql"),
+        "a65456b829b59e644ff3e6382cf12af0eb91a8e7545cca1a6e4f269f3b15f574",
+    ),
+    (
+        15,
+        "0015_kimi_api_region_binding.sql",
+        include_bytes!("../migrations/0015_kimi_api_region_binding.sql"),
+        "55556c7e0824176396be3798b28263bc8f0441c4603cf43098c60c1742effd75",
+    ),
 ];
 
 const BOOK_ID: &str = "00000000-0000-4000-8000-000000000101";
@@ -103,7 +127,7 @@ const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000109";
 type SchemaRow = (String, String, String, Option<String>);
 
 #[test]
-fn migration_files_and_embedded_history_are_immutable_through_v11() {
+fn migration_files_and_embedded_history_are_immutable_through_v15() {
     assert_eq!(MIGRATOR.migrations.len(), MIGRATION_HASHES.len());
     assert_eq!(
         MIGRATOR
@@ -121,6 +145,17 @@ fn migration_files_and_embedded_history_are_immutable_through_v11() {
         assert_eq!(
             migration.version, *version,
             "migration version drift: {name}"
+        );
+        let expected_description = name
+            .trim_end_matches(".sql")
+            .split_once('_')
+            .unwrap()
+            .1
+            .replace('_', " ");
+        assert_eq!(
+            migration.description.as_ref(),
+            expected_description,
+            "migration description drift: {name}"
         );
         assert_eq!(
             hex(Sha256::digest(bytes)),
@@ -140,7 +175,7 @@ fn every_historical_cutoff_upgrades_to_the_exact_fresh_contract_and_reopens() {
     block_on(fresh_database.pool().close());
     drop(fresh_database);
 
-    for cutoff in 1..=11 {
+    for cutoff in 1..=15 {
         let temporary = TempDir::new().unwrap();
         let database_path = temporary.path().join(format!("cutoff-{cutoff}.sqlite3"));
         let pool = block_on(raw_pool(&database_path));

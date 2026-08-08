@@ -10,8 +10,11 @@ use uuid::Uuid;
 use crate::{
     ai::{registry::ProviderCapabilityRegistry, runtime::ProviderRuntime},
     credentials::CredentialStore,
-    db::indexing::{EncryptedRemoteResourceReference, database_timestamp, track_remote_resource},
-    domain::{AiOperation, ProviderKind, RemoteCleanupHandle},
+    db::{
+        indexing::{EncryptedRemoteResourceReference, database_timestamp, track_remote_resource},
+        providers::{kimi_api_region_name, parse_kimi_api_region},
+    },
+    domain::{AiOperation, KimiApiRegion, ProviderKind, RemoteCleanupHandle},
     errors::{AppError, AppErrorCode, AppResult},
 };
 
@@ -73,7 +76,7 @@ pub async fn store_remote_handle(
                 return Err(RemoteTrackingFailure { vault_key, error });
             }
         };
-    track_remote_resource(pool, page_id, reference)
+    track_remote_resource(pool, page_id, reference, handle.kimi_api_region())
         .await
         .map_err(|error| RemoteTrackingFailure { vault_key, error })
 }
@@ -111,7 +114,7 @@ pub async fn store_extraction_remote_handle(
             error,
         })?;
     let owner = sqlx::query(
-        "SELECT book_id, provider_profile_id, provider_kind FROM book_extractions WHERE id = ?",
+        "SELECT book_id, provider_profile_id, provider_kind, kimi_api_region FROM book_extractions WHERE id = ?",
     )
     .bind(extraction_id.to_string())
     .fetch_optional(pool)
@@ -124,15 +127,46 @@ pub async fn store_extraction_remote_handle(
         vault_key: vault_key.clone(),
         error: AppError::new(AppErrorCode::NotFound),
     })?;
+    let owner_provider = parse_provider_kind(
+        &owner
+            .try_get::<String, _>("provider_kind")
+            .map_err(|error| RemoteTrackingFailure {
+                vault_key: vault_key.clone(),
+                error: AppError::database(error),
+            })?,
+    )
+    .map_err(|error| RemoteTrackingFailure {
+        vault_key: vault_key.clone(),
+        error,
+    })?;
+    let owner_region = owner
+        .try_get::<Option<String>, _>("kimi_api_region")
+        .map_err(|error| RemoteTrackingFailure {
+            vault_key: vault_key.clone(),
+            error: AppError::database(error),
+        })?
+        .map(|value| parse_kimi_api_region(&value))
+        .transpose()
+        .map_err(|error| RemoteTrackingFailure {
+            vault_key: vault_key.clone(),
+            error,
+        })?;
+    if &owner_provider != handle.provider() || owner_region != handle.kimi_api_region() {
+        return Err(RemoteTrackingFailure {
+            vault_key,
+            error: AppError::new(AppErrorCode::InvalidInput),
+        });
+    }
     let resource_id = Uuid::new_v4();
     let timestamp = database_timestamp(Utc::now());
-    sqlx::query("INSERT INTO provider_remote_resources (id, book_id, extraction_id, provider_profile_id, provider_kind, encrypted_reference, cleanup_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)")
+    sqlx::query("INSERT INTO provider_remote_resources (id, book_id, extraction_id, provider_profile_id, provider_kind, encrypted_reference, cleanup_status, created_at, updated_at, kimi_api_region) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)")
         .bind(resource_id.to_string())
         .bind(owner.try_get::<String, _>("book_id").map_err(|error| RemoteTrackingFailure { vault_key: vault_key.clone(), error: AppError::database(error) })?)
         .bind(extraction_id.to_string())
         .bind(owner.try_get::<Option<String>, _>("provider_profile_id").map_err(|error| RemoteTrackingFailure { vault_key: vault_key.clone(), error: AppError::database(error) })?)
         .bind(owner.try_get::<String, _>("provider_kind").map_err(|error| RemoteTrackingFailure { vault_key: vault_key.clone(), error: AppError::database(error) })?)
         .bind(reference.database_value()).bind(&timestamp).bind(&timestamp)
+        .bind(owner_region.map(kimi_api_region_name))
         .execute(pool).await
         .map_err(|error| RemoteTrackingFailure { vault_key, error: AppError::database(error) })?;
     Ok(resource_id)
@@ -143,7 +177,7 @@ pub async fn load_extraction_remote_handle(
     credential_store: &dyn CredentialStore,
     extraction_id: Uuid,
 ) -> AppResult<Option<RemoteCleanupHandle>> {
-    let row = sqlx::query("SELECT provider_kind, encrypted_reference FROM provider_remote_resources WHERE extraction_id = ? AND cleanup_status IN ('pending', 'failed', 'cleaning') ORDER BY created_at DESC LIMIT 1")
+    let row = sqlx::query("SELECT provider_kind, encrypted_reference, kimi_api_region FROM provider_remote_resources WHERE extraction_id = ? AND cleanup_status IN ('pending', 'failed', 'cleaning') ORDER BY created_at DESC LIMIT 1")
         .bind(extraction_id.to_string()).fetch_optional(pool).await?;
     let Some(row) = row else {
         return Ok(None);
@@ -151,7 +185,11 @@ pub async fn load_extraction_remote_handle(
     let provider = parse_provider_kind(&row.try_get::<String, _>("provider_kind")?)?;
     let vault_id = parse_reference(&row.try_get::<String, _>("encrypted_reference")?)?;
     let opaque = credential_store.get(&vault_key(vault_id)).await?;
-    Ok(Some(RemoteCleanupHandle::new(provider, opaque)))
+    let region = row
+        .try_get::<Option<String>, _>("kimi_api_region")?
+        .map(|value| parse_kimi_api_region(&value))
+        .transpose()?;
+    Ok(Some(remote_handle(provider, opaque, region)?))
 }
 
 /// Completes the compensating path after the SQLite insert failed. A failed
@@ -178,8 +216,7 @@ pub trait RemoteResourceCleaner: Send + Sync {
 }
 
 pub struct RuntimeRemoteResourceCleaner {
-    credential_store: Arc<dyn CredentialStore>,
-    capabilities: ProviderCapabilityRegistry,
+    runtime: ProviderRuntime,
 }
 
 impl RuntimeRemoteResourceCleaner {
@@ -188,9 +225,25 @@ impl RuntimeRemoteResourceCleaner {
         capabilities: ProviderCapabilityRegistry,
     ) -> Self {
         Self {
-            credential_store,
-            capabilities,
+            runtime: ProviderRuntime::new(credential_store, capabilities),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        credential_store: Arc<dyn CredentialStore>,
+        capabilities: ProviderCapabilityRegistry,
+        cn_origin: &str,
+        international_origin: &str,
+    ) -> AppResult<Self> {
+        Ok(Self {
+            runtime: ProviderRuntime::new_for_test_with_kimi_origins(
+                credential_store,
+                capabilities,
+                cn_origin,
+                international_origin,
+            )?,
+        })
     }
 }
 
@@ -203,8 +256,13 @@ impl RemoteResourceCleaner for RuntimeRemoteResourceCleaner {
         handle: &RemoteCleanupHandle,
         cancel: CancellationToken,
     ) -> AppResult<()> {
-        ProviderRuntime::new(self.credential_store.clone(), self.capabilities.clone())
-            .load(pool, profile_id, AiOperation::StructuredPageAnalysis)
+        self.runtime
+            .load_for_remote_cleanup(
+                pool,
+                profile_id,
+                AiOperation::StructuredPageAnalysis,
+                handle,
+            )
             .await?
             .cleanup_remote_resource(handle, cancel)
             .await
@@ -383,7 +441,7 @@ async fn cleanup_one(
     }
 
     let claimed = sqlx::query(
-        "SELECT provider_profile_id, provider_kind, encrypted_reference FROM provider_remote_resources WHERE id = ? AND cleanup_status = 'cleaning' AND cleanup_attempt_id = ?",
+        "SELECT provider_profile_id, provider_kind, encrypted_reference, kimi_api_region FROM provider_remote_resources WHERE id = ? AND cleanup_status = 'cleaning' AND cleanup_attempt_id = ?",
     )
     .bind(resource_id.to_string())
     .bind(attempt_id.to_string())
@@ -403,6 +461,10 @@ async fn cleanup_one(
     };
     let profile_id = parse_uuid(&profile_id)?;
     let provider_kind = parse_provider_kind(&claimed.try_get::<String, _>("provider_kind")?)?;
+    let kimi_api_region = claimed
+        .try_get::<Option<String>, _>("kimi_api_region")?
+        .map(|value| parse_kimi_api_region(&value))
+        .transpose()?;
     let vault_id = parse_reference(&claimed.try_get::<String, _>("encrypted_reference")?)?;
     let key = vault_key(vault_id);
     let opaque = match credential_store.get(&key).await {
@@ -436,7 +498,7 @@ async fn cleanup_one(
         return Ok(CleanupOutcome::Failed);
     }
 
-    let handle = RemoteCleanupHandle::new(provider_kind, opaque);
+    let handle = remote_handle(provider_kind, opaque, kimi_api_region)?;
     let delete = tokio::time::timeout(
         CLEANUP_TIMEOUT,
         cleaner.delete(pool, profile_id, &handle, cancel.clone()),
@@ -639,6 +701,18 @@ fn parse_provider_kind(value: &str) -> AppResult<ProviderKind> {
         "deepseek" => Ok(ProviderKind::DeepSeek),
         "kimi" => Ok(ProviderKind::Kimi),
         _ => Err(database_error()),
+    }
+}
+
+fn remote_handle(
+    provider: ProviderKind,
+    opaque: SecretString,
+    kimi_api_region: Option<KimiApiRegion>,
+) -> AppResult<RemoteCleanupHandle> {
+    match (provider, kimi_api_region) {
+        (ProviderKind::Kimi, Some(region)) => Ok(RemoteCleanupHandle::new_kimi(opaque, region)),
+        (ProviderKind::Kimi, None) | (_, Some(_)) => Err(database_error()),
+        (provider, None) => Ok(RemoteCleanupHandle::new(provider, opaque)),
     }
 }
 

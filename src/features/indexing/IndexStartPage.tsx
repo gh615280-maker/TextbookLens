@@ -29,10 +29,7 @@ export interface IndexStartPageProps {
   providerApi?: ProviderStartApi;
   indexingApi?: Pick<
     IndexingApi,
-    | 'confirmOperation'
-    | 'createRun'
-    | 'authorizeRun'
-    | 'findCurrentRunForBook'
+    'confirmOperation' | 'createRun' | 'authorizeRun' | 'findCurrentRunForBook'
   >;
   inspectQuality?: QualityInspector;
 }

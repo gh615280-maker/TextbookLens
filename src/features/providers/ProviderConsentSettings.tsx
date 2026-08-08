@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
+
+import { useMessage } from '../../app/LanguageProvider';
 import type { ProviderProfileSummary } from '../../lib/generated/provider';
+
 interface Props {
   profile: ProviderProfileSummary;
   onReset(profileId: string): Promise<void>;
   busy: boolean;
 }
+
 export function ProviderConsentSettings({ profile, onReset, busy }: Props) {
+  const message = useMessage();
   const [confirming, setConfirming] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const confirmation = useRef<HTMLButtonElement>(null);
@@ -18,28 +23,29 @@ export function ProviderConsentSettings({ profile, onReset, busy }: Props) {
     trigger.current?.focus();
   }
   return (
-    <section aria-label={`${profile.displayName} consent settings`}>
-      <p>
-        These choices only control prompts for future actions you start. They
-        never send images, start AI indexing, or perform network work.
-      </p>
+    <section
+      aria-label={message('aiServices.consent.region', {
+        provider: profile.displayName,
+      })}
+    >
+      <p>{message('aiServices.consent.description')}</p>
       <button
         ref={trigger}
         type="button"
         disabled={busy}
         onClick={() => setConfirming(true)}
       >
-        Reset consent prompts
+        {message('aiServices.consent.resetPrompts')}
       </button>
       {confirming ? (
         <div
           role="alertdialog"
           aria-modal="true"
-          aria-label="Reset consent prompts"
+          aria-label={message('aiServices.consent.dialog')}
         >
-          <p>Reset this profile’s consent prompts to Ask?</p>
+          <p>{message('aiServices.consent.confirm')}</p>
           <button ref={confirmation} type="button" onClick={() => void reset()}>
-            Reset
+            {message('aiServices.consent.reset')}
           </button>
           <button
             type="button"
@@ -48,7 +54,7 @@ export function ProviderConsentSettings({ profile, onReset, busy }: Props) {
               trigger.current?.focus();
             }}
           >
-            Cancel
+            {message('aiServices.cancel')}
           </button>
         </div>
       ) : null}

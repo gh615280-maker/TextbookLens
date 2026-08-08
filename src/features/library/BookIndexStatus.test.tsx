@@ -1,6 +1,7 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
 import { LanguageContext } from '../../app/LanguageProvider';
 import type { BookSummary } from '../../lib/generated/book';
@@ -40,25 +41,30 @@ describe('BookIndexStatus', () => {
     const onStartIndex = vi.fn();
     const onOpenStatus = vi.fn();
     render(
-      <LanguageContext.Provider
-        value={{
-          uiLanguage: 'zh-CN',
-          isLoading: false,
-          statusMessage: null,
-          switchLanguage: vi.fn(),
-          message: (key, values) => formatMessage('zh-CN', key, values),
-        }}
-      >
-        <BookIndexStatus
-          book={book}
-          onOpenStatus={onOpenStatus}
-          onStartIndex={onStartIndex}
-        />
-      </LanguageContext.Provider>,
+      <MemoryRouter>
+        <LanguageContext.Provider
+          value={{
+            uiLanguage: 'zh-CN',
+            isLoading: false,
+            statusMessage: null,
+            switchLanguage: vi.fn(),
+            message: (key, values) => formatMessage('zh-CN', key, values),
+          }}
+        >
+          <BookIndexStatus
+            book={book}
+            onOpenStatus={onOpenStatus}
+            onStartIndex={onStartIndex}
+          />
+        </LanguageContext.Provider>
+      </MemoryRouter>,
     );
 
     const start = screen.getByRole('button', { name: '准备全文问答' });
     expect(screen.getByRole('status')).toHaveTextContent('全文问答已就绪');
+    expect(
+      screen.getByRole('link', { name: '就《线性代数》进行全文提问' }),
+    ).toHaveAttribute('href', `/books/${book.id}/overview`);
     expect(start.parentElement).toHaveTextContent('准备全文问答已完成');
     await user.click(start);
     expect(onStartIndex).toHaveBeenCalledWith(book);

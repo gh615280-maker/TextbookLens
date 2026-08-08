@@ -7,10 +7,7 @@ export interface IndexStartConfirmationProps {
   request: ConfirmIndexOperationRequest;
   profileName: string;
   modelName: string;
-  api: Pick<
-    IndexingApi,
-    'confirmOperation' | 'createRun' | 'authorizeRun'
-  >;
+  api: Pick<IndexingApi, 'confirmOperation' | 'createRun' | 'authorizeRun'>;
   onSetProfileNoPrompt?(profileId: string): Promise<void>;
   onReject(): void;
   onStarted(runId: string): void;

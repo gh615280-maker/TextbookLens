@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useMessage } from '../../app/LanguageProvider';
 import type {
   ProviderCapabilityRegistryDto,
   ProviderKind,
@@ -27,6 +28,7 @@ interface Props {
 }
 
 export function ProviderConnectForm({ registry, busy, onConnect }: Props) {
+  const message = useMessage();
   const [kind, setKind] = useState<ProviderKind>('openai');
   const provider =
     registry.providers.find((item) => item.kind === kind) ??
@@ -53,11 +55,11 @@ export function ProviderConnectForm({ registry, busy, onConnect }: Props) {
   return (
     <form
       onSubmit={(event) => void submit(event)}
-      aria-label="Connect AI provider"
+      aria-label={message('aiServices.connect.formLabel')}
     >
-      <h2>Connect an AI service</h2>
+      <h2>{message('aiServices.connect.title')}</h2>
       <label>
-        Provider
+        {message('aiServices.provider')}
         <select
           value={kind}
           onChange={(event) => {
@@ -77,9 +79,9 @@ export function ProviderConnectForm({ registry, busy, onConnect }: Props) {
         </select>
       </label>
       <label>
-        Key
+        {message('aiServices.key')}
         <input
-          aria-label="Key"
+          aria-label={message('aiServices.key')}
           type="password"
           value={credential}
           onChange={(event) => setCredential(event.target.value)}
@@ -94,7 +96,7 @@ export function ProviderConnectForm({ registry, busy, onConnect }: Props) {
         onModelChange={setModelId}
       />
       <button type="submit" disabled={busy || credential.length === 0}>
-        Validate &amp; Connect
+        {message('aiServices.validateConnect')}
       </button>
     </form>
   );

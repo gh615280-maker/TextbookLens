@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::{
     app_state::AppState,
+    db::providers,
     errors::AppErrorDto,
     extraction::{
         kimi_files::KimiFilesClient,
@@ -16,14 +17,17 @@ pub async fn prepare_book_extraction(
     book_id: Uuid,
     provider_profile_id: Uuid,
 ) -> Result<ExtractionSummary, AppErrorDto> {
+    let region = providers::load_kimi_api_region(state.db.pool(), provider_profile_id).await?;
+    let client = KimiFilesClient::new(region)?;
     let cancel = state.extraction_cancellations.begin(book_id)?;
-    let client = KimiFilesClient::new()?;
     let result = service::prepare(
-        state.db.pool(),
-        &state.paths,
-        state.credential_store.clone(),
-        state.provider_capabilities.clone(),
-        &client,
+        service::PrepareDependencies {
+            pool: state.db.pool(),
+            paths: &state.paths,
+            credentials: state.credential_store.clone(),
+            capabilities: state.provider_capabilities.clone(),
+            client: &client,
+        },
         book_id,
         provider_profile_id,
         cancel,

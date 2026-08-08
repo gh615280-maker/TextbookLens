@@ -8,6 +8,8 @@ export type CredentialStatus = "available" | "missing";
 
 export type ImageLimits = { maxImages: number, maxEncodedBytesEach: bigint, maxTotalEncodedBytes: bigint, maxDimensionPx: number, maxDecodedPixelsEach: bigint, };
 
+export type KimiApiRegion = "cn" | "international";
+
 export type ProviderCapability = { kind: ProviderKind, displayName: string, defaultModel: string, fileCapabilities: ProviderFileCapabilities, models: Array<ProviderModelCapability>, };
 
 export type ProviderCapabilityRegistryDto = { schemaVersion: number, providers: Array<ProviderCapability>, };
@@ -24,7 +26,7 @@ export type ProviderOperationConsentCategory = "image_send" | "ai_index" | "cost
 
 export type ProviderOperationConsentDecision = "ask" | "skip_prompt";
 
-export type ProviderProfileSummary = { id: string, kind: ProviderKind, displayName: string, modelId: string, contextWindowTokens: number, isActive: boolean, credentialStatus: CredentialStatus, validatedAt: string | null, };
+export type ProviderProfileSummary = { id: string, kind: ProviderKind, displayName: string, modelId: string, contextWindowTokens: number, isActive: boolean, credentialStatus: CredentialStatus, validatedAt: string | null, kimiApiRegion?: KimiApiRegion | null, };
 
 export type UnifiedChatRequest = { model: string, system: string, messages: Array<UnifiedMessage>, maxOutputTokens: number, expectedLanguage: string | null, };
 

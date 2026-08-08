@@ -117,6 +117,9 @@ export class ReaderController {
           label: item.accessibilityLabel,
           anchor: item.anchor ?? undefined,
           relocationStatus: item.relocationStatus,
+          sequence: item.sequence,
+          summaryText: item.summaryText,
+          revision: item.revision,
         }));
         const relocations = await this.#markerLayer.show(adapter, markers);
         if (generation === this.#openGeneration && adapter === this.#adapter)
@@ -180,6 +183,9 @@ export class ReaderController {
         label: item.accessibilityLabel,
         anchor: item.anchor ?? undefined,
         relocationStatus: item.relocationStatus,
+        sequence: item.sequence,
+        summaryText: item.summaryText,
+        revision: item.revision,
       }));
       const relocations = await this.#markerLayer.show(adapter, markers);
       if (generation === this.#openGeneration && adapter === this.#adapter)

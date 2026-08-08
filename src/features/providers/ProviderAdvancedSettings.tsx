@@ -1,4 +1,5 @@
 import type { ProviderCapability } from '../../lib/generated/provider';
+import { useMessage } from '../../app/LanguageProvider';
 
 interface Props {
   provider: ProviderCapability;
@@ -10,11 +11,12 @@ export function ProviderAdvancedSettings({
   modelId,
   onModelChange,
 }: Props) {
+  const message = useMessage();
   return (
     <details>
-      <summary>Advanced model settings</summary>
+      <summary>{message('aiServices.advanced')}</summary>
       <label>
-        Model
+        {message('aiServices.model')}
         <select
           value={modelId}
           onChange={(event) => onModelChange(event.target.value)}

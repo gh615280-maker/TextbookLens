@@ -303,19 +303,6 @@ function OverviewContent({
       className="phase-page book-overview"
     >
       <h1 id="overview-title">{message('page.overview.title')}</h1>
-      <p>{message('overview.localOnly')}</p>
-      <div aria-live="polite" className="overview-status">
-        {overviewError ? (
-          <p role="alert">{message('overview.loadError')}</p>
-        ) : null}
-        {overview === null && !overviewError ? (
-          <p>{message('loading.label')}</p>
-        ) : null}
-      </div>
-      {overview ? (
-        <OverviewDetails overview={overview} message={message} />
-      ) : null}
-
       <section aria-labelledby="book-question-title">
         <h2 id="book-question-title">{message('overview.questions')}</h2>
         <label htmlFor="book-question">
@@ -352,51 +339,74 @@ function OverviewContent({
         ))}
       </section>
 
-      <section aria-labelledby="book-history-title">
-        <h2 id="book-history-title">{message('overview.history')}</h2>
-        {historyLoading ? <p>{message('loading.label')}</p> : null}
-        {historyError ? (
-          <p role="alert">{message('overview.historyError')}</p>
-        ) : null}
-        {!historyLoading && !historyError && summaries.length === 0 ? (
-          <p>{message('overview.historyEmpty')}</p>
-        ) : null}
-        <ol className="book-history-list">
-          {summaries.map((summary) => {
-            const loaded = opened.get(summary.id);
-            return (
-              <li key={summary.id}>
-                <button type="button" onClick={() => void openHistory(summary)}>
-                  {summary.firstQuestionPreview}
-                </button>{' '}
-                <time dateTime={summary.updatedAt}>{summary.updatedAt}</time>{' '}
-                <span>
-                  {message('overview.messageCount', {
-                    count: summary.messageCount,
-                  })}
-                </span>{' '}
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    deleteTriggerRef.current = event.currentTarget;
-                    setDeleteCandidate(summary);
-                  }}
-                >
-                  {message('panel.delete')}
-                </button>
-                {loaded ? (
-                  <BookHistory
-                    history={loaded}
-                    message={message}
-                    onFollowup={() => void submitQuestion(summary.id)}
-                    disabled={questionBusy || Boolean(activeFor(summary.id))}
-                  />
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
-      </section>
+      <details className="overview-collapsible">
+        <summary>{message('overview.local')}</summary>
+        <div className="overview-collapsible__content">
+          <p>{message('overview.localOnly')}</p>
+          <div aria-live="polite" className="overview-status">
+            {overviewError ? (
+              <p role="alert">{message('overview.loadError')}</p>
+            ) : null}
+            {overview === null && !overviewError ? (
+              <p>{message('loading.label')}</p>
+            ) : null}
+          </div>
+          {overview ? (
+            <OverviewDetails overview={overview} message={message} />
+          ) : null}
+        </div>
+      </details>
+
+      <details className="overview-collapsible">
+        <summary>{message('overview.history')}</summary>
+        <div className="overview-collapsible__content">
+          {historyLoading ? <p>{message('loading.label')}</p> : null}
+          {historyError ? (
+            <p role="alert">{message('overview.historyError')}</p>
+          ) : null}
+          {!historyLoading && !historyError && summaries.length === 0 ? (
+            <p>{message('overview.historyEmpty')}</p>
+          ) : null}
+          <ol className="book-history-list">
+            {summaries.map((summary) => {
+              const loaded = opened.get(summary.id);
+              return (
+                <li key={summary.id}>
+                  <button
+                    type="button"
+                    onClick={() => void openHistory(summary)}
+                  >
+                    {summary.firstQuestionPreview}
+                  </button>{' '}
+                  <time dateTime={summary.updatedAt}>{summary.updatedAt}</time>{' '}
+                  <span>
+                    {message('overview.messageCount', {
+                      count: summary.messageCount,
+                    })}
+                  </span>{' '}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      deleteTriggerRef.current = event.currentTarget;
+                      setDeleteCandidate(summary);
+                    }}
+                  >
+                    {message('panel.delete')}
+                  </button>
+                  {loaded ? (
+                    <BookHistory
+                      history={loaded}
+                      message={message}
+                      onFollowup={() => void submitQuestion(summary.id)}
+                      disabled={questionBusy || Boolean(activeFor(summary.id))}
+                    />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      </details>
 
       {confirmation ? (
         <dialog

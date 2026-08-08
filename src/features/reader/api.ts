@@ -26,7 +26,10 @@ export interface ReaderSearchHit {
   snippet: string;
   locator: DocumentLocator;
   sectionTitle: string | null;
+  source?: 'book' | 'question';
 }
+
+export type ReaderSearchScope = 'book' | 'question' | 'all';
 
 export interface AnnotationMarkerDto {
   id: string;
@@ -35,6 +38,9 @@ export interface AnnotationMarkerDto {
   anchor: import('../../lib/generated/document').ContentAnchor | null;
   relocationStatus: 'primary' | 'fallback' | 'unresolved';
   accessibilityLabel: string;
+  sequence?: number | null;
+  summaryText?: string;
+  revision?: number;
 }
 
 export interface ReaderAnnotationMarkerDto {
@@ -44,6 +50,9 @@ export interface ReaderAnnotationMarkerDto {
   anchor: import('../../lib/generated/document').ContentAnchor | null;
   relocationStatus: 'primary' | 'fallback' | 'unresolved';
   accessibilityLabel: string;
+  sequence?: number | null;
+  summaryText?: string;
+  revision?: number;
 }
 
 export interface ReaderBootstrap {
@@ -71,8 +80,15 @@ export interface ReaderApi {
     bookId: string,
     query: string,
     limit: number,
+    scope?: ReaderSearchScope,
   ): Promise<ReaderSearchHit[]>;
   listAnnotationMarkers(bookId: string): Promise<ReaderAnnotationMarkerDto[]>;
+  updateAiAnnotationSummary?(
+    bookId: string,
+    annotationId: string,
+    expectedRevision: number,
+    summaryText: string,
+  ): Promise<void>;
 }
 
 export class TauriReaderApi implements ReaderApi {
@@ -166,13 +182,48 @@ export class TauriReaderApi implements ReaderApi {
     bookId: string,
     query: string,
     limit: number,
+    scope: ReaderSearchScope = 'all',
   ): Promise<ReaderSearchHit[]> {
     try {
-      return await invoke<ReaderSearchHit[]>('search_book', {
-        bookId,
-        query,
-        limit: Math.min(50, limit),
-      });
+      const cappedLimit = Math.min(50, limit);
+      const [bookHits, markers] = await Promise.all([
+        scope === 'question'
+          ? Promise.resolve([])
+          : invoke<ReaderSearchHit[]>('search_book', {
+              bookId,
+              query,
+              limit: cappedLimit,
+            }),
+        scope === 'book'
+          ? Promise.resolve([])
+          : this.listAnnotationMarkers(bookId),
+      ]);
+      const normalizedQuery = query.trim().toLocaleLowerCase();
+      const questionHits = markers
+        .filter(
+          (marker) =>
+            marker.kind === 'ai_conversation' &&
+            marker.summaryText?.toLocaleLowerCase().includes(normalizedQuery),
+        )
+        .flatMap((marker): ReaderSearchHit[] => {
+          const locator = marker.anchor
+            ? locatorFromAnchor(marker.anchor)
+            : null;
+          return locator
+            ? [
+                {
+                  snippet: marker.summaryText ?? '',
+                  locator,
+                  sectionTitle: null,
+                  source: 'question',
+                },
+              ]
+            : [];
+        });
+      return [
+        ...questionHits,
+        ...bookHits.map((hit) => ({ ...hit, source: 'book' as const })),
+      ].slice(0, cappedLimit);
     } catch (error) {
       throw toUserError(error);
     }
@@ -195,9 +246,53 @@ export class TauriReaderApi implements ReaderApi {
         anchor: marker.anchor,
         relocationStatus: marker.relocationStatus,
         accessibilityLabel: marker.accessibilityLabel,
+        sequence: marker.sequence,
+        summaryText: marker.summaryText,
+        revision: marker.revision,
       }));
     } catch (error) {
       throw toUserError(error);
     }
   }
+
+  async updateAiAnnotationSummary(
+    bookId: string,
+    annotationId: string,
+    expectedRevision: number,
+    summaryText: string,
+  ): Promise<void> {
+    try {
+      await invoke('update_ai_annotation_summary', {
+        bookId,
+        annotationId,
+        expectedRevision,
+        summaryText,
+      });
+    } catch (error) {
+      throw toUserError(error);
+    }
+  }
+}
+
+function locatorFromAnchor(
+  anchor: import('../../lib/generated/document').ContentAnchor,
+): DocumentLocator | null {
+  if (anchor.kind === 'text') return anchor.selection.locator;
+  const locator = anchor.region.locator;
+  if (locator.format === 'pdf') {
+    return {
+      format: 'pdf',
+      startPage: locator.page,
+      endPage: locator.page,
+      rectsByPage: null,
+    };
+  }
+  if (locator.format === 'epub') return locator;
+  return {
+    format: 'docx',
+    startBlockId: locator.blockId,
+    startOffset: 0,
+    endBlockId: locator.blockId,
+    endOffset: 0,
+  };
 }

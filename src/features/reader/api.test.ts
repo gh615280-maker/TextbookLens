@@ -58,4 +58,46 @@ describe('TauriReaderApi annotation markers', () => {
       relocationStatus: 'primary',
     });
   });
+
+  it('searches editable question descriptions without searching textbook text', async () => {
+    state.response = [
+      {
+        id: 'question-1',
+        kind: 'ai_conversation',
+        conversationId: 'conversation-1',
+        accessibilityLabel: 'View AI conversation marker',
+        anchor: {
+          kind: 'text',
+          selection: {
+            locator: {
+              format: 'pdf',
+              startPage: 9,
+              endPage: 9,
+              rectsByPage: null,
+            },
+            quote: { exact: 'source', prefix: '', suffix: '' },
+            sectionId: 'section',
+          },
+        },
+        relocationStatus: 'primary',
+        sequence: 1,
+        summaryText: 'Compact operator explanation',
+        revision: 1,
+      },
+    ];
+
+    const result = await new TauriReaderApi().searchBook(
+      'book',
+      'operator',
+      50,
+      'question',
+    );
+    expect(result).toEqual([
+      expect.objectContaining({
+        snippet: 'Compact operator explanation',
+        source: 'question',
+        locator: expect.objectContaining({ startPage: 9 }),
+      }),
+    ]);
+  });
 });

@@ -52,6 +52,47 @@ describe('PdfReaderAdapter', () => {
     expect(destroy).toHaveBeenCalledOnce();
   });
 
+  it('uses native PDF scaling and follows reader setting changes', async () => {
+    const assignedScales = [1];
+    const viewer = {
+      setDocument: vi.fn(),
+      cleanup: vi.fn(),
+      firstPagePromise: Promise.resolve(),
+      currentPageNumber: 1,
+      get currentScale() {
+        return assignedScales.at(-1) ?? 1;
+      },
+      set currentScale(scale: number) {
+        assignedScales.push(scale);
+      },
+      pagesRotation: 0,
+    };
+    const layout = document.createElement('div');
+    layout.className = 'reader-layout';
+    layout.style.setProperty('--reader-content-zoom', '1.4');
+    const container = document.createElement('div');
+    layout.append(container);
+    document.body.append(layout);
+    const adapter = new PdfReaderAdapter(
+      container,
+      events,
+      () => ({
+        promise: Promise.resolve({ numPages: 1, cleanup: vi.fn() }),
+        destroy: vi.fn(),
+      }),
+      () => viewer,
+    );
+
+    await adapter.open({ kind: 'document_bytes', bytes: new ArrayBuffer(1) });
+    expect(assignedScales).toEqual([1, 1.4]);
+
+    layout.style.setProperty('--reader-content-zoom', '2.6');
+    await vi.waitFor(() => expect(assignedScales.at(-1)).toBe(2.6));
+
+    adapter.dispose();
+    layout.remove();
+  });
+
   it('restores the initial page only after the real viewer readiness boundary', async () => {
     const ready = deferred<void>();
     const assignedPages: number[] = [];

@@ -9,7 +9,12 @@ import {
 
 import type { UiLanguage } from '../../lib/i18n';
 import type { DocumentLocator } from '../../lib/generated/document';
-import type { ReaderSearchHit, ReaderSection, ReaderSettings } from './api';
+import type {
+  ReaderSearchHit,
+  ReaderSearchScope,
+  ReaderSection,
+  ReaderSettings,
+} from './api';
 import { ReaderFirstHint } from './ReaderFirstHint';
 import { ReaderPanel } from './ReaderPanel';
 import { ReaderSearch } from './ReaderSearch';
@@ -42,6 +47,7 @@ interface ReaderCopy extends ReaderToolbarLabels {
   searchInput: string;
   searchLoading: string;
   searchFailed: string;
+  searchNavigateFailed: string;
   searchEmpty: string;
   currentSection: string;
   resizeDocumentWidth: string;
@@ -77,6 +83,7 @@ const copy: Record<UiLanguage, ReaderCopy> = {
     searchInput: '搜索书内内容',
     searchLoading: '正在搜索…',
     searchFailed: '搜索失败，请重试。',
+    searchNavigateFailed: '无法精确恢复此结果的原文位置。',
     searchEmpty: '没有搜索结果。',
     currentSection: '当前章节',
     resizeDocumentWidth: '调整教材区域宽度',
@@ -110,6 +117,7 @@ const copy: Record<UiLanguage, ReaderCopy> = {
     searchInput: '搜尋書內內容',
     searchLoading: '正在搜尋…',
     searchFailed: '搜尋失敗，請再試一次。',
+    searchNavigateFailed: '無法精確還原此結果的原文位置。',
     searchEmpty: '沒有搜尋結果。',
     currentSection: '目前章節',
     resizeDocumentWidth: '調整教材區域寬度',
@@ -144,6 +152,8 @@ const copy: Record<UiLanguage, ReaderCopy> = {
     searchInput: 'Search book content',
     searchLoading: 'Searching…',
     searchFailed: 'Search failed. Try again.',
+    searchNavigateFailed:
+      'The original location for this result could not be restored precisely.',
     searchEmpty: 'No search results.',
     currentSection: 'Current section',
     resizeDocumentWidth: 'Resize textbook width',
@@ -169,6 +179,7 @@ interface ReaderLayoutProps {
     bookId: string,
     query: string,
     limit: number,
+    scope: ReaderSearchScope,
   ): Promise<ReaderSearchHit[]>;
   onNavigate?(locator: DocumentLocator): Promise<boolean>;
   readerContainerRef?: RefObject<HTMLDivElement | null>;
@@ -371,6 +382,7 @@ export function ReaderLayout({
                   submit: labels.search,
                   loading: labels.searchLoading,
                   failed: labels.searchFailed,
+                  navigateFailed: labels.searchNavigateFailed,
                   empty: labels.searchEmpty,
                   page: (page) =>
                     language === 'en'
@@ -379,6 +391,7 @@ export function ReaderLayout({
                         ? `第 ${page} 頁`
                         : `第 ${page} 页`,
                   currentSection: labels.currentSection,
+                  ...readerSearchScopeLabels(language),
                 }}
               />
             )}
@@ -427,6 +440,31 @@ export function ReaderLayout({
       </main>
     </div>
   );
+}
+
+function readerSearchScopeLabels(language: UiLanguage) {
+  if (language === 'en') {
+    return {
+      scope: 'Search scope',
+      all: 'All',
+      book: 'Textbook only',
+      question: 'Question descriptions only',
+    };
+  }
+  if (language === 'zh-TW') {
+    return {
+      scope: '搜尋範圍',
+      all: '全部',
+      book: '僅原文',
+      question: '僅問題簡述',
+    };
+  }
+  return {
+    scope: '搜索范围',
+    all: '全部',
+    book: '仅原文',
+    question: '仅问题简述',
+  };
 }
 
 type ReaderResizeHandle = 'e' | 's' | 'se';

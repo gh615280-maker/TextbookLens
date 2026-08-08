@@ -302,6 +302,7 @@ pub async fn track_remote_resource(
     pool: &SqlitePool,
     page_id: Uuid,
     reference: EncryptedRemoteResourceReference,
+    kimi_api_region: Option<crate::domain::KimiApiRegion>,
 ) -> AppResult<Uuid> {
     let owner = sqlx::query(
         "SELECT p.run_id, p.book_id, r.provider_profile_id, r.provider_kind FROM index_pages p JOIN index_runs r ON r.id = p.run_id AND r.book_id = p.book_id WHERE p.id = ?",
@@ -311,20 +312,25 @@ pub async fn track_remote_resource(
     .await?
     .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
     let profile_id: Option<String> = owner.try_get("provider_profile_id")?;
+    let provider_kind: String = owner.try_get("provider_kind")?;
+    if (provider_kind == "kimi") != kimi_api_region.is_some() {
+        return Err(AppError::new(AppErrorCode::DatabaseError));
+    }
     let resource_id = Uuid::new_v4();
     let timestamp = database_timestamp(Utc::now());
     sqlx::query(
-        "INSERT INTO provider_remote_resources (id, book_id, run_id, page_id, provider_profile_id, provider_kind, encrypted_reference, cleanup_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+        "INSERT INTO provider_remote_resources (id, book_id, run_id, page_id, provider_profile_id, provider_kind, encrypted_reference, cleanup_status, created_at, updated_at, kimi_api_region) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
     )
     .bind(resource_id.to_string())
     .bind(owner.try_get::<String, _>("book_id")?)
     .bind(owner.try_get::<String, _>("run_id")?)
     .bind(page_id.to_string())
     .bind(profile_id)
-    .bind(owner.try_get::<String, _>("provider_kind")?)
+    .bind(provider_kind)
     .bind(reference.database_value())
     .bind(&timestamp)
     .bind(&timestamp)
+    .bind(kimi_api_region.map(super::providers::kimi_api_region_name))
     .execute(pool)
     .await?;
     Ok(resource_id)

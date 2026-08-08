@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
+
+import { useMessage } from '../../app/LanguageProvider';
 import { toUserError } from '../../lib/errors';
 import { ProviderConnectForm } from './ProviderConnectForm';
 import { ProviderProfileRow } from './ProviderProfileRow';
@@ -15,6 +17,7 @@ import {
 export function AiServicesPage({
   api: providedApi,
 }: { api?: ProviderApi } = {}) {
+  const message = useMessage();
   const [api] = useState<ProviderApi>(
     () => providedApi ?? new TauriProviderApi(),
   );
@@ -51,15 +54,12 @@ export function AiServicesPage({
   const settings = state.settings;
   return (
     <section aria-labelledby="ai-services-title" className="phase-page">
-      <h1 id="ai-services-title">AI services</h1>
-      <p>
-        Connect a provider to enable AI-assisted learning. Keys are validated
-        before they are saved.
-      </p>
+      <h1 id="ai-services-title">{message('aiServices.title')}</h1>
+      <p>{message('aiServices.description')}</p>
       {state.error ? (
         <div role="alert">
-          <p>{state.error.message}</p>
-          <p>{state.error.nextStep}</p>
+          <p>{message('aiServices.error')}</p>
+          <p>{message('aiServices.errorNextStep')}</p>
         </div>
       ) : null}
       {registry ? (
@@ -71,11 +71,11 @@ export function AiServicesPage({
           }
         />
       ) : (
-        <p aria-live="polite">Loading AI services…</p>
+        <p aria-live="polite">{message('aiServices.loading')}</p>
       )}
-      <h2>Connected profiles</h2>
+      <h2>{message('aiServices.connectedProfiles')}</h2>
       {registry && settings && state.profiles.length === 0 ? (
-        <p>No provider is connected yet.</p>
+        <p>{message('aiServices.empty')}</p>
       ) : null}
       {registry && settings
         ? state.profiles.map((profile) => (

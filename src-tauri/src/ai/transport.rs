@@ -21,7 +21,7 @@ use super::{
     provider::{ProviderStream, validate_credential},
     stream::{MAX_SSE_DATA_BYTES, SseEventMapper, decode_sse},
 };
-use crate::domain::ProviderKind;
+use crate::domain::{KimiApiRegion, ProviderKind};
 
 pub const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const USER_AGENT: &str = concat!("TextbookLens/", env!("CARGO_PKG_VERSION"));
@@ -133,11 +133,18 @@ pub struct ProviderTransport {
 
 impl ProviderTransport {
     pub fn new(kind: ProviderKind) -> Result<Self, AiError> {
-        let origin = Url::parse(production_origin(&kind)).map_err(|_| AiError::invalid_input())?;
+        let origin = Url::parse(production_origin(&kind).ok_or_else(AiError::invalid_input)?)
+            .map_err(|_| AiError::invalid_input())?;
         if origin.scheme() != "https" {
             return Err(AiError::invalid_input());
         }
         Self::build(kind, origin, TransportPolicy::default())
+    }
+
+    pub(crate) fn new_for_kimi_region(region: KimiApiRegion) -> Result<Self, AiError> {
+        let origin = Url::parse(crate::ai::kimi_region::production_origin(region))
+            .map_err(|_| AiError::invalid_input())?;
+        Self::build(ProviderKind::Kimi, origin, TransportPolicy::default())
     }
 
     pub const fn policy(&self) -> TransportPolicy {
@@ -424,13 +431,13 @@ async fn read_bounded_body(
     }
 }
 
-fn production_origin(kind: &ProviderKind) -> &'static str {
+fn production_origin(kind: &ProviderKind) -> Option<&'static str> {
     match kind {
-        ProviderKind::OpenAi => "https://api.openai.com/",
-        ProviderKind::Gemini => "https://generativelanguage.googleapis.com/",
-        ProviderKind::Anthropic => "https://api.anthropic.com/",
-        ProviderKind::DeepSeek => "https://api.deepseek.com/",
-        ProviderKind::Kimi => "https://api.moonshot.cn/v1/",
+        ProviderKind::OpenAi => Some("https://api.openai.com/"),
+        ProviderKind::Gemini => Some("https://generativelanguage.googleapis.com/"),
+        ProviderKind::Anthropic => Some("https://api.anthropic.com/"),
+        ProviderKind::DeepSeek => Some("https://api.deepseek.com/"),
+        ProviderKind::Kimi => None,
     }
 }
 

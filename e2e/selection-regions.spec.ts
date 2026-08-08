@@ -45,6 +45,7 @@ class SyntheticSelectionBackend {
   readonly epub: number[];
   readonly bluePng: string;
   language: 'zh-CN' | 'zh-TW' | 'en' = 'en';
+  pdfZoom = 1;
   notes: Array<Record<string, unknown>> = [];
   nextNote = 1;
   authorizations: string[] = [];
@@ -75,7 +76,7 @@ class SyntheticSelectionBackend {
           fontScale: 1,
           lineHeight: 1.6,
           readerWidth: 72,
-          pdfZoom: 1,
+          pdfZoom: this.pdfZoom,
           theme: 'system',
         };
       case 'get_reader_bootstrap':
@@ -107,6 +108,7 @@ class SyntheticSelectionBackend {
           .map((note) => ({
             id: note.id,
             kind: 'note',
+            accessibilityLabel: 'Open personal note',
             anchor: note.anchor,
             relocationStatus: 'primary',
           }));
@@ -380,6 +382,64 @@ const selectionTest = test.extend<{ backend: SyntheticSelectionBackend }>({
   },
 });
 /* eslint-enable react-hooks/rules-of-hooks */
+
+selectionTest(
+  'PDF scroll viewport stays attached to every resized frame edge',
+  async ({ page, backend }) => {
+    backend.pdfZoom = 3;
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        'textbooklens.reader-viewport.v1',
+        JSON.stringify({ width: 1100, height: 520 }),
+      );
+    });
+    await page.goto(`/books/${BOOKS.pdf}/read`);
+    await expect(
+      page.locator('.pdf-viewer [data-page-number="1"]'),
+    ).toBeVisible();
+
+    const geometry = await page.evaluate(() => {
+      const frame = document.querySelector('.reader-document-frame');
+      const documentRegion = document.querySelector(
+        '.reader-document.pdf-reader',
+      );
+      const viewport = document.querySelector('.pdf-viewer-container');
+      const viewer = document.querySelector('.pdf-viewer');
+      if (!frame || !documentRegion || !viewport || !viewer)
+        throw new Error('PDF reader geometry is unavailable');
+      const rect = (element: Element) => {
+        const value = element.getBoundingClientRect();
+        return {
+          left: value.left,
+          top: value.top,
+          right: value.right,
+          bottom: value.bottom,
+        };
+      };
+      return {
+        frame: rect(frame),
+        documentRegion: rect(documentRegion),
+        viewport: rect(viewport),
+        documentZoom: getComputedStyle(documentRegion).zoom,
+        cssContentZoom: getComputedStyle(viewer).zoom,
+        nativeScaleFactor: Number.parseFloat(
+          getComputedStyle(viewer).getPropertyValue('--scale-factor'),
+        ),
+      };
+    });
+
+    expect(geometry.documentRegion).toEqual({
+      left: geometry.frame.left + 1,
+      top: geometry.frame.top + 1,
+      right: geometry.frame.right - 1,
+      bottom: geometry.frame.bottom - 1,
+    });
+    expect(geometry.viewport).toEqual(geometry.documentRegion);
+    expect(geometry.documentZoom).toBe('1');
+    expect(geometry.cssContentZoom).toBe('1');
+    expect(geometry.nativeScaleFactor).toBeGreaterThan(3);
+  },
+);
 
 selectionTest(
   'D: immutable ordinary text prepares locally and notes survive edit/restart',

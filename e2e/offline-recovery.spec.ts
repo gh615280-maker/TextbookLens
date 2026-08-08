@@ -217,6 +217,7 @@ class OfflineBackend {
       importErrorMessage: null,
       importErrorStage: null,
       readingProgress: 0.25,
+      fullTextQaReady: false,
       indexAggregate: {
         status: 'not_required',
         totalPages: 0,
@@ -462,9 +463,11 @@ test('offline library, reader, search, notes, history, overview, and backup surv
   await expect(
     page.getByRole('heading', { name: 'Learning overview' }),
   ).toBeVisible();
+  await page.getByText('Local learning overview', { exact: true }).click();
   await expect(
     page.getByText('Offline section', { exact: false }).first(),
   ).toBeVisible();
+  await page.getByText('Book conversations', { exact: true }).click();
   await page.getByRole('button', { name: 'Durable offline question' }).click();
   await expect(page.getByText('Durable offline answer')).toBeVisible();
 

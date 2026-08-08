@@ -897,7 +897,7 @@ async function dragBy(locator: Locator, x: number, y: number) {
 function historyMarker(page: Page) {
   return page
     .getByRole('complementary', { name: 'Marker history' })
-    .getByRole('button', { name: 'View AI conversation marker' });
+    .getByRole('button', { name: 'Open answer' });
 }
 
 async function box(locator: Locator) {

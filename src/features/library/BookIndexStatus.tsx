@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 import { useMessage } from '../../app/LanguageProvider';
 import type { BookSummary } from '../../lib/generated/book';
 
@@ -25,7 +27,17 @@ export function BookIndexStatus({
     return (
       <span className="library-index-actions">
         {book.fullTextQaReady ? (
-          <span role="status">{message('library.fullTextQaReady')}</span>
+          <>
+            <span role="status">{message('library.fullTextQaReady')}</span>
+            <Link
+              to={`/books/${encodeURIComponent(book.id)}/overview`}
+              aria-label={message('library.fullTextQaAskForBook', {
+                title: book.title,
+              })}
+            >
+              {message('library.fullTextQaAsk')}
+            </Link>
+          </>
         ) : null}
         <button type="button" onClick={() => onStartIndex(book)}>
           {message('library.indexStart')}

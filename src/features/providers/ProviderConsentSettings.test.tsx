@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { LanguageProvider } from '../../app/LanguageProvider';
 import type { ProviderProfileSummary } from '../../lib/generated/provider';
 import { ProviderConsentSettings } from './ProviderConsentSettings';
 
@@ -23,15 +24,33 @@ describe('ProviderConsentSettings', () => {
     const onReset = vi.fn(async () => {});
     const user = userEvent.setup();
     render(
-      <ProviderConsentSettings
-        profile={profile}
-        onReset={onReset}
-        busy={false}
-      />,
+      <LanguageProvider
+        api={{
+          getAppSettings: async () => ({
+            onboardingCompleted: false,
+            activeProviderProfileId: null,
+            defaultLearningProfileId: null,
+            defaultVisionProfileId: null,
+            theme: 'system',
+            contextMode: 'standard',
+            uiLanguage: 'en',
+            uiLanguageInitialized: true,
+            firstReaderHintCompleted: false,
+          }),
+          initializeUiLanguage: vi.fn(),
+          updateUiLanguage: vi.fn(),
+        }}
+      >
+        <ProviderConsentSettings
+          profile={profile}
+          onReset={onReset}
+          busy={false}
+        />
+      </LanguageProvider>,
     );
 
     expect(
-      screen.getByText(
+      await screen.findByText(
         /never send images, start AI indexing, or perform network work/i,
       ),
     ).toBeVisible();

@@ -192,6 +192,7 @@ export class DocxReaderAdapter implements ReaderAdapter {
         | {
             block: HTMLElement;
             blockId: string;
+            sectionId: string | undefined;
             x: number;
             y: number;
           }
@@ -239,7 +240,13 @@ export class DocxReaderAdapter implements ReaderAdapter {
           return;
         }
         event.preventDefault();
-        start = { block, blockId, x: event.clientX, y: event.clientY };
+        start = {
+          block,
+          blockId,
+          sectionId: block.dataset.sectionId,
+          x: event.clientX,
+          y: event.clientY,
+        };
         preview = Object.assign(document.createElement('div'), {
           className: 'docx-region-preview',
         });
@@ -312,7 +319,12 @@ export class DocxReaderAdapter implements ReaderAdapter {
           this.#regionCapture = result.capture;
           captureToRelease = null;
           finish();
-          resolve({ blockId: selected.blockId, rect, ...result });
+          resolve({
+            blockId: selected.blockId,
+            sectionId: selected.sectionId,
+            rect,
+            ...result,
+          });
         } catch (error) {
           captureToRelease?.release();
           if (abort.signal.aborted) return;

@@ -8,10 +8,10 @@ export function TeachingPresetMenu({
   disabled: boolean;
   onSelect(instruction: string): void;
 }) {
-  const { uiLanguage } = useLanguage();
+  const { message, uiLanguage } = useLanguage();
   return (
     <section aria-labelledby="teaching-presets-title">
-      <h2 id="teaching-presets-title">Presets</h2>
+      <h2 id="teaching-presets-title">{message('teaching.presets')}</h2>
       {teachingPresets.map((preset) => (
         <button
           disabled={disabled}

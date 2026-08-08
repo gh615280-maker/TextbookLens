@@ -7,7 +7,7 @@ use sqlx::{
 use textbooklens_lib::{
     app_state::AppPaths,
     db::{
-        Database,
+        Database, MIGRATOR,
         indexing::{
             CreateIndexPage, CreateIndexRun, EncryptedRemoteResourceReference, create_index_page,
             create_index_run, find_current_run_aggregate_for_book, get_run_aggregate,
@@ -301,6 +301,125 @@ fn migration_creates_the_local_database_contract() {
             .await
             .unwrap();
         assert_eq!(sections_remaining, 0);
+    });
+}
+
+#[test]
+fn late_v1_migrations_upgrade_real_v12_rows_without_data_loss() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let database_path = temp_dir.path().join("late-v1-upgrade.sqlite3");
+    tauri::async_runtime::block_on(async {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&database_path)
+                    .create_if_missing(true)
+                    .foreign_keys(true),
+            )
+            .await
+            .unwrap();
+        MIGRATOR.run_to(12, &pool).await.unwrap();
+        let book_id = Uuid::new_v4();
+        let valid_title_book_id = Uuid::new_v4();
+        let section_id = Uuid::new_v4();
+        let conversation_id = Uuid::new_v4();
+        let annotation_id = Uuid::new_v4();
+        let profile_id = Uuid::new_v4();
+        let extraction_id = Uuid::new_v4();
+        let remote_id = Uuid::new_v4();
+        // Remote-resource timestamps use the same canonical millisecond form
+        // written by `database_timestamp` in real databases.
+        let timestamp = "2026-08-02T00:00:00.000Z";
+        let source_hash = "f".repeat(64);
+        sqlx::query(
+            "INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, '未命名 PDF', 'pdf', '泛函分析.pdf', ?, 'ready', ?, ?)",
+        )
+        .bind(book_id.to_string())
+        .bind(&source_hash)
+        .bind(format!("books/{book_id}/original.pdf"))
+        .bind(timestamp)
+        .bind(timestamp)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO books (id, sha256, title, format, original_filename, stored_path, import_status, created_at, updated_at) VALUES (?, ?, 'User-authored title', 'pdf', 'should-not-replace.pdf', ?, 'ready', ?, ?)")
+            .bind(valid_title_book_id.to_string()).bind("e".repeat(64))
+            .bind(format!("books/{valid_title_book_id}/original.pdf"))
+            .bind(timestamp).bind(timestamp).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO sections (id, book_id, ordinal, title, locator_json) VALUES (?, ?, 0, 'Fixture section', '{}')")
+            .bind(section_id.to_string()).bind(book_id.to_string()).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO conversations (id, book_id, section_id, scope, anchor_kind, anchor_json, selected_text, created_at, updated_at) VALUES (?, ?, ?, 'selection', 'text', '{}', 'selected text', ?, ?)")
+            .bind(conversation_id.to_string()).bind(book_id.to_string()).bind(section_id.to_string())
+            .bind(timestamp).bind(timestamp).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO annotations (id, book_id, section_id, kind, conversation_id, created_at, updated_at) VALUES (?, ?, ?, 'ai_conversation', ?, ?, ?)")
+            .bind(annotation_id.to_string()).bind(book_id.to_string()).bind(section_id.to_string())
+            .bind(conversation_id.to_string()).bind(timestamp).bind(timestamp).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO provider_profiles (id, provider_kind, display_name, model_id, context_window_tokens, created_at, updated_at, validated_at) VALUES (?, 'kimi', 'Existing Kimi profile', 'kimi-k3', 1000000, ?, ?, ?)")
+            .bind(profile_id.to_string()).bind(timestamp).bind(timestamp).bind(timestamp)
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO book_extractions (id, book_id, source_sha256, provider_profile_id, provider_kind, model_id, extraction_version, credential_fingerprint, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'kimi', 'kimi-k3', 'kimi-file-extract-v1', ?, 'processing', ?, ?)")
+            .bind(extraction_id.to_string()).bind(book_id.to_string()).bind(&source_hash)
+            .bind(profile_id.to_string()).bind("d".repeat(64)).bind(timestamp).bind(timestamp)
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO provider_remote_resources (id, book_id, extraction_id, provider_profile_id, provider_kind, encrypted_reference, cleanup_status, created_at, updated_at) VALUES (?, ?, ?, ?, 'kimi', ?, 'pending', ?, ?)")
+            .bind(remote_id.to_string()).bind(book_id.to_string()).bind(extraction_id.to_string())
+            .bind(profile_id.to_string()).bind(format!("enc:v1:keyring:{}", Uuid::new_v4()))
+            .bind(timestamp).bind(timestamp).execute(&pool).await.unwrap();
+
+        MIGRATOR.run(&pool).await.unwrap();
+        let title: String = sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
+            .bind(book_id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(title, "泛函分析");
+        let valid_title: String = sqlx::query_scalar("SELECT title FROM books WHERE id = ?")
+            .bind(valid_title_book_id.to_string())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(valid_title, "User-authored title");
+        let summary: Option<String> =
+            sqlx::query_scalar("SELECT summary_text FROM annotations WHERE id = ?")
+                .bind(annotation_id.to_string())
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(summary, None);
+        let regions: (String, String, String) = sqlx::query_as(
+            "SELECT p.kimi_api_region, e.kimi_api_region, r.kimi_api_region FROM provider_profiles p JOIN book_extractions e ON e.provider_profile_id = p.id JOIN provider_remote_resources r ON r.extraction_id = e.id WHERE p.id = ?",
+        )
+        .bind(profile_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(regions, ("cn".to_owned(), "cn".to_owned(), "cn".to_owned()));
+        for statement in [
+            "UPDATE provider_profiles SET kimi_api_region = 'https://api.moonshot.cn/v1' WHERE provider_kind = 'kimi'",
+            "UPDATE book_extractions SET kimi_api_region = 'other' WHERE provider_kind = 'kimi'",
+            "UPDATE provider_remote_resources SET kimi_api_region = '.ai' WHERE provider_kind = 'kimi'",
+        ] {
+            assert!(sqlx::query(statement).execute(&pool).await.is_err());
+        }
+        pool.close().await;
+    });
+
+    let reopened = Database::open(&database_path).unwrap();
+    tauri::async_runtime::block_on(async {
+        let versions: Vec<i64> =
+            sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+                .fetch_all(reopened.pool())
+                .await
+                .unwrap();
+        assert_eq!(versions, (1_i64..=15).collect::<Vec<_>>());
+        let counts: (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM books), (SELECT COUNT(*) FROM annotations), (SELECT COUNT(*) FROM book_extractions), (SELECT COUNT(*) FROM provider_remote_resources)",
+        )
+        .fetch_one(reopened.pool())
+        .await
+        .unwrap();
+        assert_eq!(counts, (2, 1, 1, 1));
     });
 }
 
@@ -1709,6 +1828,7 @@ fn ai_local_index_book_delete_requires_cleanup_and_cascades_local_content() {
             database.pool(),
             fixture.page_id,
             EncryptedRemoteResourceReference::new("enc:v1:synthetic-envelope".to_owned()).unwrap(),
+            None,
         )
         .await
         .unwrap();

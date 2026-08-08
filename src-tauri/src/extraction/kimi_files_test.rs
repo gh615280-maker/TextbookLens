@@ -6,6 +6,16 @@ use wiremock::{
 };
 
 use super::kimi_files::{FileState, KimiFilesClient, MAX_FILE_BYTES};
+use crate::{
+    ai::kimi_region::{KIMI_CN_ORIGIN, KIMI_INTERNATIONAL_ORIGIN},
+    domain::KimiApiRegion,
+};
+
+#[test]
+fn production_files_endpoints_are_fixed_to_the_two_supported_regions() {
+    assert_eq!(KIMI_CN_ORIGIN, "https://api.moonshot.cn/v1/");
+    assert_eq!(KIMI_INTERNATIONAL_ORIGIN, "https://api.moonshot.ai/v1/");
+}
 use crate::errors::AppErrorCode;
 
 const KEY: &str = "fixture-kimi-files-key";
@@ -18,6 +28,7 @@ const CONTENT: &str = include_str!("../../../fixtures/providers/kimi/files-conte
 async fn client() -> (wiremock::MockServer, KimiFilesClient) {
     let server = wiremock::MockServer::start().await;
     let client = KimiFilesClient::new_for_test(&format!("{}/v1", server.uri())).unwrap();
+    assert_eq!(client.region(), KimiApiRegion::Cn);
     (server, client)
 }
 

@@ -349,10 +349,16 @@ main {
   zoom: var(--reader-content-zoom, 1);
 }
 
-.reader-document.pdf-reader,
 .reader-document.epub-reader,
 .reader-document.docx-reader {
   min-height: calc(100% / var(--reader-content-zoom, 1));
+}
+
+.reader-document.pdf-reader {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  zoom: 1;
 }
 
 .reader-document-resize-handle {
@@ -415,6 +421,62 @@ main {
 
 .reader-marker-history:has(> div:empty) {
   display: none;
+}
+
+.reader-marker-history__list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reader-marker-history__list > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.reader-marker-history__locate {
+  min-width: var(--control-height);
+  padding-inline: var(--space-2);
+  font-weight: 700;
+}
+
+.reader-marker-history__summary,
+.reader-marker-history__editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.reader-marker-history__summary > span,
+.reader-marker-history__editor > input {
+  flex: 1 1 18rem;
+  min-width: 10rem;
+}
+
+.reader-marker-history__warning {
+  grid-column: 2;
+  color: var(--color-danger);
+}
+
+.reader-search__scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-block: var(--space-3);
+  border: 0;
+  padding: 0;
+}
+
+.reader-search__scope label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .reader-marker-button::before,
@@ -614,6 +676,36 @@ button:disabled {
 .inline-error {
   margin-bottom: var(--space-4);
   border-color: var(--color-danger);
+}
+
+.overview-collapsible {
+  margin-block: var(--space-4);
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-medium);
+  background: var(--color-surface);
+}
+
+.overview-collapsible > summary {
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.overview-collapsible[open] > summary {
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.overview-collapsible__content {
+  padding: var(--space-4);
+}
+
+.overview-collapsible__content > :first-child {
+  margin-top: 0;
+}
+
+.overview-collapsible__content > :last-child {
+  margin-bottom: 0;
 }
 
 @media (max-width: 40rem) {

@@ -97,8 +97,8 @@ export function TeachingInstructionsPage({
       <p>{message('teaching.description')}</p>
       {state.error ? (
         <div role="alert">
-          <p>{state.error.message}</p>
-          <p>{state.error.nextStep}</p>
+          <p>{message('teaching.error')}</p>
+          <p>{message('teaching.errorNext')}</p>
         </div>
       ) : null}
       {state.stage === 'loading' || !current ? (
