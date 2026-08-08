@@ -7,17 +7,17 @@ Windows 10 is neither supported nor validated.
 
 ## Immutable inputs
 
-| Input                  | Required value                                                                                                                                                                                  |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source commit          | `bfbe504b0380a64d88c9d51466768195d36b396b` (Task 7 base `ba0c62dc5e346461bdb1bf2004f4e009f50fbbd3`)                                                                                              |
-| Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                          |
-| Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                             |
-| Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                        |
-| Tauri CLI / Rust crate | `2.11.4` / `2.11.5`                                                                                                                                                                             |
-| Application version    | `0.1.0` (`package.json`, `Cargo.toml`, and `tauri.conf.json`)                                                                                                                                   |
-| Product / identifier   | `TextbookLens` / `dev.textbooklens.desktop`                                                                                                                                                     |
+| Input                  | Required value                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source commit          | `bfbe504b0380a64d88c9d51466768195d36b396b` (Task 7 base `ba0c62dc5e346461bdb1bf2004f4e009f50fbbd3`)                                                                                               |
+| Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                            |
+| Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                               |
+| Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                          |
+| Tauri CLI / Rust crate | `2.11.4` / `2.11.5`                                                                                                                                                                               |
+| Application version    | `0.1.0` (`package.json`, `Cargo.toml`, and `tauri.conf.json`)                                                                                                                                     |
+| Product / identifier   | `TextbookLens` / `dev.textbooklens.desktop`                                                                                                                                                       |
 | Dependency records     | `package-lock.json` SHA-256 `E7593397180DCE443149265BF569464823CD43CB5650C586BB05003CD64776B0`; `src-tauri/Cargo.lock` SHA-256 `5AFE9A8782AEB56BC9A90F0FD3821DC48249DA8035CFEE818DB527259463E2EE` |
-| Toolchain record       | `rust-toolchain.toml` SHA-256 `6B5C36CC63BE7BF3A075574039B8A49C1361FC1C3ACFCE234AFD28BCC7DECF13`                                                                                                |
+| Toolchain record       | `rust-toolchain.toml` SHA-256 `6B5C36CC63BE7BF3A075574039B8A49C1361FC1C3ACFCE234AFD28BCC7DECF13`                                                                                                  |
 
 No lockfile may change during installation, checking, or bundling. The release build uses
 `CARGO_INCREMENTAL=0`, `CARGO_BUILD_JOBS=1`, Cargo `-j 1`, a task-scoped target directory, and a
