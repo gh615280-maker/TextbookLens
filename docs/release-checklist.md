@@ -1,9 +1,10 @@
 # Windows release checklist
 
 This checklist is the technical record for a **local, unsigned Windows 11 x64 V1 build**. It is
-not a release approval: clean-device installation, uninstall, accessibility hardware checks, and
-real-provider gates belong to Tasks 8 and 9 and remain **NOT RUN** until their evidence is added.
-Windows 10 is neither supported nor validated.
+not a release approval. Task 8 performed read-only package and environment discovery but was
+**RED / BLOCKED** because no genuinely isolated clean Windows environment was available; clean
+installation, uninstall, accessibility hardware checks, and real-provider gates remain **NOT RUN**.
+Windows 10 is neither supported nor validated, and Task 9 must not start while these gates remain.
 
 ## Immutable inputs
 
@@ -80,11 +81,11 @@ release executable's only development-URL string hit is the Tauri `devUrl` confi
 `http://localhost:1420`; release packaging uses `frontendDist` and ships no dev server. The final
 artifact directory is `D:\CodexBuild\textbooklens-p15t7-release`; it is retained for Task 8.
 
-| Artifact                           | SHA-256                                                            | Size (bytes) | Scanner / inspection |
-| ---------------------------------- | ------------------------------------------------------------------ | -----------: | -------------------- |
-| NSIS installer                     | `E77AB16985410A84A04E2965A08DBE0AD974E0646991FA1B5AF6E9D8AFBE38DC` |    9,000,265 | Scanner PASS; x64 PE |
-| MSI installer                      | `938AFFB126FE81D9F48493CACFC8EAB9062D086F6DD50E814553796287E3A5DE` |   12,046,336 | Scanner PASS         |
-| unpacked bundle/resources manifest | 21 files / 21,108,514 bytes                                        |   21,108,514 | Scanner PASS         |
+| Artifact                           | SHA-256                                                            | Size (bytes) | Scanner / inspection                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------ | -----------: | ---------------------------------------------------------------------------------------------------------- |
+| NSIS installer                     | `E77AB16985410A84A04E2965A08DBE0AD974E0646991FA1B5AF6E9D8AFBE38DC` |    9,000,265 | Scanner PASS; Task 8 found an x86 outer bootstrap PE, which is not installed-payload architecture evidence |
+| MSI installer                      | `938AFFB126FE81D9F48493CACFC8EAB9062D086F6DD50E814553796287E3A5DE` |   12,046,336 | Scanner PASS                                                                                               |
+| unpacked bundle/resources manifest | 21 files / 21,108,514 bytes                                        |   21,108,514 | Scanner PASS                                                                                               |
 
 Two isolated builds must compare file manifests and SHA-256 values. MSI/NSIS container timestamps,
 PE metadata, and a future code signature may make bytes differ; that is an explainable boundary,
@@ -98,6 +99,63 @@ reproducible: build A versus B differs for NSIS (9,000,265 / 8,999,366 bytes; SH
 `938AFFB1…A5DE` / `7E5F6334…486F`). This is recorded as an installer-tool metadata boundary;
 Task 9 must retain this result and must not claim byte-identical installation media.
 
+## Task 8 clean-Windows and real-provider result
+
+Task 8 started from exact HEAD `8af9882e44be33e18c91a39e81f324cf98b3b6d2` with parent
+`c7716affae03fe820f76aceec34e0055c8105e53`. Start and final checks found the retained release
+directory unchanged: it contained only the authoritative NSIS and MSI files at the size/hash values
+above. The desktop shortcut and its designated debug executable also retained the protected target,
+43,559,424-byte size, and SHA-256
+`38F6652F6F4B60185046DAB8426A3E9C0B69E912BE75118CA68B19D83F290521`.
+
+### Environment proof and decision
+
+The daily host reported Windows 11 Pro 23H2 build `22631.2861`, x64, but it was not a clean test
+environment and was never used as one. Windows Sandbox was not present, no active hypervisor or
+Hyper-V management command was available, VMware/VirtualBox management tools were absent, and no
+VM/Sandbox configuration, checkpoint, or dedicated test-machine configuration was found in the
+repository or task build root. Optional-feature state required elevation and was left unchanged.
+No environment switch occurred, so no snapshot identifier exists.
+
+The result is **RED / BLOCKED**. Task 8 did not install/uninstall either package, launch or stop the
+existing app, alter current-user app data or credentials, change system display/accessibility
+settings, or run a provider request. Historical automation and browser emulation are not clean
+Windows evidence.
+
+### Read-only installer inspection
+
+| Input | Metadata result                                                                                                                                                                                                  | Signature state                     | Executed gate                                          |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------ |
+| NSIS  | `TextbookLens` file/product version `0.1.0`; outer bootstrap machine `0x014c` (x86). The x64 payload claim was not inferred from the stub and requires installed-candidate evidence.                             | `NotSigned`; no signer or timestamp | Install/launch/uninstall **NOT RUN**                   |
+| MSI   | Product/version `TextbookLens` / `0.1.0`; summary template `x64;0`; main EXE component is marked 64-bit with file version `0.1.0.0`; Start Menu, desktop, uninstall, and `RemoveExistingProducts` entries exist. | `NotSigned`; no signer or timestamp | Install/launch/reinstall/upgrade/uninstall **NOT RUN** |
+
+MSI database rows are only package metadata. They do not prove a successful entry point, upgrade,
+launch, or removal on clean Windows.
+
+### Manual gate ledger
+
+| Gate                                                                                            | Status                                 |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------- |
+| NSIS and MSI independent installation/start/uninstall; first run; reinstall/supported upgrade   | NOT RUN — no clean Windows environment |
+| Self-made PDF/EPUB/DOCX import/read/restart/source deletion                                     | NOT RUN                                |
+| `zh-CN` / `zh-TW` / `en` switch and restart persistence                                         | NOT RUN                                |
+| Real 125/150/200% scale, display resize, narrow/maximized/fullscreen, Esc/focus                 | NOT RUN                                |
+| Contrast Theme, transparency off, opaque fallback, reduced motion                               | NOT RUN                                |
+| Keyboard-only, skip/focus/live-region, Narrator, NVDA                                           | NOT RUN                                |
+| Backup to external test directory and restore into a second clean environment; no-Key reconnect | NOT RUN                                |
+| Delete one book, clear all/credential cleanup, uninstall residual scan                          | NOT RUN                                |
+
+At `2026-08-08T10:21:15.925Z`, the embedded exact models were OpenAI `gpt-5.6`, Gemini
+`gemini-3.6-flash`, Anthropic `claude-sonnet-5`, DeepSeek `deepseek-v4-flash`, and Kimi `kimi-k3`.
+Text was **NOT RUN** for all five. Supported vision/structured operations were **NOT RUN**;
+DeepSeek's unsupported visual/page zero-request gate was also **NOT RUN**. Kimi CN and international
+probe/chat/Files/cleanup were both **NOT RUN**. No credential source was inspected, no Key was read
+or copied, and Task 8 made zero external-provider requests.
+
+Resume requires a genuine clean Windows 11 x64 VM/Sandbox/dedicated machine with a disposable
+snapshot. Dedicated provider test keys must be entered manually in the installed candidate UI, not
+provided in chat.
+
 ## CI and publication state
 
 `.github/workflows/ci.yml` runs pinned Node/Rust checks for frontend, Rust, generated output,
@@ -109,10 +167,12 @@ Code signing, timestamping, updater configuration, update publication, tag creat
 network publication are **NOT CONFIGURED / NOT RUN**. No unsigned artifact may be described as
 signed or published.
 
-## Manual gates retained for Task 8/9
+## Manual gates retained after Task 8
 
-- Clean Windows 11 x64 install, launch, uninstall, and residual-data scan: **NOT RUN**.
+- Clean Windows 11 x64 install, launch, uninstall, and residual-data scan: **BLOCKED / NOT RUN**.
 - First run, three import formats, restart, backup/restore, delete/clear, real DPI/high-contrast,
-  and Narrator/NVDA: **NOT RUN**.
-- Five real-provider credential/model checks and supported visual/structured requests: **NOT RUN**.
-- Release signing, update publication, clean-device upgrade, and final release approval: **NOT RUN**.
+  and Narrator/NVDA: **BLOCKED / NOT RUN**.
+- Five real-provider credential/model checks and supported visual/structured requests:
+  **BLOCKED / NOT RUN**.
+- Release signing, timestamping, updater/update publication, clean-device upgrade, and final
+  release approval: **NOT CONFIGURED / NOT RUN**.
