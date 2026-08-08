@@ -27,7 +27,7 @@
 | Phase 12 | registry/atomic history/multi-panel/hide continue  | PASS                                                     | 2026-08-06 / base `bee92405`; repairs `64ddedb3`, `895e24a`, `112f6b0`, `d1c6138`; Task 7 checkpoint working tree                            | Production request registry/orchestrator, atomic SQLite conversation/message/citation/annotation writes, floating-panel lifecycle, safe Markdown/KaTeX, restart/history/followup/delete, and three-format text/region relocation passed with synthetic local inputs only. Focused G–I 3/3, marker adapters 18/18, registry/orchestrator/lifecycle 17/17, persistence/restart 10/10; full Vitest 304/304, Playwright 27/27, Rust 333 passed/1 manual smoke ignored; every required Task 7 gate PASS. Phase 13 was not started. |
 | Phase 13 | delete/backup/restore/clear/privacy                | PASS                                                     | 2026-08-06 / base `2665d5f`; repairs `8d0d02a`, `e5a16f0`, `53d4b2e`; Task 6 checkpoint working tree                                         | Maintenance coordination, complete deletion, TLBACKUP v1 creation/verification, staged restart restore, clear-all credential retry, Settings IA, and P/Q privacy evidence passed with isolated synthetic data and strict local doubles only. Focused maintenance/import/index/learning/bindings suites passed; full Vitest 309/309, Playwright 30/30, Rust 402 passed/1 manual smoke ignored. No real credential, textbook, provider, network, Explorer, file dialog, restart, or release work ran.                           |
 | Phase 14 | deterministic overview/book questions              | PASS                                                     | 2026-08-07 / base `c0a13be`; repairs `4ce7565`, `247d078`; Task 5 checkpoint working tree                                                    | Three-format local overview, bounded book-question preparation, atomic synthetic streaming/history/delete, and strict-mock Chromium evidence passed. Focused Phase 14 Rust 3/3 and UI E2E 3/3; Phase 12 selection plus panel regression 6/6; full Vitest 324/324, Playwright 33/33, Rust 443 passed/1 manual smoke ignored. All required gates passed except the unchanged recorded npm audit state (4 high, 0 critical). No real provider, credential, textbook, network, clean install, release, or package operation ran.  |
-| Phase 15 | A–Q/clean Windows/package/release                  | TASK 5 AUTO PASS; TASKS 6–7 RECORDED; TASK 8 RED/BLOCKED | 2026-08-08 / Task 8 base `8af9882`; evidence `458ea4f`, `bbe4e2e`                                                                            | Task 5 automated A–Q remains PASS. Task 8 ran real Windows Sandbox evidence: NSIS primary install/first-run/restart/same-version-upgrade/uninstall PASS, MSI independent install/launch/uninstall smoke PASS, three-language restart PASS, and bounded onboarding-surface contrast/keyboard/Narrator checks PASS. Required three-format reading, true 125/150/200% scale, full backup/delete/clear/NVDA, and every real-provider gate remain PARTIAL or NOT RUN, so Task 8 is RED and Task 9 must not start.                  |
+| Phase 15 | A–Q/clean Windows/package/release                  | TASK 5 AUTO PASS; TASKS 6–7 RECORDED; TASK 8 RED/BLOCKED | 2026-08-08 / Task 8 base `8af9882`; evidence `458ea4f`, `bbe4e2e`, `a091c46`                                                                 | Task 5 automated A–Q remains PASS. Task 8 ran real Windows Sandbox evidence: NSIS primary install/first-run/restart/same-version-upgrade/uninstall PASS, MSI independent install/launch/uninstall smoke PASS, three-language restart PASS, and bounded onboarding-surface contrast/keyboard/Narrator/NVDA checks PASS. Required three-format full reading, true 125/150/200% scale, full backup/delete/clear, live-region completion, fullscreen, and every real-provider gate remain PARTIAL or NOT RUN, so Task 8 is RED and Task 9 must not start. |
 
 ## 3. Provider 能力证据
 
@@ -818,22 +818,27 @@ active hypervisor and runnable Microsoft Windows Sandbox.
 
 | Evidence ID         | Guest edition/build/arch/memory                             | System scale record                                          | Isolation and lifetime                                                                                                |
 | ------------------- | ----------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `P15T8-SBX-NSIS-01` | Windows 11 Enterprise 22H2 `22621.2861`, x64, 4 GiB         | Exact percentage not surfaced; required 125/150/200% NOT RUN | Fresh instance `bda89b1d-9684-4cc2-9e17-c4c58c79c059`; NSIS session destroyed after uninstall                         |
+| `P15T8-SBX-NSIS-01` | Windows 11 Enterprise 22H2 `22621.2861`, x64, 4 GiB         | Exact percentage not surfaced; required 125/150/200% NOT RUN | Fresh instance `bda89b1d-9684-4cc2-9e17-c4c58c79c059`; destroyed after the supplemental no-credential gates           |
 | `P15T8-SBX-MSI-02`  | Independent launch of the same Enterprise/x64 Sandbox image | Exact percentage not surfaced; no system-scale claim         | Fresh session with no inherited app data/credential and no reusable snapshot; destroyed after independent MSI removal |
+| `P15T8-SBX-CRED-03` | Independent launch of the same Enterprise/x64 Sandbox image | Exact percentage not surfaced; no system-scale claim         | Fresh instance `f7f9cf40-d164-4776-bd63-eb020f99627e`; active at the credential-input checkpoint                      |
 
-Both used the same networked `.wsb` profile with Task 7 release and self-made input mapped
-read-only, a separate writable external-test directory, and clipboard disabled. Fixture SHA-256:
+The no-credential sessions used the networked `.wsb` profile with Task 7 release and self-made
+input mapped read-only, a separate writable external-test directory, and clipboard disabled.
+`P15T8-SBX-CRED-03` used a separate profile with the same minimal mappings and clipboard enabled
+only for direct user entry into the product password field; the agent did not read clipboard data.
+Fixture SHA-256:
 PDF `464847140CCA555A80FF51A0EEBA1072A06175A57239FBF0BE942DAA40B7DF62`, EPUB
 `F791BAFA42D089C0081536C53C1B69701DE4019FD6B1EEEECACFA931A5338286`, DOCX
 `8017A4B9BEE398496B2F0C8E99084BADF5644960020C57548A18A079E3164595`, PNG
 `6C65EFAA2EBBB9912BA372076E088471EC1F6BF29ED62613C9D30A42569A50EF`. No real textbook, host
-database, account path, or credential entered either guest.
+database, private account path, or credential was copied into the recorded sessions. At the
+credential-input checkpoint, the user had not yet entered a Key.
 
 ### Package execution
 
 | Package | Version / architecture evidence                                                                                                                | Signature                           | Current clean-Windows execution                                                                                                                                                                                                                     |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| NSIS    | File/product `0.1.0`; outer bootstrap PE x86 (`0x014c`); Task 7 payload target x86-64. Outer-stub architecture is not installed-payload proof. | `NotSigned`; no signer or timestamp | Primary networked flow PASS: install, first launch, PDF onboarding import, restart, same-version `Upgrade install`, relaunch, and uninstall. Separate offline attempt stopped at official Microsoft WebView2 dependency and is not an offline PASS. |
+| NSIS    | File/product `0.1.0`; outer bootstrap PE x86 (`0x014c`); Task 7 payload target x86-64. Outer-stub architecture is not installed-payload proof. | `NotSigned`; no signer or timestamp | Primary networked flow PASS: install, first launch, PDF onboarding import, restart, same-version `Upgrade install`, relaunch, and uninstall. A third fresh credential session repeated install/launch with the same input and paused at the blank Key field. Separate offline attempt stopped at official Microsoft WebView2 dependency and is not an offline PASS. |
 | MSI     | Product `TextbookLens` `0.1.0`; summary `x64;0`; 64-bit main component; default `C:\Program Files\TextbookLens\`.                              | `NotSigned`; no signer or timestamp | Independent fresh-session smoke PASS: install, completion launch, maintenance-mode Remove, completion, and desktop-shortcut removal. No version-to-version upgrade claim.                                                                           |
 
 Signing, timestamping, updater configuration, publication, and remote CI remain **NOT CONFIGURED /
@@ -848,12 +853,14 @@ remain unchanged.
 | PDF import/restart/source-copy deletion/full read                                     | PARTIAL        | PDF title/import state survived restart and deletion of the scoped writable source duplicate; API-key onboarding prevented full reader-content verification.  |
 | EPUB/DOCX import and full three-format restart                                        | NOT RUN        | No historical automation substituted.                                                                                                                         |
 | `zh-CN` / `zh-TW` / `en` switching and restart persistence                            | PASS           | All selected in the installed NSIS candidate; English persisted after restart.                                                                                |
-| True 125/150/200% system scale and resolution/display resize                          | NOT RUN        | Sandbox Settings did not expose a usable scale path; browser zoom/emulation was not substituted.                                                              |
+| True 125/150/200% system scale                                                        | NOT RUN        | Sandbox Settings did not expose a supported scale control; no browser zoom, emulation, or registry proxy was substituted.                                      |
+| Sandbox display/window resolution change                                             | PASS           | The guest viewport changed from approximately 1353×809 to 1708×1053 and the installed onboarding surface reflowed without a horizontal scrollbar.             |
 | Maximized and approximately 810-pixel snapped narrow readability                      | PASS           | Installed onboarding surface remained readable.                                                                                                               |
 | Fullscreen/F11                                                                        | NOT RUN        | No fullscreen PASS claimed.                                                                                                                                   |
 | Contrast Theme, transparency off, opaque fallback, reduced motion                     | PASS (surface) | Aquatic Contrast Theme, transparency off, and animation effects off remained functional/readable on onboarding; settings were restored or disposed.           |
-| Keyboard skip/focus/provider/model/Esc return                                         | PASS (surface) | Skip link, provider/model controls, disclosure, and Esc focus return worked; complete live-region coverage was not established.                               |
-| Narrator / NVDA                                                                       | PASS / NOT RUN | Built-in Narrator navigated key/model controls and was disabled afterward. NVDA was not already installed and no separate official acquisition run completed. |
+| Keyboard skip/focus/provider/model/Esc return                                         | PASS (surface) | Skip link, provider/required-Key/model controls, disclosure, disabled-button skip, and Esc focus return worked; live-region validation remains NOT RUN.        |
+| Built-in Narrator                                                                     | PASS (surface) | Enabled through Windows Settings. Visible focus traversed provider, required Key, disclosure, and model; skip Enter focused main and Esc returned to provider. Narrator was then disabled. No speech transcript was retained. |
+| NVDA                                                                                  | PASS (surface) | Official NV Access 2026.1.1 binary (`6E0289EB…47C9`, 62,914,952 bytes) matched the published hash and a valid NV Access signature. A temporary run announced the safe onboarding labels/state and skip link; no log, credential, prompt, response, or provider request was retained. |
 | Backup/restore to second clean profile/session and no-Key reconnect                   | NOT RUN        | No backup/restore evidence.                                                                                                                                   |
 | Delete one book, clear all, second-book/original/backup retention, credential cleanup | NOT RUN        | Scoped source deletion is not a product delete/clear gate; no credentials were configured.                                                                    |
 | Uninstall residual scan                                                               | WARN / PARTIAL | NSIS data-delete removal removed product files/shortcuts; an empty Local `TextbookLens` directory remained. Full Roaming/credential scan was not completed.   |
@@ -863,21 +870,22 @@ non-PASS release blockers.
 
 ### Real-provider manual gates
 
-At `2026-08-08T12:22:31.658Z`, credential availability had not been established in an isolated
-release-candidate UI. Clean Sandbox inherited no host credentials. The daily-host candidate was not
-launched for discovery because process-only `APPDATA`/`LOCALAPPDATA` overrides do not isolate its
-`FOLDERID_RoamingAppData` storage. Credential Manager, disk, and environment secrets were not
-inspected, displayed, extracted, or moved. No Key was read or requested in chat, and zero
-external-provider requests were made.
+At `2026-08-08T23:22:01.875Z`, `P15T8-SBX-CRED-03` had installed and launched the authoritative
+candidate, imported the self-made PDF, and stopped on the product's provider onboarding page with
+OpenAI selected and its blank Key field focused. Clipboard redirection was enabled solely for the
+user's direct product-UI input. The agent did not read clipboard data or inspect, display, extract,
+or move Credential Manager, disk, or environment secrets. No Key was requested in chat and zero
+external-provider requests had been made at this checkpoint.
 
 | Provider  | Embedded exact model | Text    | Vision / structured                                                          | Region-specific coverage                                   | UTC decision time          | Status                                                                 |
 | --------- | -------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------- |
-| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-08T12:22:31.658Z` | No disposable-UI credential configured; availability otherwise unknown |
-| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-08T12:22:31.658Z` | No disposable-UI credential configured; availability otherwise unknown |
-| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-08T12:22:31.658Z` | No disposable-UI credential configured; availability otherwise unknown |
-| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | `2026-08-08T12:22:31.658Z` | No disposable-UI credential configured; availability otherwise unknown |
-| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | CN and international probe/chat/Files/cleanup both NOT RUN | `2026-08-08T12:22:31.658Z` | Neither regional test credential configured in disposable UI           |
+| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-08T23:22:01.875Z` | READY for direct user UI input; no Key entered at checkpoint             |
+| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-08T23:22:01.875Z` | Awaiting direct user UI input if a test credential is available          |
+| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-08T23:22:01.875Z` | Awaiting direct user UI input if a test credential is available          |
+| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | `2026-08-08T23:22:01.875Z` | Awaiting direct user UI input if a test credential is available          |
+| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | CN and international probe/chat/Files/cleanup both NOT RUN | `2026-08-08T23:22:01.875Z` | Awaiting only the region credential(s) the user actually owns            |
 
-Task 8 cannot pass and Task 9 must not start. Resume requires user test credentials entered
-manually into a disposable TextbookLens UI plus the remaining clean-environment rows above. Keys
-must not be pasted into chat or copied from host storage.
+Task 8 cannot pass and Task 9 must not start. `P15T8-SBX-CRED-03` remains running at the blank
+OpenAI Key field for direct user entry; Keys must not be pasted into chat. After the user confirms
+which provider names/regions were configured, the remaining real-provider and clean-environment
+rows can resume.

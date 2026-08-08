@@ -119,21 +119,25 @@ installation, destructive, display, theme, and assistive-technology testing. Aft
 Microsoft Sandbox feature enablement and normal restart, the host reported an active hypervisor and
 a runnable Windows Sandbox feature.
 
-Two disposable sessions used the same network-enabled `.wsb` profile with the Task 7 release and
+The no-credential sessions used a network-enabled `.wsb` profile with the Task 7 release and
 self-made input mapped read-only, a separate writable external-test directory, and clipboard
-disabled:
+disabled. A third fresh session used the same minimal mappings with clipboard enabled only for
+direct user entry into the product password field:
 
 | Evidence ID         | Guest proof                                                    | Initial scale record                                                     | Lifetime / isolation                                                                                                |
 | ------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `P15T8-SBX-NSIS-01` | Windows 11 Enterprise 22H2 build `22621.2861`, x64, 4 GiB      | Exact percentage was not surfaced; required 125/150/200% changes NOT RUN | Fresh Sandbox; guest instance `bda89b1d-9684-4cc2-9e17-c4c58c79c059`; destroyed after NSIS flow                     |
+| `P15T8-SBX-NSIS-01` | Windows 11 Enterprise 22H2 build `22621.2861`, x64, 4 GiB      | Exact percentage was not surfaced; required 125/150/200% changes NOT RUN | Fresh Sandbox; guest instance `bda89b1d-9684-4cc2-9e17-c4c58c79c059`; destroyed after supplemental no-credential gates |
 | `P15T8-SBX-MSI-02`  | Independent fresh launch of the same Enterprise/x64 base image | Exact percentage was not surfaced; no system-scale claim                 | Fresh Sandbox with no inherited app data or credentials; no reusable snapshot exists; destroyed after MSI uninstall |
+| `P15T8-SBX-CRED-03` | Independent fresh launch of the same Enterprise/x64 base image | Exact percentage was not surfaced; no system-scale claim                 | Fresh instance `f7f9cf40-d164-4776-bd63-eb020f99627e`; active at the credential-input checkpoint                    |
 
 Only self-made tiny PDF/EPUB/DOCX/PNG fixtures were exposed to the guest. The primary fixture hashes
 were PDF `464847140CCA555A80FF51A0EEBA1072A06175A57239FBF0BE942DAA40B7DF62`, EPUB
 `F791BAFA42D089C0081536C53C1B69701DE4019FD6B1EEEECACFA931A5338286`, DOCX
 `8017A4B9BEE398496B2F0C8E99084BADF5644960020C57548A18A079E3164595`, and PNG
 `6C65EFAA2EBBB9912BA372076E088471EC1F6BF29ED62613C9D30A42569A50EF`. No real textbook, user
-database, private account path, or host credential entered either session.
+database, private account path, or host credential was copied into the recorded sessions. At the
+credential-input checkpoint, the user had not yet entered a Key and the agent had not read
+clipboard data.
 
 The result remains **RED / BLOCKED** because multiple required manual rows remain NOT RUN. No
 product FAIL was observed in the executed subset. Historical automation and browser emulation are
@@ -143,7 +147,7 @@ kept separate from the current manual evidence.
 
 | Input | Version / architecture evidence                                                                                                                   | Signature state                     | Current clean-Windows execution                                                                                                                                                                                                                        |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| NSIS  | File/product version `0.1.0`; outer bootstrap PE `0x014c` (x86); Task 7 payload target remains x86-64. The outer stub alone is not payload proof. | `NotSigned`; no signer or timestamp | Primary networked flow PASS: clean install, first launch, PDF onboarding import, restart, same-version `Upgrade install`, relaunch, and uninstall. A separate offline attempt stopped at the Microsoft WebView2 dependency and is not an offline PASS. |
+| NSIS  | File/product version `0.1.0`; outer bootstrap PE `0x014c` (x86); Task 7 payload target remains x86-64. The outer stub alone is not payload proof. | `NotSigned`; no signer or timestamp | Primary networked flow PASS: clean install, first launch, PDF onboarding import, restart, same-version `Upgrade install`, relaunch, and uninstall. A third fresh credential session repeated install/launch with the same input and paused at the blank Key field. A separate offline attempt stopped at the Microsoft WebView2 dependency and is not an offline PASS. |
 | MSI   | Product `TextbookLens` `0.1.0`; summary `x64;0`; 64-bit main component; default `C:\Program Files\TextbookLens\`.                                 | `NotSigned`; no signer or timestamp | Independent fresh-session smoke PASS: install, completion launch into first-run onboarding, maintenance-mode Remove, completion, and desktop-shortcut removal. No version-to-version upgrade claim was made.                                           |
 
 Task 7's matching-content but non-bit-reproducible installer-container result remains unchanged.
@@ -158,36 +162,38 @@ NOT RUN**.
 | First run and self-made PDF import/restart/source deletion                            | PARTIAL        | PDF title/import state survived restart and deletion of only the scoped writable source duplicate. API-key onboarding prevented full reader-content verification.                               |
 | Self-made EPUB/DOCX import and full three-format reader restart                       | NOT RUN        | Onboarding could not proceed beyond the required credential step; no result was inferred from historical automation.                                                                            |
 | `zh-CN` / `zh-TW` / `en` switching and restart persistence                            | PASS           | All three UI languages were selected in the installed NSIS candidate; English persisted after restart.                                                                                          |
-| True 125/150/200% system scaling and VM resolution/display resize                     | NOT RUN        | Sandbox Settings did not expose a usable display-scale path; browser zoom/emulation was not substituted.                                                                                        |
+| True 125/150/200% system scaling                                                      | NOT RUN        | Sandbox Settings did not expose a supported scale control; no browser zoom, emulation, or registry proxy was substituted.                                                                        |
+| Sandbox display/window resolution change                                             | PASS           | The guest viewport changed from approximately 1353×809 to 1708×1053 and the installed onboarding surface reflowed without a horizontal scrollbar.                                               |
 | Maximized and narrow readability                                                      | PASS           | Installed onboarding surface remained readable maximized and in an approximately 810-pixel snapped width.                                                                                       |
 | Fullscreen/F11                                                                        | NOT RUN        | No fullscreen PASS is claimed.                                                                                                                                                                  |
 | Windows Contrast Theme, transparency off, opaque fallback, reduced motion             | PASS (surface) | Aquatic Contrast Theme, transparency off, and animation effects off remained functional and readable on the installed onboarding surface; settings were restored/disposed.                      |
-| Keyboard-only skip/focus/provider/model/Esc-return path                               | PASS (surface) | Skip link, provider selection, advanced model disclosure, and Esc focus return worked. Complete live-region coverage was not established.                                                       |
-| Built-in Narrator                                                                     | PASS (surface) | Narrator was enabled through Settings and navigated the key and advanced-model controls; it was then disabled.                                                                                  |
-| NVDA                                                                                  | NOT RUN        | NVDA was not already installed and no separate official download/install run was completed.                                                                                                     |
+| Keyboard-only skip/focus/provider/model/Esc-return path                               | PASS (surface) | Skip link, provider/required-Key/model controls, disclosure, disabled-button skip, and Esc focus return worked. Live-region validation remains NOT RUN.                                          |
+| Built-in Narrator                                                                     | PASS (surface) | Enabled through Windows Settings. Visible focus traversed provider, required Key, disclosure, and model; skip Enter focused main and Esc returned to provider. Narrator was then disabled. No speech transcript was retained. |
+| NVDA                                                                                  | PASS (surface) | Official NV Access 2026.1.1 binary (62,914,952 bytes, SHA-256 `6E0289EB5A3AA076EB97EA99C5D5465CB48B5ECC6A3257DC3D811F881A1747C9`) matched the published hash and a valid NV Access Limited signature. A temporary run announced only safe onboarding labels/state and the skip link; no log or provider request was retained. |
 | Backup to external test directory and restore to a second clean profile/session       | NOT RUN        | No backup/restore or no-Key reconnect evidence was produced.                                                                                                                                    |
 | Delete one book, clear all, second-book/original/backup retention, credential cleanup | NOT RUN        | The scoped source-copy deletion is not a product book-delete or clear-all test; no credentials were configured.                                                                                 |
 | Uninstall residual scan                                                               | WARN / PARTIAL | NSIS removal with `Delete the application data` selected removed product files and shortcuts; an empty Local `TextbookLens` directory remained. Full Roaming/credential scan was not completed. |
 
 ### Real-provider manual gates
 
-At `2026-08-08T12:22:31.658Z`, credential availability had not been established in an isolated
-release-candidate UI. The clean Sandbox sessions inherited no host credentials. The daily-host
-candidate was not launched for discovery because process-only `APPDATA`/`LOCALAPPDATA` overrides do
-not isolate its `FOLDERID_RoamingAppData` storage, and Task 8 did not inspect, extract, display, or
-move Credential Manager, disk, or environment secrets. No Key was read or requested in chat, and
-zero external-provider requests were made.
+At `2026-08-08T23:22:01.875Z`, `P15T8-SBX-CRED-03` had installed and launched the authoritative
+candidate, imported the self-made PDF, and stopped on provider onboarding with OpenAI selected and
+its blank Key field focused. Clipboard redirection is enabled solely for direct user entry into the
+product password field. Task 8 did not read clipboard data or inspect, extract, display, or move
+Credential Manager, disk, or environment secrets. No Key was requested in chat and zero
+external-provider requests had been made at this checkpoint.
 
 | Provider  | Embedded exact model | Text    | Vision / structured                                                          | Region-specific coverage                                   | Status                                                                     |
 | --------- | -------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------- |
-| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
-| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
-| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
-| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
-| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | CN and international probe/chat/Files/cleanup both NOT RUN | Neither regional test credential was configured in disposable UI           |
+| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | READY for direct user UI input; no Key entered at checkpoint               |
+| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Awaiting direct user UI input if a test credential is available            |
+| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Awaiting direct user UI input if a test credential is available            |
+| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | Awaiting direct user UI input if a test credential is available            |
+| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | CN and international probe/chat/Files/cleanup both NOT RUN | Awaiting only the region credential(s) the user actually owns              |
 
-Any resumed provider gate requires the user to enter the relevant test Key manually in a
-disposable TextbookLens UI. Keys must not be pasted into chat or copied from host storage.
+`P15T8-SBX-CRED-03` remains running at the blank OpenAI Key field for direct user entry. Keys must
+not be pasted into chat. After the user confirms only which provider names/regions were configured,
+the real-provider and remaining clean-environment gates can resume.
 
 ## CI and publication state
 
@@ -205,7 +211,7 @@ signed or published.
 - Clean Windows 11 x64 package entry points: **NSIS PRIMARY PASS; MSI SMOKE PASS**. Full residual
   scan remains **WARN / PARTIAL**.
 - Three-format full reading, backup/restore, book delete/clear, credential cleanup, true
-  125/150/200% DPI, resolution/fullscreen, live-region completion, and NVDA: **BLOCKED / NOT RUN or
+  125/150/200% DPI, fullscreen, and live-region completion: **BLOCKED / NOT RUN or
   PARTIAL as itemized above**.
 - Five real-provider credential/model checks and supported visual/structured requests:
   **BLOCKED / NOT RUN**.
