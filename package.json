@@ -4,6 +4,10 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "type": "module",
+  "engines": {
+    "node": "=24.18.1",
+    "npm": "=11.16.0"
+  },
   "scripts": {
     "dev": "vite",
     "preview": "vite preview",
@@ -20,6 +24,7 @@
     "check:sensitive": "node scripts/check-sensitive-files.mjs",
     "fixtures:build": "node scripts/build-fixtures.mjs",
     "fixtures:verify": "node scripts/build-fixtures.mjs --verify",
+    "preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1",
     "tauri": "tauri"
   },
   "dependencies": {

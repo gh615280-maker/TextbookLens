@@ -24,7 +24,14 @@
     }
   },
   "bundle": {
-    "active": false,
-    "resources": ["resources/provider-models.json"]
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": ["icons/icon.ico"],
+    "resources": {
+      "resources/provider-models.json": "resources/provider-models.json",
+      "migrations/*.sql": "migrations/",
+      "../LICENSES.md": "licenses/LICENSES.md",
+      "../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md"
+    }
   }
 }
