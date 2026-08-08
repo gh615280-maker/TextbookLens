@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useMessage } from '../../app/LanguageProvider';
+import { useModalFocus } from '../../components/useModalFocus';
 import type {
   ProviderCapabilityRegistryDto,
   ProviderProfileSummary,
@@ -38,6 +39,10 @@ export function ProviderProfileRow(props: Props) {
     setMode('none');
     trigger.current?.focus();
   };
+  const deleteDialogRef = useModalFocus<HTMLDivElement>(
+    mode === 'delete',
+    close,
+  );
   useEffect(() => {
     if (mode === 'delete') confirmation.current?.focus();
     if (mode === 'replace') replacementInput.current?.focus();
@@ -131,6 +136,7 @@ export function ProviderProfileRow(props: Props) {
       ) : null}
       {mode === 'delete' ? (
         <div
+          ref={deleteDialogRef}
           role="alertdialog"
           aria-modal="true"
           aria-label={message('aiServices.deleteDialog', {

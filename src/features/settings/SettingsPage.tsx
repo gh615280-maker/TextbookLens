@@ -89,6 +89,7 @@ const copy = {
     restart: 'Restart now',
     restarting: 'Restarting…',
     busy: 'A maintenance operation cannot start while these local tasks are active: {operations}. Stop or finish them, then try again.',
+    statusLabel: 'Settings operation status',
     status: 'Maintenance status: {status}.',
     aboutText: 'TextbookLens is a local-first AI textbook reader.',
     project: 'Project and licenses are available with this installation.',
@@ -156,6 +157,7 @@ const copy = {
     restart: '立即重启',
     restarting: '正在重启…',
     busy: '以下本地任务正在运行，无法开始维护操作：{operations}。请先停止或完成相关任务后重试。',
+    statusLabel: '设置操作状态',
     status: '维护状态：{status}。',
     aboutText: 'TextbookLens 是本地优先的 AI 教材阅读器。',
     project: '项目和许可证信息随此安装提供。',
@@ -224,6 +226,7 @@ const copy = {
     restart: '立即重新啟動',
     restarting: '正在重新啟動…',
     busy: '下列本機工作正在執行，無法開始維護操作：{operations}。請先停止或完成相關工作後再試。',
+    statusLabel: '設定操作狀態',
     status: '維護狀態：{status}。',
     aboutText: 'TextbookLens 是本機優先的 AI 教材閱讀器。',
     project: '專案與授權資訊隨此安裝提供。',
@@ -497,7 +500,7 @@ export function SettingsPage({
         <div
           className="settings-notice"
           role="status"
-          aria-label="Settings operation status"
+          aria-label={text.statusLabel}
           aria-live="polite"
         >
           <p>{notice}</p>

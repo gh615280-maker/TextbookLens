@@ -2,6 +2,8 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { LanguageContext } from '../../app/LanguageProvider';
+import { formatMessage } from '../../lib/i18n';
 import type { OnboardingStateDto } from '../../lib/generated/onboarding';
 import { OnboardingRouteGate } from './OnboardingRouteGate';
 import type { OnboardingApi } from './onboarding-api';
@@ -28,20 +30,30 @@ function Location() {
 function renderRoutes(state: OnboardingStateDto, initial = '/library') {
   const api: OnboardingApi = { getState: async () => state };
   return render(
-    <MemoryRouter initialEntries={[initial]}>
-      <Routes>
-        <Route path="/onboarding" element={<h1>Onboarding content</h1>} />
-        <Route
-          path="/library"
-          element={
-            <OnboardingRouteGate api={api}>
-              <h1>Library content</h1>
-            </OnboardingRouteGate>
-          }
-        />
-      </Routes>
-      <Location />
-    </MemoryRouter>,
+    <LanguageContext.Provider
+      value={{
+        uiLanguage: 'en',
+        isLoading: false,
+        statusMessage: null,
+        switchLanguage: async () => {},
+        message: (key, values) => formatMessage('en', key, values),
+      }}
+    >
+      <MemoryRouter initialEntries={[initial]}>
+        <Routes>
+          <Route path="/onboarding" element={<h1>Onboarding content</h1>} />
+          <Route
+            path="/library"
+            element={
+              <OnboardingRouteGate api={api}>
+                <h1>Library content</h1>
+              </OnboardingRouteGate>
+            }
+          />
+        </Routes>
+        <Location />
+      </MemoryRouter>
+    </LanguageContext.Provider>,
   );
 }
 afterEach(cleanup);

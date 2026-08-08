@@ -1,7 +1,10 @@
 import { render, screen } from '@testing-library/react';
+import type { PropsWithChildren, ReactElement } from 'react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { LanguageContext } from '../../../app/LanguageProvider';
+import { formatMessage } from '../../../lib/i18n';
 import type { AnnotationMarker } from '../contracts';
 import { OverlappingMarkerMenu } from './OverlappingMarkerMenu';
 
@@ -30,7 +33,7 @@ describe('OverlappingMarkerMenu', () => {
     returnFocus.focus();
     const activate = vi.fn();
     const close = vi.fn();
-    const view = render(
+    const view = renderEnglish(
       <OverlappingMarkerMenu
         markers={markers}
         returnFocus={returnFocus}
@@ -70,3 +73,23 @@ describe('OverlappingMarkerMenu', () => {
     returnFocus.remove();
   });
 });
+
+function renderEnglish(ui: ReactElement) {
+  return render(ui, { wrapper: EnglishLanguage });
+}
+
+function EnglishLanguage({ children }: PropsWithChildren) {
+  return (
+    <LanguageContext.Provider
+      value={{
+        uiLanguage: 'en',
+        isLoading: false,
+        statusMessage: null,
+        switchLanguage: async () => {},
+        message: (key, values) => formatMessage('en', key, values),
+      }}
+    >
+      {children}
+    </LanguageContext.Provider>
+  );
+}

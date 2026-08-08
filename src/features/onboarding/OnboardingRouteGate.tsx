@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 
+import { useMessage } from '../../app/LanguageProvider';
 import { toUserError, type UserFacingError } from '../../lib/errors';
 import { TauriOnboardingApi, type OnboardingApi } from './onboarding-api';
 
@@ -11,6 +12,7 @@ interface Props {
 
 /** Resolves every library entry from durable backend facts before rendering content. */
 export function OnboardingRouteGate({ children, api: suppliedApi }: Props) {
+  const message = useMessage();
   const [api] = useState<OnboardingApi>(
     () => suppliedApi ?? new TauriOnboardingApi(),
   );
@@ -43,7 +45,7 @@ export function OnboardingRouteGate({ children, api: suppliedApi }: Props) {
         <div role="alert">
           <p>{error.message}</p>
           <button type="button" onClick={retry}>
-            Retry
+            {message('onboarding.retry')}
           </button>
         </div>
       </section>
@@ -52,7 +54,7 @@ export function OnboardingRouteGate({ children, api: suppliedApi }: Props) {
   if (eligible === null) {
     return (
       <section className="phase-page">
-        <p aria-live="polite">Loading your library…</p>
+        <p aria-live="polite">{message('onboarding.libraryLoading')}</p>
       </section>
     );
   }

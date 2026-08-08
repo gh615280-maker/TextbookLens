@@ -73,7 +73,7 @@ export function OnboardingPage({
     return (
       <section aria-labelledby="onboarding-title" className="phase-page">
         <h1 id="onboarding-title">{message('page.onboarding.title')}</h1>
-        <p aria-live="polite">Loading setup…</p>
+        <p aria-live="polite">{message('onboarding.loading')}</p>
       </section>
     );
   if (state.error)
@@ -83,7 +83,7 @@ export function OnboardingPage({
         <div role="alert">
           <p>{state.error.message}</p>
           <button type="button" onClick={() => void bootstrap()}>
-            Retry
+            {message('onboarding.retry')}
           </button>
         </div>
       </section>

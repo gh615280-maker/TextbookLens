@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useMessage } from '../../app/LanguageProvider';
+import { useModalFocus } from '../../components/useModalFocus';
 import type { ConfirmIndexOperationRequest, IndexingApi } from './api';
 
 export interface IndexStartConfirmationProps {
@@ -29,6 +30,9 @@ export function IndexStartConfirmation({
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
+  const dialogRef = useModalFocus<HTMLDivElement>(true, () => {
+    if (!inFlightRef.current) onReject();
+  });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -67,6 +71,7 @@ export function IndexStartConfirmation({
 
   return (
     <div
+      ref={dialogRef}
       aria-describedby="index-start-description"
       aria-labelledby="index-start-confirm-title"
       aria-modal="true"

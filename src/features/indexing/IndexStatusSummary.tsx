@@ -1,3 +1,4 @@
+import { useMessage } from '../../app/LanguageProvider';
 import type { IndexRunAggregateDto } from '../../lib/generated/indexing';
 
 export function IndexStatusSummary({
@@ -5,25 +6,32 @@ export function IndexStatusSummary({
 }: {
   aggregate: IndexRunAggregateDto;
 }) {
+  const message = useMessage();
   const { pages } = aggregate;
   return (
     <section aria-labelledby="index-status-summary-title">
-      <h2 id="index-status-summary-title">Index status</h2>
+      <h2 id="index-status-summary-title">
+        {message('indexQuality.summary.title')}
+      </h2>
       <p role="status" aria-live="polite">
-        Overall: {aggregate.aggregateStatus.replaceAll('_', ' ')}. Control:{' '}
-        {aggregate.controlStatus}.
+        {message('indexQuality.summary.overall', {
+          aggregate: message(
+            `indexQuality.status.${aggregate.aggregateStatus}`,
+          ),
+          control: message(`indexQuality.status.${aggregate.controlStatus}`),
+        })}
       </p>
       <dl>
         <div>
-          <dt>Completed</dt>
+          <dt>{message('indexQuality.summary.completed')}</dt>
           <dd>{pages.indexed + pages.notRequired}</dd>
         </div>
         <div>
-          <dt>Needs review</dt>
+          <dt>{message('indexQuality.summary.needsReview')}</dt>
           <dd>{pages.needsReview}</dd>
         </div>
         <div>
-          <dt>Failed</dt>
+          <dt>{message('indexQuality.summary.failed')}</dt>
           <dd>{pages.failed}</dd>
         </div>
       </dl>

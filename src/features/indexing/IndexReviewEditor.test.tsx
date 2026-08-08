@@ -1,7 +1,10 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import type { PropsWithChildren, ReactElement } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { LanguageContext } from '../../app/LanguageProvider';
+import { formatMessage } from '../../lib/i18n';
 import { IndexReviewEditor } from './IndexReviewEditor';
 
 const page = {
@@ -57,7 +60,7 @@ describe('IndexReviewEditor', () => {
     const saveCorrection = vi.fn().mockResolvedValue({});
     const changed = vi.fn();
     let renderedSource: ArrayBuffer | undefined;
-    const view = render(
+    const view = renderEnglish(
       <IndexReviewEditor
         page={page}
         api={{
@@ -136,7 +139,7 @@ describe('IndexReviewEditor', () => {
         resolveRender = resolve;
       });
     });
-    const view = render(
+    const view = renderEnglish(
       <IndexReviewEditor
         page={page}
         api={{
@@ -182,7 +185,7 @@ describe('IndexReviewEditor', () => {
     const changed = vi.fn();
     const createObjectURL = vi.fn(() => 'blob:synthetic-retry');
     vi.stubGlobal('URL', { createObjectURL, revokeObjectURL: vi.fn() });
-    render(
+    renderEnglish(
       <IndexReviewEditor
         page={page}
         api={{
@@ -227,7 +230,7 @@ describe('IndexReviewEditor', () => {
       createObjectURL: vi.fn(() => 'blob:synthetic-conflict'),
       revokeObjectURL: vi.fn(),
     });
-    render(
+    renderEnglish(
       <IndexReviewEditor
         page={page}
         api={{
@@ -266,3 +269,23 @@ describe('IndexReviewEditor', () => {
     expect(changed).not.toHaveBeenCalled();
   });
 });
+
+function renderEnglish(ui: ReactElement) {
+  return render(ui, { wrapper: EnglishLanguage });
+}
+
+function EnglishLanguage({ children }: PropsWithChildren) {
+  return (
+    <LanguageContext.Provider
+      value={{
+        uiLanguage: 'en',
+        isLoading: false,
+        statusMessage: null,
+        switchLanguage: async () => {},
+        message: (key, values) => formatMessage('en', key, values),
+      }}
+    >
+      {children}
+    </LanguageContext.Provider>
+  );
+}

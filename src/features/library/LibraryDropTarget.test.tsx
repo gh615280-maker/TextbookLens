@@ -1,6 +1,9 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import type { PropsWithChildren, ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { LanguageContext } from '../../app/LanguageProvider';
+import { formatMessage } from '../../lib/i18n';
 import { LibraryDropTarget } from './LibraryDropTarget';
 import { isSupportedSourcePath } from './library-drop-path';
 
@@ -44,7 +47,7 @@ afterEach(() => {
 describe('LibraryDropTarget', () => {
   it('queues only supported native paths in received order and never accepts URL or text payloads', async () => {
     const onDrop = vi.fn();
-    render(
+    renderEnglish(
       <LibraryDropTarget onDrop={onDrop}>
         <p>Library</p>
       </LibraryDropTarget>,
@@ -78,7 +81,7 @@ describe('LibraryDropTarget', () => {
   });
 
   it('clears nested drag state on leave and unmount', async () => {
-    const { unmount } = render(
+    const { unmount } = renderEnglish(
       <LibraryDropTarget onDrop={vi.fn()}>
         <p>Library</p>
       </LibraryDropTarget>,
@@ -100,7 +103,7 @@ describe('LibraryDropTarget', () => {
   it('uses the newest callback after a rerender without duplicate listeners', async () => {
     const initial = vi.fn();
     const latest = vi.fn();
-    const { rerender, unmount } = render(
+    const { rerender, unmount } = renderEnglish(
       <LibraryDropTarget onDrop={initial}>
         <p>Library</p>
       </LibraryDropTarget>,
@@ -125,6 +128,26 @@ describe('LibraryDropTarget', () => {
     expect(dragDropMock.unlisten).toHaveBeenCalledOnce();
   });
 });
+
+function renderEnglish(ui: ReactElement) {
+  return render(ui, { wrapper: EnglishLanguage });
+}
+
+function EnglishLanguage({ children }: PropsWithChildren) {
+  return (
+    <LanguageContext.Provider
+      value={{
+        uiLanguage: 'en',
+        isLoading: false,
+        statusMessage: null,
+        switchLanguage: async () => {},
+        message: (key, values) => formatMessage('en', key, values),
+      }}
+    >
+      {children}
+    </LanguageContext.Provider>
+  );
+}
 
 describe('isSupportedSourcePath', () => {
   it.each([

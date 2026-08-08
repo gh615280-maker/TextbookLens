@@ -1,3 +1,4 @@
+import { useMessage } from '../../app/LanguageProvider';
 import type { ImportEvent, ImportStage } from './parser-contract';
 
 interface ImportProgressProps {
@@ -5,13 +6,10 @@ interface ImportProgressProps {
   onCancel(): void;
 }
 
-const stages: Array<{ id: ImportStage; label: string }> = [
-  { id: 'copying', label: '复制文件' },
-  { id: 'parsing', label: '解析内容' },
-  { id: 'indexing', label: '建立索引' },
-];
+const stages: readonly ImportStage[] = ['copying', 'parsing', 'indexing'];
 
 export function ImportProgress({ event, onCancel }: ImportProgressProps) {
+  const message = useMessage();
   const maximum = event.total > 0 ? event.total : 1;
   return (
     <section
@@ -21,29 +19,29 @@ export function ImportProgress({ event, onCancel }: ImportProgressProps) {
       className="import-progress"
       role="status"
     >
-      <h2 id="import-progress-title">正在导入教材</h2>
+      <h2 id="import-progress-title">{message('import.title')}</h2>
       <ol className="import-stages">
         {stages.map((stage) => (
           <li
-            key={stage.id}
-            aria-current={stage.id === event.stage ? 'step' : undefined}
+            key={stage}
+            aria-current={stage === event.stage ? 'step' : undefined}
           >
-            {stage.label}
+            {message(`import.stage.${stage}`)}
           </li>
         ))}
       </ol>
       <progress
-        aria-label="导入进度"
+        aria-label={message('import.progress')}
         max={maximum}
         value={Math.min(event.completed, maximum)}
       />
       <p>
         {event.total > 0
           ? `${Math.min(event.completed, event.total)} / ${event.total}`
-          : '正在准备'}
+          : message('import.preparing')}
       </p>
       <button type="button" onClick={onCancel}>
-        取消导入
+        {message('import.cancel')}
       </button>
     </section>
   );

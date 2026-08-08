@@ -1,10 +1,15 @@
-import type { PointerEvent } from 'react';
+import type { KeyboardEvent, PointerEvent } from 'react';
 
 interface PanelTitleBarProps {
   readonly title: string;
   readonly status: string;
   readonly collapsed: boolean;
+  readonly moveLabel: string;
+  readonly collapseLabel: string;
+  readonly expandLabel: string;
+  readonly hideLabel: string;
   onDragStart(event: PointerEvent<HTMLDivElement>): void;
+  onMoveKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
   onHide(): void;
   onCollapse(): void;
 }
@@ -14,25 +19,32 @@ export function PanelTitleBar({
   title,
   status,
   collapsed,
+  moveLabel,
+  collapseLabel,
+  expandLabel,
+  hideLabel,
   onDragStart,
+  onMoveKeyDown,
   onHide,
   onCollapse,
 }: PanelTitleBarProps) {
   return (
     <header className="floating-panel-titlebar">
       <div
-        aria-label="Move learning panel"
+        aria-label={moveLabel}
         onPointerDown={onDragStart}
-        role="presentation"
+        onKeyDown={onMoveKeyDown}
+        role="button"
+        tabIndex={0}
       >
         <strong>{title}</strong>
         <span>{status}</span>
       </div>
       <button aria-expanded={!collapsed} onClick={onCollapse} type="button">
-        {collapsed ? 'Expand' : 'Collapse'}
+        {collapsed ? expandLabel : collapseLabel}
       </button>
       <button onClick={onHide} type="button">
-        Hide
+        {hideLabel}
       </button>
     </header>
   );

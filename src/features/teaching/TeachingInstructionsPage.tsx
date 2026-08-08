@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useState } from 'react';
 import { useBlocker } from 'react-router-dom';
 
 import { useMessage } from '../../app/LanguageProvider';
+import { useModalFocus } from '../../components/useModalFocus';
 import { toUserError } from '../../lib/errors';
 import { TeachingInstructionEditor } from './TeachingInstructionEditor';
 import { TeachingPresetMenu } from './TeachingPresetMenu';
@@ -21,6 +22,14 @@ export function TeachingInstructionsPage({
   const [state, dispatch] = useReducer(teachingReducer, initialTeachingState);
   const [presetConfirm, setPresetConfirm] = useState<string | null>(null);
   const blocker = useBlocker(state.dirty);
+  const presetDialogRef = useModalFocus<HTMLDivElement>(
+    presetConfirm !== null,
+    () => setPresetConfirm(null),
+  );
+  const leaveDialogRef = useModalFocus<HTMLDivElement>(
+    blocker.state === 'blocked',
+    () => blocker.reset?.(),
+  );
 
   const load = useCallback(async () => {
     dispatch({ type: 'loading' });
@@ -141,6 +150,8 @@ export function TeachingInstructionsPage({
       )}
       {presetConfirm ? (
         <div
+          ref={presetDialogRef}
+          aria-label={message('teaching.replaceDialog')}
           aria-describedby="replace-draft-description"
           aria-modal="true"
           role="dialog"
@@ -164,6 +175,8 @@ export function TeachingInstructionsPage({
       ) : null}
       {blocker.state === 'blocked' ? (
         <div
+          ref={leaveDialogRef}
+          aria-label={message('teaching.leaveDialog')}
           aria-describedby="leave-draft-description"
           aria-modal="true"
           role="dialog"

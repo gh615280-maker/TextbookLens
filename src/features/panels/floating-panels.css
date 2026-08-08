@@ -92,13 +92,19 @@
   align-items: center;
   border-bottom: 1px solid currentColor;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.4rem;
 }
 .floating-panel-titlebar > div {
   cursor: move;
-  flex: 1;
+  flex: 1 1 10rem;
   min-width: 0;
+  touch-action: none;
+}
+.floating-panel-titlebar > button {
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
 }
 .floating-panel-titlebar strong,
 .floating-panel-titlebar span {

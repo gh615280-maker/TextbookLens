@@ -8,21 +8,20 @@ export function OnboardingVisualTextStep({
   hasCompatibleVisionProfile,
   onContinue,
 }: Props) {
+  const message = useMessage();
   return (
     <section aria-labelledby="onboarding-visual-title">
-      <h2 id="onboarding-visual-title">Local text is unavailable</h2>
-      <p>
-        This PDF has no extractable local text. Per-page text quality and visual
-        processing are not started during setup.
-      </p>
+      <h2 id="onboarding-visual-title">{message('onboarding.visual.title')}</h2>
+      <p>{message('onboarding.visual.description')}</p>
       {hasCompatibleVisionProfile ? (
-        <p>A compatible visual profile is connected and can be used later.</p>
+        <p>{message('onboarding.visual.connected')}</p>
       ) : (
-        <p>You can set up a compatible visual profile later.</p>
+        <p>{message('onboarding.visual.later')}</p>
       )}
       <button type="button" onClick={onContinue}>
-        Continue without visual setup
+        {message('onboarding.visual.continue')}
       </button>
     </section>
   );
 }
+import { useMessage } from '../../app/LanguageProvider';

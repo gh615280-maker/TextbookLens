@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMessage } from '../../app/LanguageProvider';
 import type { BookSummary } from '../../lib/generated/book';
 import type { UserFacingError } from '../../lib/errors';
 import { ImportButton } from '../import/ImportButton';
@@ -9,6 +10,7 @@ interface Props {
   onBookIdentified(book: BookSummary): void;
 }
 export function OnboardingBookStep({ coordinator, onBookIdentified }: Props) {
+  const message = useMessage();
   const [error, setError] = useState<UserFacingError | null>(null);
   async function select(sourcePath: string) {
     setError(null);
@@ -25,11 +27,8 @@ export function OnboardingBookStep({ coordinator, onBookIdentified }: Props) {
   }
   return (
     <section aria-labelledby="onboarding-book-title">
-      <h2 id="onboarding-book-title">Choose a book</h2>
-      <p>
-        Your book is imported locally. You can connect an AI provider while it
-        finishes.
-      </p>
+      <h2 id="onboarding-book-title">{message('onboarding.book')}</h2>
+      <p>{message('onboarding.book.description')}</p>
       <ImportButton onSelect={select} />
       {error ? (
         <div role="alert">

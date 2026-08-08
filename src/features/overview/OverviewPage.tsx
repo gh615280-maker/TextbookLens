@@ -416,6 +416,7 @@ function OverviewContent({
           aria-describedby="book-confirm-details"
           aria-modal="true"
           onKeyDown={(event) => {
+            if (trapDialogTab(event)) return;
             if (event.key === 'Escape') {
               event.preventDefault();
               closeConfirmation();
@@ -447,6 +448,7 @@ function OverviewContent({
           aria-labelledby="book-delete-title"
           aria-modal="true"
           onKeyDown={(event) => {
+            if (trapDialogTab(event)) return;
             if (event.key === 'Escape') {
               event.preventDefault();
               closeDeleteDialog();
@@ -480,6 +482,29 @@ function OverviewContent({
       ) : null}
     </section>
   );
+}
+
+function trapDialogTab(event: React.KeyboardEvent<HTMLDialogElement>) {
+  if (event.key !== 'Tab') return false;
+  const focusable = [
+    ...event.currentTarget.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ];
+  const first = focusable.at(0);
+  const last = focusable.at(-1);
+  if (!first || !last) return false;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+    return true;
+  }
+  if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+    return true;
+  }
+  return false;
 }
 
 function OverviewDetails({

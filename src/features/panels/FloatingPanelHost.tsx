@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import { useMessage } from '../../app/LanguageProvider';
 import {
   useLearningRequestActions,
   useLearningRequestSnapshot,
@@ -43,6 +44,7 @@ export function FloatingPanelHost({
   store: suppliedStore,
   historyStore: suppliedHistoryStore,
 }: FloatingPanelHostProps) {
+  const message = useMessage();
   const requestSnapshot = useLearningRequestSnapshot();
   const requestActions = useLearningRequestActions();
   const [store] = useState(() => suppliedStore ?? new PanelStore());
@@ -55,6 +57,10 @@ export function FloatingPanelHost({
     () => historyStore.snapshot(),
   );
   const [panels, setPanels] = useState(() => store.snapshot());
+  const [viewport, setViewport] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
   const [deleteFailures, setDeleteFailures] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -71,6 +77,16 @@ export function FloatingPanelHost({
   );
 
   useEffect(() => store.subscribe(() => setPanels(store.snapshot())), [store]);
+  useEffect(() => {
+    const updateViewport = () =>
+      setViewport({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', updateViewport);
+    window.visualViewport?.addEventListener('resize', updateViewport);
+    return () => {
+      window.removeEventListener('resize', updateViewport);
+      window.visualViewport?.removeEventListener('resize', updateViewport);
+    };
+  }, []);
   useEffect(() => () => preferenceWriter.dispose(), [preferenceWriter]);
   useEffect(() => {
     const top = panels.panels.at(-1);
@@ -165,6 +181,7 @@ export function FloatingPanelHost({
           <Panel
             key={panel.id}
             panel={panel}
+            viewport={viewport}
             store={store}
             request={requestSnapshot.requests.find(
               (request) => request.requestId === panel.requestId,
@@ -207,15 +224,15 @@ export function FloatingPanelHost({
                   selectionLabel:
                     request?.presentation?.selectionLabel ??
                     history?.selectedText ??
-                    'Visual region',
+                    message('panel.visualRegion'),
                   provider:
                     request?.presentation?.provider ??
                     historicalAssistant?.providerId ??
-                    'Historical provider',
+                    message('panel.historicalProvider'),
                   model:
                     request?.presentation?.model ??
                     historicalAssistant?.modelId ??
-                    'Historical model',
+                    message('panel.historicalModel'),
                 }),
               );
             }}
@@ -231,8 +248,7 @@ export function FloatingPanelHost({
               }
             }}
             onDelete={(history) => {
-              if (!window.confirm('Delete this conversation and its marker?'))
-                return;
+              if (!window.confirm(message('panel.deleteConfirm'))) return;
               setDeleteFailures((current) => {
                 const next = new Set(current);
                 next.delete(history.id);
@@ -262,6 +278,7 @@ export function FloatingPanelHost({
 
 function Panel({
   panel,
+  viewport,
   store,
   request,
   history,
@@ -273,6 +290,7 @@ function Panel({
   onPointerStart,
 }: {
   panel: FloatingPanel;
+  viewport: { width: number; height: number };
   store: PanelStore;
   request:
     | ReturnType<typeof useLearningRequestSnapshot>['requests'][number]
@@ -288,15 +306,21 @@ function Panel({
     event: React.PointerEvent,
   ): void;
 }) {
-  const rect = panelRect(panel.geometry, {
-    width: window.innerWidth,
-    height: window.innerHeight,
-  });
-  const visibleRequest = request ?? (history ? historyRequest(history) : null);
+  const message = useMessage();
+  const rect = panelRect(panel.geometry, viewport);
+  const visibleRequest =
+    request ??
+    (history
+      ? historyRequest(history, {
+          visualRegion: message('panel.visualRegion'),
+          provider: message('panel.historicalProvider'),
+          model: message('panel.historicalModel'),
+        })
+      : null);
   if (!visibleRequest) return null;
   return (
     <section
-      aria-label="Learning request"
+      aria-label={message('panel.title')}
       className="floating-panel-shell"
       data-panel-id={panel.id}
       style={{
@@ -316,6 +340,22 @@ function Panel({
         deleteError={deleteFailed}
         onCollapse={() => store.setCollapsed(panel.id, !panel.collapsed)}
         onDragStart={(event) => onPointerStart('move', event)}
+        onMoveKeyDown={(event) => {
+          const step = event.shiftKey ? 32 : 16;
+          const keys = {
+            ArrowUp: { x: 0, y: -step },
+            ArrowDown: { x: 0, y: step },
+            ArrowLeft: { x: -step, y: 0 },
+            ArrowRight: { x: step, y: 0 },
+          } as const;
+          const delta = keys[event.key as keyof typeof keys];
+          if (!delta) return;
+          event.preventDefault();
+          store.setGeometry(
+            panel.id,
+            movePanel(panel.geometry, delta, viewport),
+          );
+        }}
         onFollowup={onFollowup}
         onHide={() => store.hide(panel.id)}
         onStop={onStop}
@@ -324,7 +364,9 @@ function Panel({
       {HANDLES.map((handle) => (
         <button
           key={handle}
-          aria-label={`Resize ${handle}`}
+          aria-label={message('panel.resize', {
+            direction: message(`panel.direction.${handle}`),
+          })}
           data-resize-handle={handle}
           type="button"
           onKeyDown={(event) => {
@@ -338,10 +380,6 @@ function Panel({
             const delta = keys[event.key as keyof typeof keys];
             if (!delta) return;
             event.preventDefault();
-            const viewport = {
-              width: window.innerWidth,
-              height: window.innerHeight,
-            };
             store.setGeometry(
               panel.id,
               resizePanel(panel.geometry, handle, delta, viewport),
@@ -354,7 +392,10 @@ function Panel({
   );
 }
 
-function historyRequest(history: ConversationHistory): LearningRequestView {
+function historyRequest(
+  history: ConversationHistory,
+  labels: { visualRegion: string; provider: string; model: string },
+): LearningRequestView {
   const assistant = [...history.messages]
     .reverse()
     .find((message) => message.role === 'assistant');
@@ -369,9 +410,9 @@ function historyRequest(history: ConversationHistory): LearningRequestView {
     targetConversationId: null,
     presentation: Object.freeze({
       action: assistant?.action ?? 'learning',
-      selectionLabel: history.selectedText ?? 'Visual region',
-      provider: assistant?.providerId ?? 'Historical provider',
-      model: assistant?.modelId ?? 'Historical model',
+      selectionLabel: history.selectedText ?? labels.visualRegion,
+      provider: assistant?.providerId ?? labels.provider,
+      model: assistant?.modelId ?? labels.model,
     }),
   });
 }

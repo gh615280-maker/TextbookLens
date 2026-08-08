@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-import { LanguageProvider } from '../../app/LanguageProvider';
+import { LanguageContext } from '../../app/LanguageProvider';
+import { formatMessage } from '../../lib/i18n';
 import { IndexingCoordinator } from './IndexingCoordinator';
 import { IndexingProvider } from './IndexingProvider';
 import { IndexQualityPage } from './IndexQualityPage';
@@ -75,7 +76,15 @@ describe('IndexQualityPage', () => {
     const coordinator = new IndexingCoordinator(indexingApi, vi.fn());
     const user = userEvent.setup();
     render(
-      <LanguageProvider>
+      <LanguageContext.Provider
+        value={{
+          uiLanguage: 'en',
+          isLoading: false,
+          statusMessage: null,
+          switchLanguage: async () => {},
+          message: (key, values) => formatMessage('en', key, values),
+        }}
+      >
         <IndexingProvider coordinator={coordinator}>
           <MemoryRouter
             initialEntries={[`/books/${BOOK_ID}/index-quality/${RUN_ID}`]}
@@ -88,7 +97,7 @@ describe('IndexQualityPage', () => {
             </Routes>
           </MemoryRouter>
         </IndexingProvider>
-      </LanguageProvider>,
+      </LanguageContext.Provider>,
     );
     expect(await screen.findByText('Index quality')).toBeVisible();
     const controls = screen.getByRole('group', {

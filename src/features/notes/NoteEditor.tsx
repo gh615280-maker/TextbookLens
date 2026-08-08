@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { useModalFocus } from '../../components/useModalFocus';
 import type { ContentAnchor } from '../../lib/generated/document';
 import {
   MAX_NOTE_CODE_POINTS,
@@ -57,6 +58,11 @@ export function NoteEditor({
   const inFlight = useRef(false);
   const live = useRef(true);
   const draftRef = useRef(draft);
+  const deleteTrigger = useRef<HTMLButtonElement>(null);
+  const deleteDialogRef = useModalFocus<HTMLDivElement>(
+    Boolean(note && confirmingDelete),
+    () => setConfirmingDelete(false),
+  );
 
   useEffect(() => {
     live.current = true;
@@ -186,13 +192,22 @@ export function NoteEditor({
       <button type="button" onClick={cancel}>
         {labels.cancel}
       </button>
-      {note && !confirmingDelete ? (
-        <button type="button" onClick={() => setConfirmingDelete(true)}>
+      {note ? (
+        <button
+          ref={deleteTrigger}
+          type="button"
+          onClick={() => setConfirmingDelete(true)}
+        >
           {labels.delete}
         </button>
       ) : null}
       {note && confirmingDelete ? (
-        <div role="alertdialog" aria-label={labels.deleteConfirm}>
+        <div
+          ref={deleteDialogRef}
+          role="alertdialog"
+          aria-modal="true"
+          aria-label={labels.deleteConfirm}
+        >
           <p>{labels.deleteConfirm}</p>
           <button type="button" onClick={() => void remove()}>
             {labels.confirmDelete}

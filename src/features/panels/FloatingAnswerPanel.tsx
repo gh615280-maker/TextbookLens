@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import { useMessage } from '../../app/LanguageProvider';
 import type { LearningRequestView } from '../learning/learning-request-store';
 import type { Citation } from '../../lib/generated/conversation';
 import type { ConversationHistory } from '../history/conversation-api';
@@ -14,6 +15,7 @@ interface FloatingAnswerPanelProps {
   readonly citations?: readonly Pick<Citation, 'id' | 'label' | 'quoteable'>[];
   readonly history?: ConversationHistory;
   onDragStart(event: React.PointerEvent<HTMLDivElement>): void;
+  onMoveKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void;
   onHide(): void;
   onCollapse(): void;
   onStop(): void;
@@ -33,6 +35,7 @@ export function FloatingAnswerPanel({
   citations = [],
   history,
   onDragStart,
+  onMoveKeyDown,
   onHide,
   onCollapse,
   onStop,
@@ -42,12 +45,14 @@ export function FloatingAnswerPanel({
   deleteDisabled = false,
   deleteError = false,
 }: FloatingAnswerPanelProps) {
+  const message = useMessage();
   const [announcement, setAnnouncement] = useState('');
   const announcedTerminal = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const active = !terminalStatuses.has(request.status);
-  const title = request.presentation?.selectionLabel ?? 'Learning request';
+  const title = request.presentation?.selectionLabel ?? message('panel.title');
   const status = request.status;
+  const statusLabel = message(`panel.status.${status}`);
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
@@ -58,25 +63,37 @@ export function FloatingAnswerPanel({
     if (terminalStatuses.has(request.status)) {
       if (announcedTerminal.current === request.status) return;
       announcedTerminal.current = request.status;
-      setAnnouncement(`Learning request ${request.status}`);
+      setAnnouncement(
+        message('panel.announcement.status', {
+          status: message(`panel.status.${request.status}`),
+        }),
+      );
       return;
     }
     if (request.status === 'streaming' && !timer.current) {
       timer.current = setTimeout(() => {
         timer.current = null;
-        setAnnouncement('Learning answer is updating');
+        setAnnouncement(message('panel.announcement.updating'));
       }, 700);
     }
-  }, [request.status, request.text]);
+  }, [message, request.status, request.text]);
   return (
     <>
-      <section aria-label="Learning answer" className="floating-answer-panel">
+      <section
+        aria-label={message('panel.answer')}
+        className="floating-answer-panel"
+      >
         <PanelTitleBar
           collapsed={collapsed}
-          status={status}
+          status={statusLabel}
           title={title}
+          moveLabel={message('panel.move')}
+          collapseLabel={message('panel.collapse')}
+          expandLabel={message('panel.expand')}
+          hideLabel={message('panel.hide')}
           onCollapse={onCollapse}
           onDragStart={onDragStart}
+          onMoveKeyDown={onMoveKeyDown}
           onHide={onHide}
         />
         {!collapsed ? (
@@ -85,40 +102,42 @@ export function FloatingAnswerPanel({
             {!history || request.status !== 'completed' ? (
               <>
                 <p>
-                  <strong>Action:</strong>{' '}
+                  <strong>{message('panel.action')}:</strong>{' '}
                   {request.presentation?.action ?? 'learning'}
                 </p>
                 <AnswerRenderer answer={request.text} />
-                <h3>Citations</h3>
+                <h3>{message('panel.citations')}</h3>
                 <CitationList
                   citations={citations}
-                  emptyLabel="No verified citations available."
+                  emptyLabel={message('panel.noCitations')}
                 />
               </>
             ) : null}
             {request.safeError ? (
-              <p role="alert">Request failed: {request.safeError.code}</p>
+              <p role="alert">
+                {message('panel.requestFailed', {
+                  code: request.safeError.code,
+                })}
+              </p>
             ) : null}
             {deleteError ? (
-              <p role="alert">
-                The conversation could not be deleted. Nothing was removed.
-              </p>
+              <p role="alert">{message('panel.deleteFailed')}</p>
             ) : null}
             <div className="floating-panel-actions">
               {active ? (
                 <button onClick={onStop} type="button">
-                  Stop
+                  {message('panel.stop')}
                 </button>
               ) : null}
               <button disabled={!onRetry} onClick={onRetry} type="button">
-                Retry
+                {message('panel.retry')}
               </button>
               <button
                 disabled={!onDelete || deleteDisabled || active}
                 onClick={onDelete}
                 type="button"
               >
-                Delete
+                {message('panel.delete')}
               </button>
             </div>
             <FollowupComposer
@@ -137,26 +156,32 @@ export function FloatingAnswerPanel({
 }
 
 function HistoryMessages({ history }: { history: ConversationHistory }) {
+  const message = useMessage();
   return (
     <>
       <p className="floating-history-selection">
-        <strong>Original selection:</strong>{' '}
-        {history.selectedText ?? 'Visual region'}
+        <strong>{message('panel.originalSelection')}:</strong>{' '}
+        {history.selectedText ?? message('panel.visualRegion')}
       </p>
       <ol className="floating-history-messages">
-        {history.messages.map((message) => (
-          <li key={message.id} data-message-role={message.role}>
-            {message.role === 'user' ? (
-              <p className="floating-history-question">{message.content}</p>
+        {history.messages.map((historyMessage) => (
+          <li key={historyMessage.id} data-message-role={historyMessage.role}>
+            {historyMessage.role === 'user' ? (
+              <p className="floating-history-question">
+                {historyMessage.content}
+              </p>
             ) : (
               <>
                 <p className="floating-history-provider">
-                  Provider {message.providerId} · Model {message.modelId}
+                  {message('panel.providerModel', {
+                    provider: historyMessage.providerId ?? '',
+                    model: historyMessage.modelId ?? '',
+                  })}
                 </p>
-                <AnswerRenderer answer={message.content} />
+                <AnswerRenderer answer={historyMessage.content} />
                 <CitationList
-                  citations={message.citations}
-                  emptyLabel="No verified citations available."
+                  citations={historyMessage.citations}
+                  emptyLabel={message('panel.noCitations')}
                 />
               </>
             )}

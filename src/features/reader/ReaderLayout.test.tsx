@@ -69,7 +69,20 @@ describe('ReaderLayout', () => {
 
     const searchButton = screen.getByRole('button', { name: '搜索' });
     await user.click(searchButton);
-    expect(screen.getByRole('dialog', { name: '书内搜索' })).toBeVisible();
+    const dialog = screen.getByRole('dialog', { name: '书内搜索' });
+    expect(dialog).toBeVisible();
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    const focusable = dialog.querySelectorAll<HTMLElement>(
+      'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusable.item(0);
+    const last = focusable.item(focusable.length - 1);
+    last.focus();
+    await user.tab();
+    expect(first).toHaveFocus();
+    first.focus();
+    await user.tab({ shift: true });
+    expect(last).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(
       screen.queryByRole('dialog', { name: '书内搜索' }),

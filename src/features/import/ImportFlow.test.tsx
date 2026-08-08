@@ -162,7 +162,7 @@ describe('library import flow', () => {
     const stages = screen
       .getAllByRole('listitem')
       .map((item) => item.textContent);
-    expect(stages).toEqual(['复制文件', '解析内容', '建立索引']);
+    expect(stages).toEqual(['复制文件', '解析内容', '建立本地索引']);
     expect(screen.getByText('复制文件')).toHaveAttribute(
       'aria-current',
       'step',
@@ -195,7 +195,7 @@ describe('library import flow', () => {
         messageKey: 'index',
       }),
     );
-    expect(screen.getByText('建立索引')).toHaveAttribute(
+    expect(screen.getByText('建立本地索引')).toHaveAttribute(
       'aria-current',
       'step',
     );

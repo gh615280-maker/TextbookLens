@@ -1,3 +1,4 @@
+import { useMessage } from '../../app/LanguageProvider';
 import type { Citation } from '../../lib/generated/conversation';
 
 interface CitationListProps {
@@ -7,13 +8,16 @@ interface CitationListProps {
 
 /** Citation navigation is intentionally deferred to Task 6's verified reader locators. */
 export function CitationList({ citations, emptyLabel }: CitationListProps) {
+  const message = useMessage();
   if (!citations.length) return <p className="citation-empty">{emptyLabel}</p>;
   return (
-    <ol aria-label="Citations" className="citation-list">
+    <ol aria-label={message('panel.citationList')} className="citation-list">
       {citations.map((citation) => (
         <li key={citation.id}>
           <span>{citation.label}</span>
-          {!citation.quoteable ? <span> (not quoteable)</span> : null}
+          {!citation.quoteable ? (
+            <span> ({message('panel.notQuoteable')})</span>
+          ) : null}
         </li>
       ))}
     </ol>

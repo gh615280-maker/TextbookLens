@@ -251,6 +251,33 @@ export function ReaderLayout({
     const onFullscreenChange = () =>
       setFullscreen(isReaderFullscreen(rootRef.current));
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab' && activeLayer) {
+        const drawer = document.getElementById(`reader-${activeLayer}-drawer`);
+        const focusable = drawer
+          ? [
+              ...drawer.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+            ].filter(
+              (element) =>
+                !element.hasAttribute('disabled') &&
+                element.getAttribute('aria-hidden') !== 'true',
+            )
+          : [];
+        const first = focusable.at(0);
+        const last = focusable.at(-1);
+        if (first && last) {
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          } else if (drawer && !drawer.contains(document.activeElement)) {
+            event.preventDefault();
+            first.focus();
+          }
+        }
+        return;
+      }
       if (event.key === 'F11') {
         event.preventDefault();
         void toggleReaderFullscreen(rootRef.current);
@@ -328,6 +355,7 @@ export function ReaderLayout({
             id={`reader-${activeLayer}-drawer`}
             className="reader-drawer"
             role="dialog"
+            aria-modal="true"
             aria-label={
               activeLayer === 'toc'
                 ? labels.tocDialog
@@ -416,7 +444,12 @@ export function ReaderLayout({
         />
       )}
 
-      <main className="reader-main" aria-label={labels.content} tabIndex={-1}>
+      <main
+        id="reader-main-content"
+        className="reader-main"
+        aria-label={labels.content}
+        tabIndex={-1}
+      >
         <h1>{title}</h1>
         <ReaderPanel content={panelContent} />
         <ResizableReaderDocument
@@ -441,6 +474,9 @@ export function ReaderLayout({
     </div>
   );
 }
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 function readerSearchScopeLabels(language: UiLanguage) {
   if (language === 'en') {

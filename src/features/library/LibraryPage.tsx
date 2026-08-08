@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useLanguage, useMessage } from '../../app/LanguageProvider';
+import { useModalFocus } from '../../components/useModalFocus';
 import { toUserError, type UserFacingError } from '../../lib/errors';
 import type { BookSummary } from '../../lib/generated/book';
 import type { IndexRunAggregateDto } from '../../lib/generated/indexing';
@@ -78,6 +79,10 @@ export function LibraryPage({
   );
   const [removeCandidate, setRemoveCandidate] = useState<BookSummary | null>(
     null,
+  );
+  const removeDialogRef = useModalFocus<HTMLDivElement>(
+    removeCandidate !== null,
+    () => setRemoveCandidate(null),
   );
 
   const readLibrarySnapshot = useCallback(async () => {
@@ -345,6 +350,7 @@ export function LibraryPage({
       ) : null}
       {removeCandidate ? (
         <div
+          ref={removeDialogRef}
           aria-labelledby="library-remove-title"
           aria-modal="true"
           role="dialog"

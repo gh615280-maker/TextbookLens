@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useMessage } from '../../app/LanguageProvider';
+import { useModalFocus } from '../../components/useModalFocus';
 import type { ProviderProfileSummary } from '../../lib/generated/provider';
 
 interface Props {
@@ -14,6 +15,14 @@ export function ProviderConsentSettings({ profile, onReset, busy }: Props) {
   const [confirming, setConfirming] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const confirmation = useRef<HTMLButtonElement>(null);
+  const closeConfirmation = () => {
+    setConfirming(false);
+    trigger.current?.focus();
+  };
+  const confirmationDialogRef = useModalFocus<HTMLDivElement>(
+    confirming,
+    closeConfirmation,
+  );
   useEffect(() => {
     if (confirming) confirmation.current?.focus();
   }, [confirming]);
@@ -39,6 +48,7 @@ export function ProviderConsentSettings({ profile, onReset, busy }: Props) {
       </button>
       {confirming ? (
         <div
+          ref={confirmationDialogRef}
           role="alertdialog"
           aria-modal="true"
           aria-label={message('aiServices.consent.dialog')}
@@ -47,13 +57,7 @@ export function ProviderConsentSettings({ profile, onReset, busy }: Props) {
           <button ref={confirmation} type="button" onClick={() => void reset()}>
             {message('aiServices.consent.reset')}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setConfirming(false);
-              trigger.current?.focus();
-            }}
-          >
+          <button type="button" onClick={closeConfirmation}>
             {message('aiServices.cancel')}
           </button>
         </div>

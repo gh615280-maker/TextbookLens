@@ -244,7 +244,9 @@ describe('onboarding lifecycle flow', () => {
     const user = userEvent.setup();
     renderFlow(onboardingApi, api, coordinator);
 
-    await user.click(await screen.findByRole('button', { name: '导入教材' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Import textbook' }),
+    );
     expect(
       await screen.findByText(/Book: Synthetic lifecycle textbook/),
     ).toBeVisible();

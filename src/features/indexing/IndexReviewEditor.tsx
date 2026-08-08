@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
+import { useMessage } from '../../app/LanguageProvider';
 import type { IndexPageReviewDto } from '../../lib/generated/indexing';
 import { toOwnedArrayBuffer } from '../../lib/ipc';
 import { TauriReaderApi, type ReaderApi } from '../reader/api';
@@ -38,6 +39,7 @@ export function IndexReviewEditor({
   readerApi?: Pick<ReaderApi, 'readBookSource'>;
   renderPage?: typeof renderPdfPageLocally;
 }) {
+  const message = useMessage();
   const [readerApi] = useState<Pick<ReaderApi, 'readBookSource'>>(
     () => suppliedReaderApi ?? new TauriReaderApi(),
   );
@@ -137,9 +139,7 @@ export function IndexReviewEditor({
       });
       onChanged();
     } catch {
-      setActionError(
-        'The correction could not be saved. Review the current page and try again.',
-      );
+      setActionError(message('indexQuality.review.saveError'));
     } finally {
       setBusy(false);
     }
@@ -162,9 +162,7 @@ export function IndexReviewEditor({
       });
       onChanged();
     } catch {
-      setActionError(
-        'The correction conflict could not be resolved. Reload the page and try again.',
-      );
+      setActionError(message('indexQuality.review.resolveError'));
     } finally {
       setBusy(false);
     }
@@ -185,9 +183,7 @@ export function IndexReviewEditor({
       });
       onChanged();
     } catch {
-      setActionError(
-        'The correction could not be deleted. Reload the page and try again.',
-      );
+      setActionError(message('indexQuality.review.deleteError'));
     } finally {
       setBusy(false);
     }
@@ -201,9 +197,7 @@ export function IndexReviewEditor({
       await api.retryPage(page.id, page.updatedAt);
       onChanged();
     } catch {
-      setActionError(
-        'The page could not be retried. Review the durable run state and try again.',
-      );
+      setActionError(message('indexQuality.review.retryError'));
     } finally {
       setBusy(false);
     }
@@ -211,28 +205,34 @@ export function IndexReviewEditor({
 
   return (
     <section aria-labelledby="index-review-title">
-      <h2 id="index-review-title">Review page {page.pageNumber}</h2>
+      <h2 id="index-review-title">
+        {message('indexQuality.review.title', { page: page.pageNumber })}
+      </h2>
       {page.safeError ? <p role="alert">{page.safeError.message}</p> : null}
       <div className="index-review-editor__columns">
         <div>
-          <h3>Local original page</h3>
+          <h3>{message('indexQuality.review.original')}</h3>
           {imageUrl ? (
             <img
-              alt={`Local original page ${page.pageNumber}`}
+              alt={message('indexQuality.review.originalAlt', {
+                page: page.pageNumber,
+              })}
               src={imageUrl}
             />
           ) : null}
           {imageError ? (
-            <p role="alert">The local page preview is unavailable.</p>
+            <p role="alert">
+              {message('indexQuality.review.previewUnavailable')}
+            </p>
           ) : null}
           {!imageUrl && !imageError ? (
-            <p aria-live="polite">Rendering local page preview…</p>
+            <p aria-live="polite">{message('indexQuality.review.rendering')}</p>
           ) : null}
         </div>
         <div>
-          <h3>Editable transcription and LaTeX</h3>
+          <h3>{message('indexQuality.review.editor')}</h3>
           <label>
-            Content block
+            {message('indexQuality.review.block')}
             <select
               value={selectedBlockId ?? ''}
               onChange={(event) => {
@@ -243,13 +243,16 @@ export function IndexReviewEditor({
             >
               {page.blocks.map((block) => (
                 <option key={block.id} value={block.id}>
-                  Block {block.ordinal + 1}: {block.kind}
+                  {message('indexQuality.review.blockOption', {
+                    number: block.ordinal + 1,
+                    kind: message(`indexQuality.block.${block.kind}`),
+                  })}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            Value type
+            {message('indexQuality.review.valueType')}
             <select
               value={valueKind}
               onChange={(event) => {
@@ -258,12 +261,16 @@ export function IndexReviewEditor({
                 setDraft(valueFor(page, selectedBlockId, next));
               }}
             >
-              <option value="text">Transcription</option>
-              <option value="latex">LaTeX</option>
+              <option value="text">
+                {message('indexQuality.review.transcription')}
+              </option>
+              <option value="latex">
+                {message('indexQuality.review.latex')}
+              </option>
             </select>
           </label>
           <label>
-            Editable value
+            {message('indexQuality.review.editable')}
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.currentTarget.value)}
@@ -271,9 +278,9 @@ export function IndexReviewEditor({
           </label>
           <p aria-live="polite">
             {busy
-              ? 'Saving review change…'
+              ? message('indexQuality.review.saving')
               : correction?.conflictState === 'conflict'
-                ? 'Correction conflict needs a decision.'
+                ? message('indexQuality.review.conflict')
                 : ''}
           </p>
           {actionError ? <p role="alert">{actionError}</p> : null}
@@ -282,17 +289,17 @@ export function IndexReviewEditor({
             type="button"
             onClick={() => setDraft(original)}
           >
-            Keep local page value
+            {message('indexQuality.review.keepLocal')}
           </button>
           <button
             disabled={busy || !selected}
             type="button"
             onClick={() => void save()}
           >
-            Save correction
+            {message('indexQuality.review.save')}
           </button>
           <button disabled={busy} type="button" onClick={() => void retry()}>
-            Retry page
+            {message('indexQuality.review.retry')}
           </button>
           {correction?.conflictState === 'conflict' ? (
             <>
@@ -301,27 +308,27 @@ export function IndexReviewEditor({
                 type="button"
                 onClick={() => void resolve('keep')}
               >
-                Keep correction
+                {message('indexQuality.review.keepCorrection')}
               </button>
               <button
                 disabled={busy}
                 type="button"
                 onClick={() => void resolve('accept')}
               >
-                Accept current value
+                {message('indexQuality.review.acceptCurrent')}
               </button>
               <button
                 disabled={busy}
                 type="button"
                 onClick={() => void resolve('compare')}
               >
-                Resolve with compared value
+                {message('indexQuality.review.compare')}
               </button>
             </>
           ) : null}
           {correction ? (
             <button disabled={busy} type="button" onClick={() => void remove()}>
-              Delete correction
+              {message('indexQuality.review.delete')}
             </button>
           ) : null}
         </div>

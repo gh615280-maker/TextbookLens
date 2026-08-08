@@ -1,6 +1,9 @@
 import { render, screen } from '@testing-library/react';
+import type { PropsWithChildren, ReactElement } from 'react';
 import { describe, expect, it } from 'vitest';
 
+import { LanguageContext } from '../../app/LanguageProvider';
+import { formatMessage } from '../../lib/i18n';
 import { IndexPageList } from './IndexPageList';
 import { IndexStatusSummary } from './IndexStatusSummary';
 
@@ -9,7 +12,7 @@ const BOOK_ID = '22222222-2222-4222-822222222222';
 
 describe('Index quality status', () => {
   it('shows SQLite aggregate truth and completed, review, and failed counts', () => {
-    render(
+    renderEnglish(
       <IndexStatusSummary
         aggregate={{
           runId: RUN_ID,
@@ -34,7 +37,7 @@ describe('Index quality status', () => {
       />,
     );
     expect(screen.getByRole('status')).toHaveTextContent(
-      'Overall: needs review. Control: paused.',
+      'Overall: Needs review. Control: Paused.',
     );
     expect(screen.getByText('Completed').parentElement).toHaveTextContent('3');
     expect(screen.getByText('Needs review').parentElement).toHaveTextContent(
@@ -62,7 +65,7 @@ describe('Index quality status', () => {
       corrections: [],
       updatedAt: '2026-08-04T00:00:00.000Z',
     });
-    render(
+    renderEnglish(
       <IndexPageList
         pages={[
           page('33333333-3333-4333-833333333333', 1, 'indexed'),
@@ -78,3 +81,23 @@ describe('Index quality status', () => {
     expect(screen.getByRole('button', { name: /Page 3/ })).toBeVisible();
   });
 });
+
+function renderEnglish(ui: ReactElement) {
+  return render(ui, { wrapper: EnglishLanguage });
+}
+
+function EnglishLanguage({ children }: PropsWithChildren) {
+  return (
+    <LanguageContext.Provider
+      value={{
+        uiLanguage: 'en',
+        isLoading: false,
+        statusMessage: null,
+        switchLanguage: async () => {},
+        message: (key, values) => formatMessage('en', key, values),
+      }}
+    >
+      {children}
+    </LanguageContext.Provider>
+  );
+}

@@ -1,6 +1,7 @@
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { useMessage } from '../../app/LanguageProvider';
 import { isSupportedSourcePath } from './library-drop-path';
 
 export interface LibraryDropTargetProps {
@@ -16,6 +17,7 @@ export function LibraryDropTarget({
   children,
   onDrop,
 }: LibraryDropTargetProps) {
+  const message = useMessage();
   const [isDragging, setIsDragging] = useState(false);
   const onDropRef = useRef(onDrop);
 
@@ -77,11 +79,11 @@ export function LibraryDropTarget({
       {children}
       {isDragging ? (
         <div
-          aria-label="Drop supported textbook files to import"
+          aria-label={message('import.dropLabel')}
           className="library-drop-target__overlay"
           role="status"
         >
-          Drop PDF, EPUB, or DOCX files to import
+          {message('import.dropBody')}
         </div>
       ) : null}
     </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMessage } from '../../app/LanguageProvider';
 import { toUserError, type UserFacingError } from '../../lib/errors';
 import type { BookSummary } from '../../lib/generated/book';
 import type { ProviderCapabilityRegistryDto } from '../../lib/generated/provider';
@@ -19,6 +20,7 @@ export function OnboardingProviderStep({
   book,
   onConnected,
 }: Props) {
+  const message = useMessage();
   const [api] = useState<ProviderApi>(
     () => suppliedApi ?? new TauriProviderApi(),
   );
@@ -66,15 +68,9 @@ export function OnboardingProviderStep({
   }
   return (
     <section aria-labelledby="onboarding-provider-title">
-      <h2 id="onboarding-provider-title">Connect an AI service</h2>
-      <p>
-        Choose a provider and validate its key. The model is selected
-        automatically from verified provider information.
-      </p>
-      <p>
-        Book: {book.title}. Its local import continues while the key is
-        validated.
-      </p>
+      <h2 id="onboarding-provider-title">{message('onboarding.provider')}</h2>
+      <p>{message('onboarding.provider.description')}</p>
+      <p>{message('onboarding.provider.bookStatus', { title: book.title })}</p>
       {error ? (
         <div role="alert">
           <p>{error.message}</p>
@@ -88,7 +84,7 @@ export function OnboardingProviderStep({
           onConnect={connect}
         />
       ) : (
-        <p aria-live="polite">Loading providers…</p>
+        <p aria-live="polite">{message('onboarding.provider.loading')}</p>
       )}
     </section>
   );

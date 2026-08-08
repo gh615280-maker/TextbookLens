@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 
+import { useMessage } from '../../../app/LanguageProvider';
 import type { AnnotationMarker } from '../contracts';
 
 interface OverlappingMarkerMenuProps {
@@ -15,35 +16,56 @@ export function OverlappingMarkerMenu({
   onActivate,
   onClose,
 }: OverlappingMarkerMenuProps) {
+  const message = useMessage();
   const firstItem = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const closeRef = useRef(onClose);
   useEffect(() => {
     closeRef.current = onClose;
   }, [onClose]);
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      closeRef.current();
+    const handleKeyboard = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      );
+      const first = focusable?.item(0);
+      const last = focusable?.item((focusable?.length ?? 1) - 1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     firstItem.current?.focus();
-    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('keydown', handleKeyboard);
     return () => {
-      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('keydown', handleKeyboard);
       returnFocus?.focus();
     };
   }, [returnFocus]);
   return (
     <section
-      aria-label="Overlapping markers"
+      ref={dialogRef}
+      aria-label={message('markers.overlap.label')}
       aria-modal="true"
       className="overlapping-marker-menu"
       role="dialog"
     >
       <div className="overlapping-marker-menu-title">
-        <strong>{markers.length} markers at this location</strong>
+        <strong>
+          {message('markers.overlap.title', { count: markers.length })}
+        </strong>
         <button
-          aria-label="Close overlapping markers"
+          aria-label={message('markers.overlap.close')}
           onClick={onClose}
           type="button"
         >

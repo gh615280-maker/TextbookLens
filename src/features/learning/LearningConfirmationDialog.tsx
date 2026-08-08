@@ -1,3 +1,4 @@
+import { useModalFocus } from '../../components/useModalFocus';
 import type { PreparationSummary } from './learning-contract';
 
 export interface LearningConfirmationLabels {
@@ -25,9 +26,13 @@ export function LearningConfirmationDialog({
   onCancel,
   onConfirm,
 }: LearningConfirmationDialogProps) {
+  const dialogRef = useModalFocus<HTMLElement>(true, () => {
+    if (!busy) onCancel();
+  });
   return (
     <div className="learning-confirmation-backdrop" role="presentation">
       <section
+        ref={dialogRef}
         aria-label={labels.title}
         aria-modal="true"
         className="learning-confirmation-dialog"

@@ -84,7 +84,36 @@ main {
 
 .phase-page,
 .reader-column {
+  box-sizing: border-box;
+  min-width: 0;
   max-width: var(--reader-column-width);
+  overflow-wrap: anywhere;
+}
+
+.index-review-editor__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--space-5);
+}
+
+.index-review-editor__columns > div,
+.index-review-editor__columns label,
+.index-review-editor__columns select,
+.index-review-editor__columns textarea,
+.index-review-editor__columns img {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.index-review-editor__columns label {
+  display: grid;
+  gap: var(--space-1);
+  margin-block-end: var(--space-3);
+}
+
+.index-review-editor__columns img {
+  height: auto;
 }
 
 .settings-page {

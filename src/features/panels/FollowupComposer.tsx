@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMessage } from '../../app/LanguageProvider';
 
 const MAX_FOLLOWUP_CODE_POINTS = 16_384;
 
@@ -13,6 +14,7 @@ export function FollowupComposer({
   providerChangeNotice,
   onSubmit,
 }: FollowupComposerProps) {
+  const message = useMessage();
   const [question, setQuestion] = useState('');
   const trimmed = question.trim();
   return (
@@ -27,7 +29,7 @@ export function FollowupComposer({
     >
       {providerChangeNotice ? <p role="note">{providerChangeNotice}</p> : null}
       <label>
-        Follow up
+        {message('panel.followup')}
         <textarea
           disabled={disabled}
           maxLength={MAX_FOLLOWUP_CODE_POINTS}
@@ -36,7 +38,7 @@ export function FollowupComposer({
         />
       </label>
       <button disabled={disabled || !trimmed} type="submit">
-        Send
+        {message('panel.send')}
       </button>
     </form>
   );

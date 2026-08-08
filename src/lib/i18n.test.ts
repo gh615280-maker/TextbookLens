@@ -6,6 +6,13 @@ function placeholders(message: string): string[] {
   return [...message.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
 }
 
+const intentionallyShared = new Set([
+  'language.zhCN',
+  'language.zhTW',
+  'language.en',
+  'indexQuality.review.latex',
+]);
+
 describe('application message catalogs', () => {
   it('has exactly the same, nonempty keys and placeholders in every language', () => {
     const catalogs = messageCatalogs();
@@ -19,6 +26,22 @@ describe('application message catalogs', () => {
         expect(message.trim()).not.toHaveLength(0);
         expect(placeholders(message)).toEqual(placeholders(canonical));
       }
+    }
+  });
+
+  it('does not silently reuse one language as a translation', () => {
+    const catalogs = messageCatalogs();
+    for (const key of Object.keys(catalogs.en)) {
+      if (intentionallyShared.has(key)) continue;
+      const typedKey = key as keyof typeof catalogs.en;
+      expect(
+        new Set([
+          catalogs.en[typedKey],
+          catalogs['zh-CN'][typedKey],
+          catalogs['zh-TW'][typedKey],
+        ]).size,
+        key,
+      ).toBeGreaterThan(1);
     }
   });
 });

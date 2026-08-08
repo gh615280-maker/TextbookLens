@@ -9,11 +9,16 @@ describe('PanelTitleBar', () => {
     render(
       <PanelTitleBar
         collapsed={false}
+        collapseLabel="Collapse"
+        expandLabel="Expand"
+        hideLabel="Hide"
+        moveLabel="Move learning panel"
         status="streaming"
         title="Source"
         onCollapse={vi.fn()}
         onDragStart={onDragStart}
         onHide={vi.fn()}
+        onMoveKeyDown={vi.fn()}
       />,
     );
     fireEvent.pointerDown(screen.getByLabelText('Move learning panel'));

@@ -40,7 +40,7 @@ export function IndexQualityPage({
         api.listPageReviews(runId),
       ]);
       if (bookId && nextAggregate.bookId !== bookId)
-        throw new Error('Index run does not belong to this book.');
+        throw new Error(message('indexQuality.bookMismatch'));
       setAggregate(nextAggregate);
       setPages(
         reviews.filter(
@@ -56,7 +56,7 @@ export function IndexQualityPage({
     } catch (cause) {
       setError(toUserError(cause));
     }
-  }, [api, bookId, runId]);
+  }, [api, bookId, message, runId]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -90,11 +90,7 @@ export function IndexQualityPage({
   }
 
   if (!runId || !bookId)
-    return (
-      <p role="alert">
-        An index-quality route requires a book and run identifier.
-      </p>
-    );
+    return <p role="alert">{message('indexQuality.routeMissing')}</p>;
   return (
     <section aria-labelledby="index-quality-title" className="phase-page">
       <h1 id="index-quality-title">{message('indexQuality.title')}</h1>
@@ -111,14 +107,14 @@ export function IndexQualityPage({
       {aggregate ? (
         <>
           <IndexStatusSummary aggregate={aggregate} />
-          <div aria-label="Index run controls" role="group">
+          <div aria-label={message('indexQuality.controls')} role="group">
             {aggregate.controlStatus === 'running' ? (
               <button
                 disabled={busy}
                 type="button"
                 onClick={() => void control('pause')}
               >
-                Pause run
+                {message('indexQuality.pause')}
               </button>
             ) : null}
             {aggregate.controlStatus === 'paused' ? (
@@ -127,7 +123,7 @@ export function IndexQualityPage({
                 type="button"
                 onClick={() => void control('resume')}
               >
-                Resume run
+                {message('indexQuality.resume')}
               </button>
             ) : null}
             {aggregate.controlStatus === 'running' ||
@@ -137,10 +133,12 @@ export function IndexQualityPage({
                 type="button"
                 onClick={() => void control('cancel')}
               >
-                Cancel run
+                {message('indexQuality.cancel')}
               </button>
             ) : null}
-            <p aria-live="polite">{busy ? 'Updating index run…' : ''}</p>
+            <p aria-live="polite">
+              {busy ? message('indexQuality.updating') : ''}
+            </p>
           </div>
         </>
       ) : (

@@ -171,7 +171,7 @@ describe('ReaderPage', () => {
         name: '',
       }),
     ).toHaveTextContent(
-      'This PDF has unreliable or no local text. Search and text-based AI are limited; local page reading remains available.',
+      '此 PDF 的本地文字不可靠或不存在。搜索和基于文字的 AI 功能受限，但仍可在本地阅读页面。',
     );
   });
 

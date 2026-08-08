@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import type { PropsWithChildren } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { LanguageContext } from '../../app/LanguageProvider';
+import { formatMessage } from '../../lib/i18n';
 import { FloatingAnswerPanel } from './FloatingAnswerPanel';
 
 const request = {
@@ -25,15 +28,18 @@ describe('FloatingAnswerPanel', () => {
     const onHide = vi.fn();
     const onStop = vi.fn();
     render(
-      <FloatingAnswerPanel
-        collapsed={false}
-        request={request}
-        onCollapse={vi.fn()}
-        onDragStart={vi.fn()}
-        onFollowup={vi.fn()}
-        onHide={onHide}
-        onStop={onStop}
-      />,
+      <EnglishLanguage>
+        <FloatingAnswerPanel
+          collapsed={false}
+          request={request}
+          onCollapse={vi.fn()}
+          onDragStart={vi.fn()}
+          onFollowup={vi.fn()}
+          onHide={onHide}
+          onMoveKeyDown={vi.fn()}
+          onStop={onStop}
+        />
+      </EnglishLanguage>,
     );
     const stop = screen.getByRole('button', { name: 'Stop' });
     stop.focus();
@@ -46,3 +52,19 @@ describe('FloatingAnswerPanel', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
   });
 });
+
+function EnglishLanguage({ children }: PropsWithChildren) {
+  return (
+    <LanguageContext.Provider
+      value={{
+        uiLanguage: 'en',
+        isLoading: false,
+        statusMessage: null,
+        switchLanguage: async () => {},
+        message: (key, values) => formatMessage('en', key, values),
+      }}
+    >
+      {children}
+    </LanguageContext.Provider>
+  );
+}
