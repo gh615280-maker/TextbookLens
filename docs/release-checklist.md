@@ -1,11 +1,11 @@
 # Windows release checklist
 
 This checklist is the technical record for a **local, unsigned Windows 11 x64 V1 build**. It is
-not a release approval. Task 8 remains **RED / BLOCKED**: the Microsoft Windows Sandbox feature was
-enabled successfully, but a normal Windows restart is required before the clean environment can
-run. Clean installation, uninstall, accessibility hardware checks, and real-provider gates remain
-**NOT RUN**. Windows 10 is neither supported nor validated, and Task 9 must not start while these
-gates remain.
+not a release approval. Task 8 remains **RED / BLOCKED** after real Windows Sandbox execution:
+the NSIS primary flow and MSI independent smoke ran, but required three-format reading,
+125/150/200% system scaling, complete accessibility/backup/delete coverage, and all real-provider
+requests remain incomplete or NOT RUN. Windows 10 is neither supported nor validated, and Task 9
+must not start while these gates remain.
 
 ## Immutable inputs
 
@@ -104,73 +104,90 @@ Task 9 must retain this result and must not claim byte-identical installation me
 
 Task 8 started from exact HEAD `8af9882e44be33e18c91a39e81f324cf98b3b6d2` with parent
 `c7716affae03fe820f76aceec34e0055c8105e53` and preserved its initial evidence in
-`458ea4f7dc939b070dc58a71290b2a069e601ed2`. Start and pre-restart checks found the retained release
-directory unchanged: it contained only the authoritative NSIS and MSI files at the size/hash values
-above. The desktop shortcut and its designated debug executable also retained the protected target,
-43,559,424-byte size, and SHA-256
-`38F6652F6F4B60185046DAB8426A3E9C0B69E912BE75118CA68B19D83F290521`.
+`458ea4f7dc939b070dc58a71290b2a069e601ed2`; the pre-restart continuation was recorded in
+`bbe4e2ede0616cd7de210ad5d56feb7d6a4901f5`. The protected Task 7 chain was not rewritten. Start,
+environment-switch, and final checks found the retained release directory unchanged at the
+size/hash values above. The daily-user desktop shortcut still targets the designated debug
+executable, which remains 43,559,424 bytes with SHA-256
+`38F6652F6F4B60185046DAB8426A3E9C0B69E912BE75118CA68B19D83F290521`; Task 8 did not launch, stop,
+overwrite, or relink it.
 
 ### Environment proof and decision
 
-The daily host reported Windows 11 Pro 23H2 build `22631.2861`, x64, but it is not a clean test
-environment and was never used as one. Firmware virtualization, second-level address translation,
-and VM monitor extensions reported available. Before provisioning, no active hypervisor,
-VMware/VirtualBox manager, or existing VM/Sandbox checkpoint was found. Elevated read-only DISM
-evidence showed the Sandbox and Hyper-V dependencies staged but not enabled. The non-elevated BCD
-query was denied, so the exact pre-restart `hypervisorlaunchtype` value was not recorded;
-post-restart hypervisor presence and a real Sandbox launch remain required evidence.
+The daily host is Windows 11 Pro 23H2 build `22631.2861`, x64. It remains excluded from clean
+installation, destructive, display, theme, and assistive-technology testing. After the authorized
+Microsoft Sandbox feature enablement and normal restart, the host reported an active hypervisor and
+a runnable Windows Sandbox feature.
 
-With user authorization, Task 8 ran the official Microsoft command
-`dism.exe /Online /Enable-Feature /FeatureName:Containers-DisposableClientVM /All /NoRestart
-/English`. It completed at `2026-08-08T10:59:07Z` with exit code `3010`. The DISM log mapped the
-feature to installed state and confirmed that restart was suppressed; the CBS reboot-pending flag
-became true. Before restart, `WindowsSandbox.exe` remained absent, `HypervisorPresent` remained
-false, and `HvHost` remained stopped. No reliable Codex login/startup auto-resume entry was found,
-so the host was not restarted. No environment switch occurred, so no Sandbox session/snapshot
-identifier exists yet.
+Two disposable sessions used the same network-enabled `.wsb` profile with the Task 7 release and
+self-made input mapped read-only, a separate writable external-test directory, and clipboard
+disabled:
 
-The result is **RED / BLOCKED**. Task 8 did not install/uninstall either package, launch or stop the
-existing app, alter current-user app data or credentials, change system display/accessibility
-settings, or run a provider request. Historical automation and browser emulation are not clean
-Windows evidence.
+| Evidence ID         | Guest proof                                                    | Initial scale record                                                     | Lifetime / isolation                                                                                                |
+| ------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `P15T8-SBX-NSIS-01` | Windows 11 Enterprise 22H2 build `22621.2861`, x64, 4 GiB      | Exact percentage was not surfaced; required 125/150/200% changes NOT RUN | Fresh Sandbox; guest instance `bda89b1d-9684-4cc2-9e17-c4c58c79c059`; destroyed after NSIS flow                     |
+| `P15T8-SBX-MSI-02`  | Independent fresh launch of the same Enterprise/x64 base image | Exact percentage was not surfaced; no system-scale claim                 | Fresh Sandbox with no inherited app data or credentials; no reusable snapshot exists; destroyed after MSI uninstall |
 
-### Read-only installer inspection
+Only self-made tiny PDF/EPUB/DOCX/PNG fixtures were exposed to the guest. The primary fixture hashes
+were PDF `464847140CCA555A80FF51A0EEBA1072A06175A57239FBF0BE942DAA40B7DF62`, EPUB
+`F791BAFA42D089C0081536C53C1B69701DE4019FD6B1EEEECACFA931A5338286`, DOCX
+`8017A4B9BEE398496B2F0C8E99084BADF5644960020C57548A18A079E3164595`, and PNG
+`6C65EFAA2EBBB9912BA372076E088471EC1F6BF29ED62613C9D30A42569A50EF`. No real textbook, user
+database, private account path, or host credential entered either session.
 
-| Input | Metadata result                                                                                                                                                                                                  | Signature state                     | Executed gate                                          |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------ |
-| NSIS  | `TextbookLens` file/product version `0.1.0`; outer bootstrap machine `0x014c` (x86). The x64 payload claim was not inferred from the stub and requires installed-candidate evidence.                             | `NotSigned`; no signer or timestamp | Install/launch/uninstall **NOT RUN**                   |
-| MSI   | Product/version `TextbookLens` / `0.1.0`; summary template `x64;0`; main EXE component is marked 64-bit with file version `0.1.0.0`; Start Menu, desktop, uninstall, and `RemoveExistingProducts` entries exist. | `NotSigned`; no signer or timestamp | Install/launch/reinstall/upgrade/uninstall **NOT RUN** |
+The result remains **RED / BLOCKED** because multiple required manual rows remain NOT RUN. No
+product FAIL was observed in the executed subset. Historical automation and browser emulation are
+kept separate from the current manual evidence.
 
-MSI database rows are only package metadata. They do not prove a successful entry point, upgrade,
-launch, or removal on clean Windows.
+### Installer execution and signature state
+
+| Input | Version / architecture evidence                                                                                                                   | Signature state                     | Current clean-Windows execution                                                                                                                                                                                                                        |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| NSIS  | File/product version `0.1.0`; outer bootstrap PE `0x014c` (x86); Task 7 payload target remains x86-64. The outer stub alone is not payload proof. | `NotSigned`; no signer or timestamp | Primary networked flow PASS: clean install, first launch, PDF onboarding import, restart, same-version `Upgrade install`, relaunch, and uninstall. A separate offline attempt stopped at the Microsoft WebView2 dependency and is not an offline PASS. |
+| MSI   | Product `TextbookLens` `0.1.0`; summary `x64;0`; 64-bit main component; default `C:\Program Files\TextbookLens\`.                                 | `NotSigned`; no signer or timestamp | Independent fresh-session smoke PASS: install, completion launch into first-run onboarding, maintenance-mode Remove, completion, and desktop-shortcut removal. No version-to-version upgrade claim was made.                                           |
+
+Task 7's matching-content but non-bit-reproducible installer-container result remains unchanged.
+Signing, timestamping, updater configuration, publication, and remote CI remain **NOT CONFIGURED /
+NOT RUN**.
 
 ### Manual gate ledger
 
-| Gate                                                                                            | Status                                 |
-| ----------------------------------------------------------------------------------------------- | -------------------------------------- |
-| NSIS and MSI independent installation/start/uninstall; first run; reinstall/supported upgrade   | NOT RUN — restart required for Sandbox |
-| Self-made PDF/EPUB/DOCX import/read/restart/source deletion                                     | NOT RUN                                |
-| `zh-CN` / `zh-TW` / `en` switch and restart persistence                                         | NOT RUN                                |
-| Real 125/150/200% scale, display resize, narrow/maximized/fullscreen, Esc/focus                 | NOT RUN                                |
-| Contrast Theme, transparency off, opaque fallback, reduced motion                               | NOT RUN                                |
-| Keyboard-only, skip/focus/live-region, Narrator, NVDA                                           | NOT RUN                                |
-| Backup to external test directory and restore into a second clean environment; no-Key reconnect | NOT RUN                                |
-| Delete one book, clear all/credential cleanup, uninstall residual scan                          | NOT RUN                                |
+| Gate                                                                                  | Status         | Current manual evidence                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NSIS primary install/launch/reinstall/uninstall plus MSI independent smoke            | PASS           | Both package entry points ran in separate fresh Sandbox sessions; NSIS same-version upgrade and MSI maintenance removal completed.                                                              |
+| First run and self-made PDF import/restart/source deletion                            | PARTIAL        | PDF title/import state survived restart and deletion of only the scoped writable source duplicate. API-key onboarding prevented full reader-content verification.                               |
+| Self-made EPUB/DOCX import and full three-format reader restart                       | NOT RUN        | Onboarding could not proceed beyond the required credential step; no result was inferred from historical automation.                                                                            |
+| `zh-CN` / `zh-TW` / `en` switching and restart persistence                            | PASS           | All three UI languages were selected in the installed NSIS candidate; English persisted after restart.                                                                                          |
+| True 125/150/200% system scaling and VM resolution/display resize                     | NOT RUN        | Sandbox Settings did not expose a usable display-scale path; browser zoom/emulation was not substituted.                                                                                        |
+| Maximized and narrow readability                                                      | PASS           | Installed onboarding surface remained readable maximized and in an approximately 810-pixel snapped width.                                                                                       |
+| Fullscreen/F11                                                                        | NOT RUN        | No fullscreen PASS is claimed.                                                                                                                                                                  |
+| Windows Contrast Theme, transparency off, opaque fallback, reduced motion             | PASS (surface) | Aquatic Contrast Theme, transparency off, and animation effects off remained functional and readable on the installed onboarding surface; settings were restored/disposed.                      |
+| Keyboard-only skip/focus/provider/model/Esc-return path                               | PASS (surface) | Skip link, provider selection, advanced model disclosure, and Esc focus return worked. Complete live-region coverage was not established.                                                       |
+| Built-in Narrator                                                                     | PASS (surface) | Narrator was enabled through Settings and navigated the key and advanced-model controls; it was then disabled.                                                                                  |
+| NVDA                                                                                  | NOT RUN        | NVDA was not already installed and no separate official download/install run was completed.                                                                                                     |
+| Backup to external test directory and restore to a second clean profile/session       | NOT RUN        | No backup/restore or no-Key reconnect evidence was produced.                                                                                                                                    |
+| Delete one book, clear all, second-book/original/backup retention, credential cleanup | NOT RUN        | The scoped source-copy deletion is not a product book-delete or clear-all test; no credentials were configured.                                                                                 |
+| Uninstall residual scan                                                               | WARN / PARTIAL | NSIS removal with `Delete the application data` selected removed product files and shortcuts; an empty Local `TextbookLens` directory remained. Full Roaming/credential scan was not completed. |
 
-At `2026-08-08T10:21:15.925Z`, the embedded exact models were OpenAI `gpt-5.6`, Gemini
-`gemini-3.6-flash`, Anthropic `claude-sonnet-5`, DeepSeek `deepseek-v4-flash`, and Kimi `kimi-k3`.
-Text was **NOT RUN** for all five. Supported vision/structured operations were **NOT RUN**;
-DeepSeek's unsupported visual/page zero-request gate was also **NOT RUN**. Kimi CN and international
-probe/chat/Files/cleanup were both **NOT RUN**. No credential source was inspected, no Key was read
-or copied, and Task 8 made zero external-provider requests.
+### Real-provider manual gates
 
-The Task 7 release candidate was not launched in the daily user's session for provider discovery:
-on Windows it resolves app data through `FOLDERID_RoamingAppData`, so process-only
-`APPDATA`/`LOCALAPPDATA` overrides do not guarantee isolation. Provider credential availability is
-therefore still unknown. Resume requires one user-initiated normal Windows restart, followed by a
-fresh Sandbox session and the still-NOT-RUN clean gates. Any missing provider test key must be
-entered manually in an isolated installed-candidate UI, not provided in chat or copied from host
-storage.
+At `2026-08-08T12:22:31.658Z`, credential availability had not been established in an isolated
+release-candidate UI. The clean Sandbox sessions inherited no host credentials. The daily-host
+candidate was not launched for discovery because process-only `APPDATA`/`LOCALAPPDATA` overrides do
+not isolate its `FOLDERID_RoamingAppData` storage, and Task 8 did not inspect, extract, display, or
+move Credential Manager, disk, or environment secrets. No Key was read or requested in chat, and
+zero external-provider requests were made.
+
+| Provider  | Embedded exact model | Text    | Vision / structured                                                          | Region-specific coverage                                   | Status                                                                     |
+| --------- | -------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------- |
+| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
+| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
+| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
+| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | Credential not configured in disposable UI; availability otherwise unknown |
+| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | CN and international probe/chat/Files/cleanup both NOT RUN | Neither regional test credential was configured in disposable UI           |
+
+Any resumed provider gate requires the user to enter the relevant test Key manually in a
+disposable TextbookLens UI. Keys must not be pasted into chat or copied from host storage.
 
 ## CI and publication state
 
@@ -185,9 +202,11 @@ signed or published.
 
 ## Manual gates retained after Task 8
 
-- Clean Windows 11 x64 install, launch, uninstall, and residual-data scan: **REBOOT REQUIRED / NOT RUN**.
-- First run, three import formats, restart, backup/restore, delete/clear, real DPI/high-contrast,
-  and Narrator/NVDA: **BLOCKED / NOT RUN**.
+- Clean Windows 11 x64 package entry points: **NSIS PRIMARY PASS; MSI SMOKE PASS**. Full residual
+  scan remains **WARN / PARTIAL**.
+- Three-format full reading, backup/restore, book delete/clear, credential cleanup, true
+  125/150/200% DPI, resolution/fullscreen, live-region completion, and NVDA: **BLOCKED / NOT RUN or
+  PARTIAL as itemized above**.
 - Five real-provider credential/model checks and supported visual/structured requests:
   **BLOCKED / NOT RUN**.
 - Release signing, timestamping, updater/update publication, clean-device upgrade, and final
