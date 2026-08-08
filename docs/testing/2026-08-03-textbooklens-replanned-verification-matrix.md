@@ -791,32 +791,49 @@ At the Task 5 checkpoint, Task 6 and later Phase 15 work had not started.
 
 ## 21. Phase 15 Task 8 clean Windows and real-provider manual gate
 
-Task 8 was evaluated on 2026-08-08 from exact HEAD
+Task 8 started on 2026-08-08 from exact HEAD
 `8af9882e44be33e18c91a39e81f324cf98b3b6d2` (parent
-`c7716affae03fe820f76aceec34e0055c8105e53`). The overall result is
-**RED / BLOCKED**: no genuinely isolated clean Windows 11 x64 environment was available. A required
-manual gate is PASS only after it actually runs; the read-only evidence below does not promote any
-clean-install, GUI, accessibility, backup, destructive, or provider row.
+`c7716affae03fe820f76aceec34e0055c8105e53`) and preserved its initial evidence as commit
+`458ea4f7dc939b070dc58a71290b2a069e601ed2`. On the authorized resume, the Microsoft Windows
+Sandbox optional feature was enabled successfully, but DISM returned `3010` and a normal Windows
+restart is required before Sandbox exists as a runnable clean environment. The overall result
+therefore remains **RED / BLOCKED**. A required manual gate is PASS only after it actually runs;
+feature provisioning does not promote any clean-install, GUI, accessibility, backup, destructive,
+or provider row.
 
 ### Baseline and protection evidence
 
-| Boundary                        | Result           | Normalized evidence                                                                                                                                                                                                                                                       |
-| ------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Git and Task 7 chain            | PASS             | HEAD and parent matched exactly. The protected chain `1a104fb` → `bfbe504` → `c7716af` → `8af9882` was not rewritten. The index was empty.                                                                                                                                |
-| User file                       | PROTECTED        | The only pre-existing worktree item was untracked `TextbookLens_User_Guide.docx`; its content was not read and it was not moved, deleted, staged, or committed.                                                                                                           |
-| Retired protected specification | PASS             | `docs/superpowers/specs/2026-08-01-local-first-ai-textbook-reader-design.md` was absent from worktree, index, and HEAD.                                                                                                                                                   |
-| Desktop V1 checkpoint           | PASS / UNCHANGED | `textbooklens.lnk` still targeted the designated P9B debug executable. The target remained 43,559,424 bytes with SHA-256 `38F6652F6F4B60185046DAB8426A3E9C0B69E912BE75118CA68B19D83F290521`. Task 8 did not launch, stop, overwrite, relink, or modify it.                |
-| Retained Task 7 inputs          | PASS / UNCHANGED | Start and final read-only checks matched NSIS 9,000,265 bytes / `E77AB16985410A84A04E2965A08DBE0AD974E0646991FA1B5AF6E9D8AFBE38DC` and MSI 12,046,336 bytes / `938AFFB126FE81D9F48493CACFC8EAB9062D086F6DD50E814553796287E3A5DE`. The release directory was not modified. |
+| Boundary                        | Result           | Normalized evidence                                                                                                                                                                                                                                                             |
+| ------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Git and Task 7 chain            | PASS             | Initial HEAD and parent matched exactly. Resume HEAD was preserved evidence commit `458ea4f` with parent `8af9882`; the protected chain `1a104fb` → `bfbe504` → `c7716af` → `8af9882` was not rewritten. The index was empty.                                                   |
+| User file                       | PROTECTED        | The only pre-existing worktree item was untracked `TextbookLens_User_Guide.docx`; its content was not read and it was not moved, deleted, staged, or committed.                                                                                                                 |
+| Retired protected specification | PASS             | `docs/superpowers/specs/2026-08-01-local-first-ai-textbook-reader-design.md` was absent from worktree, index, and HEAD.                                                                                                                                                         |
+| Desktop V1 checkpoint           | PASS / UNCHANGED | `textbooklens.lnk` still targeted the designated P9B debug executable. The target remained 43,559,424 bytes with SHA-256 `38F6652F6F4B60185046DAB8426A3E9C0B69E912BE75118CA68B19D83F290521`. Task 8 did not launch, stop, overwrite, relink, or modify it.                      |
+| Retained Task 7 inputs          | PASS / UNCHANGED | Start and pre-restart read-only checks matched NSIS 9,000,265 bytes / `E77AB16985410A84A04E2965A08DBE0AD974E0646991FA1B5AF6E9D8AFBE38DC` and MSI 12,046,336 bytes / `938AFFB126FE81D9F48493CACFC8EAB9062D086F6DD50E814553796287E3A5DE`. The release directory was not modified. |
 
 ### Clean-environment discovery
 
-The daily host reported Windows 11 Pro 23H2, build `22631.2861`, x64. It was explicitly excluded
-from clean-install and destructive testing. `WindowsSandbox.exe` was absent, the host reported no
-active hypervisor, the Hyper-V `Get-VM` command was unavailable, VMware and VirtualBox management
-tools were absent, and no VM/Sandbox configuration or checkpoint asset was found in the repository
-or the task build root. Optional-feature state could not be queried without elevation; Task 8 did
-not request elevation or enable a feature. No remote dedicated test-machine configuration was
-provided. Therefore no environment switch occurred and there is no snapshot identifier to record.
+The daily host reported Windows 11 Pro 23H2, build `22631.2861`, x64. It remains explicitly excluded
+from clean-install and destructive testing. Firmware virtualization, second-level address
+translation, and VM monitor extensions all reported available, while `HypervisorPresent` was false.
+No VMware/VirtualBox manager or existing VM/Sandbox snapshot was found. An elevated, read-only DISM
+query showed `Containers-DisposableClientVM`, `HypervisorPlatform`, `VirtualMachinePlatform`,
+`Microsoft-Hyper-V-All`, and `Microsoft-Hyper-V-Hypervisor` in staged/not-enabled state.
+The non-elevated BCD query was denied, so the exact pre-restart `hypervisorlaunchtype` value was not
+recorded; post-restart hypervisor presence and a real Sandbox launch remain required evidence.
+
+With user authorization, Task 8 ran only this official Microsoft feature change:
+
+```text
+dism.exe /Online /Enable-Feature /FeatureName:Containers-DisposableClientVM /All /NoRestart /English
+```
+
+It completed at `2026-08-08T10:59:07Z` with exit code `3010`. The DISM log mapped
+`Containers-DisposableClientVM` to installed state and confirmed that restart was suppressed by
+`/NoRestart`; the CBS reboot-pending flag then became true. Before restart,
+`WindowsSandbox.exe` was still absent, `HypervisorPresent` remained false, and `HvHost` remained
+stopped. Reliable Codex login/startup auto-resume was not found, so Task 8 did not reboot the host.
+No environment switch has occurred yet and there is still no Sandbox session/snapshot identifier.
 
 Task 8 did not install or uninstall either package on the daily host, alter current-user app data or
 Credential Manager, change display scale/theme/contrast/transparency/motion, start Narrator, acquire
@@ -837,9 +854,9 @@ remain unchanged.
 
 | Gate                                                                            | Status  | Reason                                                                                                  |
 | ------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| NSIS primary/secondary install path, first run, launch, uninstall               | NOT RUN | No clean Windows environment; current-user installation was prohibited.                                 |
-| MSI independent install/start/uninstall smoke                                   | NOT RUN | No clean Windows environment; read-only MSI metadata is not a smoke test.                               |
-| Clean install, reinstall, and supported upgrade path                            | NOT RUN | No disposable environment; no prior release candidate was installed.                                    |
+| NSIS primary/secondary install path, first run, launch, uninstall               | NOT RUN | Sandbox feature is enabled, but a restart is required before a clean environment can run.               |
+| MSI independent install/start/uninstall smoke                                   | NOT RUN | Sandbox feature is enabled, but a restart is required; read-only MSI metadata is not a smoke test.      |
+| Clean install, reinstall, and supported upgrade path                            | NOT RUN | No runnable disposable environment before the required restart; no candidate was installed.             |
 | Self-made PDF/EPUB/DOCX import, read, restart, and source deletion              | NOT RUN | Requires the installed release candidate in clean app data.                                             |
 | `zh-CN` / `zh-TW` / `en` switching and restart persistence                      | NOT RUN | Requires the installed release candidate. Historical automation remains separate.                       |
 | Real 125/150/200% system scale, resize, narrow, maximized/fullscreen, Esc/focus | NOT RUN | Daily-host display settings were not changed; browser proxies and Phase 6 history were not substituted. |
@@ -858,14 +875,21 @@ claim about current account availability. Credential storage, environment variab
 existing user profiles were not inspected. No Key was read, copied, logged, passed on a command
 line, or requested in chat. Task 8 made zero external-provider requests.
 
-| Provider  | Embedded exact model | Text    | Vision / structured                                                         | Region-specific coverage                                   | UTC decision time          | Status                                                       |
-| --------- | -------------------- | ------- | --------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------- | ------------------------------------------------------------ |
-| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | N/A                                                        | `2026-08-08T10:21:15.925Z` | NOT RUN — no clean authorized test-account environment       |
-| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | N/A                                                        | `2026-08-08T10:21:15.925Z` | NOT RUN — no clean authorized test-account environment       |
-| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | N/A                                                        | `2026-08-08T10:21:15.925Z` | NOT RUN — no clean authorized test-account environment       |
-| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool path NOT RUN; unsupported visual/page zero-request gate NOT RUN | N/A                                                        | `2026-08-08T10:21:15.925Z` | NOT RUN — no clean authorized test-account environment       |
-| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | CN and international probe/chat/Files/cleanup both NOT RUN | `2026-08-08T10:21:15.925Z` | NOT RUN — neither regional test-key environment was provided |
+The release candidate resolves Windows app data through `FOLDERID_RoamingAppData`; process-only
+`APPDATA`/`LOCALAPPDATA` values are not a safe isolation boundary. It was therefore not launched in
+the daily user's session to enumerate providers. Provider credential availability remains unknown
+until an isolated candidate UI can be used; this is NOT RUN, not a claim that a provider lacks a
+credential.
 
-Task 8 cannot pass and Task 9 must not start. To resume, provide a genuinely clean Windows 11 x64
-VM/Sandbox/dedicated machine with a disposable snapshot and enter dedicated provider test keys
-manually in that installed release candidate's UI. Keys must not be pasted into chat.
+| Provider  | Embedded exact model | Text    | Vision / structured                                                         | Region-specific coverage                                   | UTC decision time          | Status                                                     |
+| --------- | -------------------- | ------- | --------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------- | ---------------------------------------------------------- |
+| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | N/A                                                        | `2026-08-08T11:00:37.787Z` | NOT RUN — isolated candidate UI unavailable before restart |
+| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | N/A                                                        | `2026-08-08T11:00:37.787Z` | NOT RUN — isolated candidate UI unavailable before restart |
+| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | N/A                                                        | `2026-08-08T11:00:37.787Z` | NOT RUN — isolated candidate UI unavailable before restart |
+| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool path NOT RUN; unsupported visual/page zero-request gate NOT RUN | N/A                                                        | `2026-08-08T11:00:37.787Z` | NOT RUN — isolated candidate UI unavailable before restart |
+| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                     | CN and international probe/chat/Files/cleanup both NOT RUN | `2026-08-08T11:00:37.787Z` | NOT RUN — isolated candidate UI unavailable before restart |
+
+Task 8 cannot pass and Task 9 must not start. The next required action is one user-initiated normal
+Windows restart. After restart, Task 8 must launch Windows Sandbox, record the clean session proof,
+and run the still-NOT-RUN gates. Any missing provider test key must be entered manually in an
+isolated TextbookLens UI; keys must not be pasted into chat or copied from host storage.

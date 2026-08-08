@@ -1,10 +1,11 @@
 # Windows release checklist
 
 This checklist is the technical record for a **local, unsigned Windows 11 x64 V1 build**. It is
-not a release approval. Task 8 performed read-only package and environment discovery but was
-**RED / BLOCKED** because no genuinely isolated clean Windows environment was available; clean
-installation, uninstall, accessibility hardware checks, and real-provider gates remain **NOT RUN**.
-Windows 10 is neither supported nor validated, and Task 9 must not start while these gates remain.
+not a release approval. Task 8 remains **RED / BLOCKED**: the Microsoft Windows Sandbox feature was
+enabled successfully, but a normal Windows restart is required before the clean environment can
+run. Clean installation, uninstall, accessibility hardware checks, and real-provider gates remain
+**NOT RUN**. Windows 10 is neither supported nor validated, and Task 9 must not start while these
+gates remain.
 
 ## Immutable inputs
 
@@ -102,7 +103,8 @@ Task 9 must retain this result and must not claim byte-identical installation me
 ## Task 8 clean-Windows and real-provider result
 
 Task 8 started from exact HEAD `8af9882e44be33e18c91a39e81f324cf98b3b6d2` with parent
-`c7716affae03fe820f76aceec34e0055c8105e53`. Start and final checks found the retained release
+`c7716affae03fe820f76aceec34e0055c8105e53` and preserved its initial evidence in
+`458ea4f7dc939b070dc58a71290b2a069e601ed2`. Start and pre-restart checks found the retained release
 directory unchanged: it contained only the authoritative NSIS and MSI files at the size/hash values
 above. The desktop shortcut and its designated debug executable also retained the protected target,
 43,559,424-byte size, and SHA-256
@@ -110,12 +112,22 @@ above. The desktop shortcut and its designated debug executable also retained th
 
 ### Environment proof and decision
 
-The daily host reported Windows 11 Pro 23H2 build `22631.2861`, x64, but it was not a clean test
-environment and was never used as one. Windows Sandbox was not present, no active hypervisor or
-Hyper-V management command was available, VMware/VirtualBox management tools were absent, and no
-VM/Sandbox configuration, checkpoint, or dedicated test-machine configuration was found in the
-repository or task build root. Optional-feature state required elevation and was left unchanged.
-No environment switch occurred, so no snapshot identifier exists.
+The daily host reported Windows 11 Pro 23H2 build `22631.2861`, x64, but it is not a clean test
+environment and was never used as one. Firmware virtualization, second-level address translation,
+and VM monitor extensions reported available. Before provisioning, no active hypervisor,
+VMware/VirtualBox manager, or existing VM/Sandbox checkpoint was found. Elevated read-only DISM
+evidence showed the Sandbox and Hyper-V dependencies staged but not enabled. The non-elevated BCD
+query was denied, so the exact pre-restart `hypervisorlaunchtype` value was not recorded;
+post-restart hypervisor presence and a real Sandbox launch remain required evidence.
+
+With user authorization, Task 8 ran the official Microsoft command
+`dism.exe /Online /Enable-Feature /FeatureName:Containers-DisposableClientVM /All /NoRestart
+/English`. It completed at `2026-08-08T10:59:07Z` with exit code `3010`. The DISM log mapped the
+feature to installed state and confirmed that restart was suppressed; the CBS reboot-pending flag
+became true. Before restart, `WindowsSandbox.exe` remained absent, `HypervisorPresent` remained
+false, and `HvHost` remained stopped. No reliable Codex login/startup auto-resume entry was found,
+so the host was not restarted. No environment switch occurred, so no Sandbox session/snapshot
+identifier exists yet.
 
 The result is **RED / BLOCKED**. Task 8 did not install/uninstall either package, launch or stop the
 existing app, alter current-user app data or credentials, change system display/accessibility
@@ -136,7 +148,7 @@ launch, or removal on clean Windows.
 
 | Gate                                                                                            | Status                                 |
 | ----------------------------------------------------------------------------------------------- | -------------------------------------- |
-| NSIS and MSI independent installation/start/uninstall; first run; reinstall/supported upgrade   | NOT RUN — no clean Windows environment |
+| NSIS and MSI independent installation/start/uninstall; first run; reinstall/supported upgrade   | NOT RUN — restart required for Sandbox |
 | Self-made PDF/EPUB/DOCX import/read/restart/source deletion                                     | NOT RUN                                |
 | `zh-CN` / `zh-TW` / `en` switch and restart persistence                                         | NOT RUN                                |
 | Real 125/150/200% scale, display resize, narrow/maximized/fullscreen, Esc/focus                 | NOT RUN                                |
@@ -152,9 +164,13 @@ DeepSeek's unsupported visual/page zero-request gate was also **NOT RUN**. Kimi 
 probe/chat/Files/cleanup were both **NOT RUN**. No credential source was inspected, no Key was read
 or copied, and Task 8 made zero external-provider requests.
 
-Resume requires a genuine clean Windows 11 x64 VM/Sandbox/dedicated machine with a disposable
-snapshot. Dedicated provider test keys must be entered manually in the installed candidate UI, not
-provided in chat.
+The Task 7 release candidate was not launched in the daily user's session for provider discovery:
+on Windows it resolves app data through `FOLDERID_RoamingAppData`, so process-only
+`APPDATA`/`LOCALAPPDATA` overrides do not guarantee isolation. Provider credential availability is
+therefore still unknown. Resume requires one user-initiated normal Windows restart, followed by a
+fresh Sandbox session and the still-NOT-RUN clean gates. Any missing provider test key must be
+entered manually in an isolated installed-candidate UI, not provided in chat or copied from host
+storage.
 
 ## CI and publication state
 
@@ -169,7 +185,7 @@ signed or published.
 
 ## Manual gates retained after Task 8
 
-- Clean Windows 11 x64 install, launch, uninstall, and residual-data scan: **BLOCKED / NOT RUN**.
+- Clean Windows 11 x64 install, launch, uninstall, and residual-data scan: **REBOOT REQUIRED / NOT RUN**.
 - First run, three import formats, restart, backup/restore, delete/clear, real DPI/high-contrast,
   and Narrator/NVDA: **BLOCKED / NOT RUN**.
 - Five real-provider credential/model checks and supported visual/structured requests:
