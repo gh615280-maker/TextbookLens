@@ -421,7 +421,7 @@ async fn seed_durable_state(pool: &sqlx::SqlitePool, book_id: Uuid, profile_id: 
         .bind(Uuid::new_v4().to_string()).bind(conversation_id.to_string()).bind(TIMESTAMP).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO messages (id, conversation_id, ordinal, role, action, content, provider_id, model_id, citations_json, created_at) VALUES (?, ?, 1, 'assistant', 'explain', 'Durable synthetic completion', ?, 'synthetic-model', '[]', ?)")
         .bind(Uuid::new_v4().to_string()).bind(conversation_id.to_string()).bind(profile_id.to_string()).bind(TIMESTAMP).execute(pool).await.unwrap();
-    sqlx::query("INSERT INTO annotations (id, book_id, section_id, kind, anchor_json, selected_text, conversation_id, revision, created_at, updated_at) VALUES (?, ?, ?, 'ai_conversation', '{}', 'Durable selection', ?, 1, ?, ?)")
+    sqlx::query("INSERT INTO annotations (id, book_id, section_id, kind, anchor_json, selected_text, summary_text, conversation_id, revision, created_at, updated_at) VALUES (?, ?, ?, 'ai_conversation', '{}', 'Durable selection', 'Durable synthetic summary', ?, 1, ?, ?)")
         .bind(Uuid::new_v4().to_string()).bind(book_id.to_string()).bind(section_id.to_string()).bind(conversation_id.to_string()).bind(TIMESTAMP).bind(TIMESTAMP).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO annotations (id, book_id, section_id, kind, anchor_json, selected_text, note_text, revision, created_at, updated_at) VALUES (?, ?, ?, 'note', '{}', 'Durable selection', 'Durable synthetic note', 1, ?, ?)")
         .bind(Uuid::new_v4().to_string()).bind(book_id.to_string()).bind(section_id.to_string()).bind(TIMESTAMP).bind(TIMESTAMP).execute(pool).await.unwrap();
@@ -542,6 +542,12 @@ async fn assert_restored_state(
         let count: i64 = sqlx::query_scalar(query).fetch_one(pool).await.unwrap();
         assert_eq!(count, expected, "wrong restored count for {table}");
     }
+    let restored_summary: String =
+        sqlx::query_scalar("SELECT summary_text FROM annotations WHERE kind = 'ai_conversation'")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(restored_summary, "Durable synthetic summary");
     let settings = sqlx::query("SELECT ui_language, theme, context_mode, default_learning_profile_id, font_scale, line_height, reader_width, pdf_zoom FROM app_settings WHERE id = 1")
         .fetch_one(pool).await.unwrap();
     assert_eq!(settings.get::<String, _>("ui_language"), "zh-TW");

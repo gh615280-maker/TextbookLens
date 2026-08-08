@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::{collections::BTreeMap, path::MAIN_SEPARATOR_STR};
 
 use secrecy::SecretString;
 use textbooklens_lib::{
@@ -61,6 +62,47 @@ fn redaction_filters_query_unicode_and_nested_structured_fields() {
     assert!(!safe.contains(query_secret));
     assert!(!safe.contains(nested_secret));
     assert!(safe.contains("mode=test"));
+}
+
+#[test]
+fn redaction_filters_phase15_privacy_classes_paths_and_credential_identifiers() {
+    let sentinel = |class: &str| ["TL", "P15", class, "ARTIFACT", "PROBE", "runtime"].join("_");
+    let classes = [
+        ("api_key", "api_credential"),
+        ("credential_id", "credential_identifier"),
+        ("source_absolute_path", "source_absolute_path"),
+        ("textbook_text", "textbook_text"),
+        ("page_image_base64", "page_image_base64"),
+        ("prompt", "prompt"),
+        ("teaching_instruction", "teaching_instruction"),
+        ("answer", "answer"),
+        ("vendor_body", "vendor_body"),
+        ("remote_resource_id", "remote_resource_id"),
+        ("user_note", "user_note"),
+        ("request_id", "internal_request_id"),
+        ("profile_id", "internal_profile_id"),
+        ("run_id", "internal_run_id"),
+        ("attempt_id", "internal_attempt_id"),
+    ];
+    let values = classes
+        .iter()
+        .map(|(field, class)| ((*field).to_owned(), sentinel(class)))
+        .collect::<BTreeMap<_, _>>();
+    let structured = serde_json::to_string(&values).unwrap();
+    let credential_identifier = ["textbooklens", "10000000-0000-4000-8000-000000000001"].join("/");
+    let source_path = if cfg!(windows) {
+        ["C:", "Users", "PrivateAccount", "source.pdf"].join(MAIN_SEPARATOR_STR)
+    } else {
+        ["", "home", "private-account", "source.pdf"].join("/")
+    };
+    let input = format!("{structured} identifier={credential_identifier} source={source_path}");
+    let safe = redact(&input);
+
+    for (_, class) in classes {
+        assert!(!safe.contains(&sentinel(class)));
+    }
+    assert!(!safe.contains(&credential_identifier));
+    assert!(!safe.contains(&source_path));
 }
 
 #[test]

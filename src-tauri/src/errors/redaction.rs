@@ -39,10 +39,26 @@ pub fn redact(input: &str) -> String {
         "gemini_api_key=",
         "deepseek_api_key=",
         "kimi_api_key=",
+        "credential_id=",
+        "source_absolute_path=",
+        "textbook_text=",
+        "page_image_base64=",
+        "prompt=",
+        "teaching_instruction=",
+        "answer=",
+        "vendor_body=",
+        "remote_resource_id=",
+        "user_note=",
+        "request_id=",
+        "profile_id=",
+        "run_id=",
+        "attempt_id=",
         "key=",
     ] {
         mark_value_after(input, &lower, marker, &mut ranges);
     }
+    mark_credential_identifiers(input, &lower, &mut ranges);
+    mark_private_absolute_paths(input, &lower, &mut ranges);
     mark_secret_tokens(input, &mut ranges);
 
     merge_ranges(&mut ranges);
@@ -113,6 +129,23 @@ fn mark_json_sensitive_values(input: &str, lower: &str, ranges: &mut Vec<(usize,
                 | "access_token"
                 | "token"
                 | "key"
+                | "credential_id"
+                | "source_absolute_path"
+                | "source_path"
+                | "textbook_text"
+                | "page_image_base64"
+                | "prompt"
+                | "teaching_instruction"
+                | "answer"
+                | "vendor_response"
+                | "vendor_body"
+                | "remote_resource_id"
+                | "user_note"
+                | "request_id"
+                | "profile_id"
+                | "provider_profile_id"
+                | "run_id"
+                | "attempt_id"
         ) {
             cursor = key_end + 1;
             continue;
@@ -133,6 +166,50 @@ fn mark_json_sensitive_values(input: &str, lower: &str, ranges: &mut Vec<(usize,
             ranges.push((value_cursor, value_end));
         }
         cursor = value_end.max(key_end + 1);
+    }
+}
+
+fn mark_credential_identifiers(input: &str, lower: &str, ranges: &mut Vec<(usize, usize)>) {
+    let marker = "textbooklens/";
+    let mut offset = 0;
+    while let Some(relative) = lower[offset..].find(marker) {
+        let value_start = offset + relative;
+        let value_end = sensitive_value_end(input, value_start);
+        if value_start < value_end {
+            ranges.push((value_start, value_end));
+        }
+        offset = value_start + marker.len();
+    }
+}
+
+fn mark_private_absolute_paths(input: &str, lower: &str, ranges: &mut Vec<(usize, usize)>) {
+    for marker in [
+        ":\\users\\",
+        ":/users/",
+        ":\\documents and settings\\",
+        ":/documents and settings/",
+    ] {
+        let mut offset = 0;
+        while let Some(relative) = lower[offset..].find(marker) {
+            let marker_start = offset + relative;
+            let value_start = marker_start.saturating_sub(1);
+            let value_end = sensitive_path_end(input, marker_start + marker.len());
+            if value_start < value_end {
+                ranges.push((value_start, value_end));
+            }
+            offset = marker_start + marker.len();
+        }
+    }
+    for marker in ["/home/", "/users/"] {
+        let mut offset = 0;
+        while let Some(relative) = lower[offset..].find(marker) {
+            let value_start = offset + relative;
+            let value_end = sensitive_path_end(input, value_start + marker.len());
+            if value_start < value_end {
+                ranges.push((value_start, value_end));
+            }
+            offset = value_start + marker.len();
+        }
     }
 }
 
@@ -196,6 +273,19 @@ fn sensitive_value_end(input: &str, mut index: usize) -> usize {
         && !matches!(
             bytes[index],
             b'&' | b'#' | b'"' | b'\'' | b',' | b'}' | b']'
+        )
+    {
+        index += 1;
+    }
+    index
+}
+
+fn sensitive_path_end(input: &str, mut index: usize) -> usize {
+    let bytes = input.as_bytes();
+    while index < bytes.len()
+        && !matches!(
+            bytes[index],
+            b'\r' | b'\n' | b'"' | b'\'' | b'<' | b'>' | b'|' | b',' | b';' | b'}' | b']'
         )
     {
         index += 1;

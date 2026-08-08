@@ -34,13 +34,28 @@ const packageLicenseAliases = new Map([
 const rootManifest = JSON.parse(
   readFileSync(path.join(projectRoot, 'package.json'), 'utf8'),
 );
+const rootLockfile = JSON.parse(
+  readFileSync(path.join(projectRoot, 'package-lock.json'), 'utf8'),
+);
 const rootPackageKey = `${rootManifest.name}@${rootManifest.version}`;
+const EXACT_SEMVER =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
 
 if (process.argv[1] && path.resolve(process.argv[1]) === moduleFile) {
   runLicenseCheck();
 }
 
 function runLicenseCheck() {
+  const supplyChainIssues = auditManifestAndLockfile(
+    rootManifest,
+    rootLockfile,
+  );
+  if (supplyChainIssues.length > 0) {
+    for (const issue of supplyChainIssues) console.error(issue);
+    process.exitCode = 1;
+    return;
+  }
+
   const result = spawnSync(
     process.execPath,
     [licenseChecker, '--production', '--json', '--start', projectRoot],
@@ -99,6 +114,80 @@ function runLicenseCheck() {
       `npm license policy passed for ${Object.keys(packages).length} packages.`,
     );
   }
+}
+
+export function auditManifestAndLockfile(manifest, lockfile) {
+  const issues = [];
+  if (lockfile.lockfileVersion !== 3) {
+    issues.push(`package-lock.json: lockfileVersion must be 3`);
+  }
+  const lockedRoot = lockfile.packages?.[''];
+  if (!lockedRoot || typeof lockedRoot !== 'object') {
+    issues.push(`package-lock.json: missing root package record`);
+    return issues;
+  }
+  if (
+    lockedRoot.name !== manifest.name ||
+    lockedRoot.version !== manifest.version
+  ) {
+    issues.push(
+      `package-lock.json: root name/version does not match package.json`,
+    );
+  }
+
+  for (const group of ['dependencies', 'devDependencies']) {
+    const declared = manifest[group] ?? {};
+    const lockedDeclared = lockedRoot[group] ?? {};
+    for (const [dependency, specification] of Object.entries(declared)) {
+      if (
+        typeof specification !== 'string' ||
+        !EXACT_SEMVER.test(specification)
+      ) {
+        issues.push(
+          `package.json:${group}.${dependency}: direct dependency must use an exact semver`,
+        );
+      }
+      if (lockedDeclared[dependency] !== specification) {
+        issues.push(
+          `package-lock.json:${group}.${dependency}: root declaration drift`,
+        );
+      }
+      const lockedPackage = lockfile.packages?.[`node_modules/${dependency}`];
+      if (!lockedPackage || lockedPackage.version !== specification) {
+        issues.push(
+          `package-lock.json:node_modules/${dependency}: exact direct version drift`,
+        );
+      }
+    }
+    for (const dependency of Object.keys(lockedDeclared)) {
+      if (!(dependency in declared)) {
+        issues.push(
+          `package-lock.json:${group}.${dependency}: undeclared root dependency`,
+        );
+      }
+    }
+  }
+
+  for (const [packagePath, metadata] of Object.entries(
+    lockfile.packages ?? {},
+  )) {
+    if (packagePath === '') continue;
+    if (
+      typeof metadata.resolved !== 'string' ||
+      !metadata.resolved.startsWith('https://registry.npmjs.org/')
+    ) {
+      issues.push(
+        `${packagePath}: dependency source is not the npm HTTPS registry`,
+      );
+    }
+    if (
+      typeof metadata.integrity !== 'string' ||
+      !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(metadata.integrity)
+    ) {
+      issues.push(`${packagePath}: missing SHA-512 lockfile integrity`);
+    }
+  }
+  return issues;
 }
 
 export function normalizeLicenseExpression(dependency, expression) {
