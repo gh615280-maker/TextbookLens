@@ -546,7 +546,9 @@ learningTest(
     expect(alphaMoved.y).not.toBe(alphaBefore.y);
     expect(betaUnchanged).toEqual(betaBefore);
 
-    const alphaResize = alphaPanel.getByRole('button', { name: 'Resize se' });
+    const alphaResize = alphaPanel.getByRole('button', {
+      name: 'Resize learning panel bottom-right corner',
+    });
     await alphaResize.focus();
     await alphaResize.press('ArrowRight');
     await alphaResize.press('ArrowDown');
@@ -558,13 +560,13 @@ learningTest(
     expect(await zIndex(alphaPanel)).toBeGreaterThan(await zIndex(betaPanel));
 
     await alphaPanel.getByRole('button', { name: 'Stop' }).click();
-    await expect(alphaPanel).toContainText('cancelled');
+    await expect(alphaPanel).toContainText('Cancelled');
     await emit(page, backend, betaRequest, {
       type: 'text_delta',
       text: ' and durable',
     });
     await emit(page, backend, betaRequest, { type: 'completed' });
-    await expect(betaPanel).toContainText('completed');
+    await expect(betaPanel).toContainText('Completed');
     await expect(betaPanel).toContainText('beta partial and durable');
     expect(backend.safeStats()).toMatchObject({
       cancellations: 1,

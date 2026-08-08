@@ -560,7 +560,7 @@ test('K: confirmed abnormal pages remain searchable after transient inputs disap
   backend,
 }) => {
   await startConfirmedRun(page);
-  await expect(page.getByText(/Overall: ready/u)).toBeVisible();
+  await expect(page.getByText(/Overall: Ready/u)).toBeVisible();
   await expect(page.getByText('No pages need review.')).toBeVisible();
 
   await page.goto(`/books/${bookId}/read`);
@@ -607,7 +607,7 @@ test('L: partial failure retries only the stale-version-matched page', async ({
   backend.failFirstPageOnce = true;
   await startConfirmedRun(page);
 
-  await expect(page.getByText(/Overall: partial/u)).toBeVisible();
+  await expect(page.getByText(/Overall: Partial/u)).toBeVisible();
   await expect(page.getByText('Completed').locator('..')).toContainText('1');
   await expect(
     page
@@ -631,7 +631,7 @@ test('L: partial failure retries only the stale-version-matched page', async ({
   await page.goto(`/books/${bookId}/index-quality/${runId}`);
   await page.getByRole('button', { name: 'Retry page' }).click();
 
-  await expect(page.getByText(/Overall: ready/u)).toBeVisible();
+  await expect(page.getByText(/Overall: Ready/u)).toBeVisible();
   await expect(page.getByText('No pages need review.')).toBeVisible();
   const stats = backend.safeStats();
   expect(stats.retryExpectedVersion).toBe(failedUpdatedAt);

@@ -423,11 +423,12 @@ test('book-first onboarding keeps import through invalid and valid synthetic key
 }) => {
   const external = collectExternalRequests(page);
   await page.goto('/onboarding');
+  await switchApplicationLanguageToEnglish(page);
   await expect(
     page.getByRole('heading', { name: 'Choose a book' }),
   ).toBeVisible();
 
-  await page.getByRole('button', { name: '导入教材' }).click();
+  await page.getByRole('button', { name: 'Import textbook' }).click();
   await expect(
     page.getByText(/Book: Synthetic Phase 7 Textbook/),
   ).toBeVisible();
