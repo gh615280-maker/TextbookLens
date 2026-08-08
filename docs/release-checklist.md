@@ -9,14 +9,14 @@ Windows 10 is neither supported nor validated.
 
 | Input                  | Required value                                                                                                                                                                                  |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source commit          | `ba0c62dc5e346461bdb1bf2004f4e009f50fbbd3` plus this Task 7 change only                                                                                                                         |
+| Source commit          | `bfbe504b0380a64d88c9d51466768195d36b396b` (Task 7 base `ba0c62dc5e346461bdb1bf2004f4e009f50fbbd3`)                                                                                              |
 | Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                          |
 | Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                             |
 | Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                        |
 | Tauri CLI / Rust crate | `2.11.4` / `2.11.5`                                                                                                                                                                             |
 | Application version    | `0.1.0` (`package.json`, `Cargo.toml`, and `tauri.conf.json`)                                                                                                                                   |
 | Product / identifier   | `TextbookLens` / `dev.textbooklens.desktop`                                                                                                                                                     |
-| Dependency records     | `package-lock.json` SHA-256 `21E17A6AEE4AC24DD4401CCEC0ABCD05D32F8CDBEF4838519BE6FBD7149180E2`; `src-tauri/Cargo.lock` SHA-256 `5AFE9A8782AEB56BC9A90F0FD3821DC48249DA8035CFEE818DB527259463E2` |
+| Dependency records     | `package-lock.json` SHA-256 `E7593397180DCE443149265BF569464823CD43CB5650C586BB05003CD64776B0`; `src-tauri/Cargo.lock` SHA-256 `5AFE9A8782AEB56BC9A90F0FD3821DC48249DA8035CFEE818DB527259463E2EE` |
 | Toolchain record       | `rust-toolchain.toml` SHA-256 `6B5C36CC63BE7BF3A075574039B8A49C1361FC1C3ACFCE234AFD28BCC7DECF13`                                                                                                |
 
 No lockfile may change during installation, checking, or bundling. The release build uses
@@ -31,19 +31,18 @@ changes SQLx migration checksums. Before each build, verify every migration hash
 `0012`–`0015`, against the Git blob bytes.
 
 ```powershell
-$env:CARGO_TARGET_DIR = 'D:\CodexBuild\textbooklens-p15t7-target-a'
-$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-temp-a'
+$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-temp-e'
 $env:TMP = $env:TEMP
 $env:CARGO_INCREMENTAL = '0'
 $env:CARGO_BUILD_JOBS = '1'
-git -c core.autocrlf=false clone --no-local . D:\CodexBuild\textbooklens-p15t7-source-a
-git -C D:\CodexBuild\textbooklens-p15t7-source-a config core.autocrlf false
-Set-Location D:\CodexBuild\textbooklens-p15t7-source-a
+git -c core.autocrlf=false clone --no-local . D:\CodexBuild\textbooklens-p15t7-source-e
+git -C D:\CodexBuild\textbooklens-p15t7-source-e checkout --detach bfbe504b0380a64d88c9d51466768195d36b396b
+git -C D:\CodexBuild\textbooklens-p15t7-source-e config core.autocrlf false
+Set-Location D:\CodexBuild\textbooklens-p15t7-source-e
 npm.cmd ci
 npm.cmd ci --offline
 cargo.exe metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage Toolchain,Frontend,Rust,Integrity,Acceptance -BuildRoot D:\CodexBuild\textbooklens-p15t7-preflight-a -SkipArtifactBuild -Offline
-npm.cmd run tauri build
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage All -BuildRoot D:\CodexBuild\textbooklens-p15t7-preflight-e -Offline
 ```
 
 The `npm ci` network-resolution/download phase and `npm ci --offline` cache-only phase must be
@@ -76,7 +75,9 @@ with one worker, and uses only the existing synthetic loopback/fixture test boun
 
 The bundle must contain only Tauri runtime output, the built frontend, the allowlisted provider
 registry, migrations, notices, and configured icon. It must not contain source maps, logs, test
-fixtures, credentials, user paths/data, debug symbols, or a development-server URL. The final
+fixtures, credentials, user paths/data, debug symbols, or a development-server dependency. The
+release executable's only development-URL string hit is the Tauri `devUrl` configuration literal
+`http://localhost:1420`; release packaging uses `frontendDist` and ships no dev server. The final
 artifact directory is `D:\CodexBuild\textbooklens-p15t7-release`; it is retained for Task 8.
 
 | Artifact                           | SHA-256                                                            | Size (bytes) | Scanner / inspection |
