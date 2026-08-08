@@ -104,7 +104,10 @@ try {
         if (Test-Stage 'Acceptance') {
             $files = @('e2e/acceptance/scenario-isolation.spec.ts', 'e2e/accessibility-visual.spec.ts', 'e2e/local-data-privacy.spec.ts')
             $grep = '(?:' + (($AcceptanceScenario | ForEach-Object { [regex]::Escape("${_}:") }) -join '|') + ')'
-            Invoke-Checked "Task 5 acceptance subset ($($AcceptanceScenario -join ','))" $npm (@('run', 'test:e2e', '--') + $files + @('--grep', $grep, '--workers=1'))
+            # npm.cmd routes its arguments through cmd.exe, where `|` in the grep
+            # expression becomes a pipeline. Invoke Playwright's local Node entry
+            # directly so the exact A/B/O/P/Q alternation reaches Playwright.
+            Invoke-Checked "Task 5 acceptance subset ($($AcceptanceScenario -join ','))" $node (@('node_modules/@playwright/test/cli.js', 'test') + $files + @('--project=chromium', '--grep', $grep, '--workers=1'))
         }
         if (Test-Stage 'Bundle' -and -not $SkipArtifactBuild) {
             Invoke-Checked 'Windows release bundle' $npm @('run', 'tauri', 'build')
