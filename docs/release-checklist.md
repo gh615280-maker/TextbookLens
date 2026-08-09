@@ -1,17 +1,18 @@
 # Windows release checklist
 
 This checklist is the technical record for a **local, unsigned Windows 11 x64 V1 build**. It is
-not a release approval. Task 8 is **RED / FAIL** after real Windows Sandbox execution: the NSIS
-primary flow and MSI independent smoke ran, then the provider connect form exposed a cross-provider
-credential-retention/routing defect. Required three-format reading, 125/150/200% system scaling,
-complete accessibility/backup/delete coverage, and all real-provider request gates also remain
-incomplete or NOT RUN. Windows 10 is neither supported nor validated, and Task 9 must not start.
+not a release approval. The cross-provider credential-retention/routing defect found by Task 8 was
+fixed and a credential-safe release candidate was rebuilt from clean source. Task 8 has **NOT RUN**
+against this replacement candidate, so its earlier RED / FAIL evidence is not converted to PASS.
+Required three-format reading, 125/150/200% system scaling, complete accessibility/backup/delete
+coverage, and all real-provider request gates remain incomplete or NOT RUN. Windows 10 is neither
+supported nor validated, and Task 9 remains **NOT RUN** and must not start.
 
 ## Immutable inputs
 
 | Input                  | Required value                                                                                                                                                                                    |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source commit          | `bfbe504b0380a64d88c9d51466768195d36b396b` (Task 7 base `ba0c62dc5e346461bdb1bf2004f4e009f50fbbd3`)                                                                                               |
+| Source commit          | `c5146f2ec89935ec2430089307611f62f5a9ee7d` (credential isolation fix `4d37a5b3de7e096d9241686a2c85bd0bf3b3c5d3`; parent `3a9ec2146b5177ca51be185b677d4ccf68fc803e`)                               |
 | Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                            |
 | Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                               |
 | Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                          |
@@ -33,23 +34,22 @@ changes SQLx migration checksums. Before each build, verify every migration hash
 `0012`–`0015`, against the Git blob bytes.
 
 ```powershell
-$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-temp-e'
+$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-temp'
 $env:TMP = $env:TEMP
 $env:CARGO_INCREMENTAL = '0'
 $env:CARGO_BUILD_JOBS = '1'
-git -c core.autocrlf=false clone --no-local . D:\CodexBuild\textbooklens-p15t7-source-e
-git -C D:\CodexBuild\textbooklens-p15t7-source-e checkout --detach bfbe504b0380a64d88c9d51466768195d36b396b
-git -C D:\CodexBuild\textbooklens-p15t7-source-e config core.autocrlf false
-Set-Location D:\CodexBuild\textbooklens-p15t7-source-e
-npm.cmd ci
+git clone --no-local -c core.autocrlf=false . D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-source
+Set-Location D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-source
 npm.cmd ci --offline
 cargo.exe metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage All -BuildRoot D:\CodexBuild\textbooklens-p15t7-preflight-e -Offline
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage All -BuildRoot D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-build -Offline
 ```
 
-The `npm ci` network-resolution/download phase and `npm ci --offline` cache-only phase must be
-recorded separately. A missing cache is **NOT RUN**, never an offline pass. Do not read or write
-normal user app data, Documents, or normal Temp during this procedure.
+When a network-resolution/download phase is authorized, it and the `npm ci --offline` cache-only
+phase must be recorded separately. This refresh authorized no network phase: a verified prior cache
+was copied into a fresh task-only npm-cache path, and `npm ci --offline` installed 705 packages with
+0 vulnerabilities. A missing cache is **NOT RUN**, never an offline pass. Do not read or write normal
+user app data, Documents, or normal Temp during the clean-build procedure.
 
 ## Required automated gates
 
@@ -82,11 +82,11 @@ release executable's only development-URL string hit is the Tauri `devUrl` confi
 `http://localhost:1420`; release packaging uses `frontendDist` and ships no dev server. The final
 artifact directory is `D:\CodexBuild\textbooklens-p15t7-release`; it is retained for Task 8.
 
-| Artifact                           | SHA-256                                                            | Size (bytes) | Scanner / inspection                                                                                       |
-| ---------------------------------- | ------------------------------------------------------------------ | -----------: | ---------------------------------------------------------------------------------------------------------- |
-| NSIS installer                     | `E77AB16985410A84A04E2965A08DBE0AD974E0646991FA1B5AF6E9D8AFBE38DC` |    9,000,265 | Scanner PASS; Task 8 found an x86 outer bootstrap PE, which is not installed-payload architecture evidence |
-| MSI installer                      | `938AFFB126FE81D9F48493CACFC8EAB9062D086F6DD50E814553796287E3A5DE` |   12,046,336 | Scanner PASS                                                                                               |
-| unpacked bundle/resources manifest | 21 files / 21,108,514 bytes                                        |   21,108,514 | Scanner PASS                                                                                               |
+| Artifact                            | SHA-256                                                            | Size (bytes) | Scanner / inspection                                                                                                           |
+| ----------------------------------- | ------------------------------------------------------------------ | -----------: | ------------------------------------------------------------------------------------------------------------------------------ |
+| NSIS installer                      | `1CFB207D58D654AAAE7D9942CEA37B1CFB4016D300FD1A74D33D91A305A24187` |    9,002,116 | Scanner PASS; outer bootstrap PE `0x014c`; release payload EXE is x86-64                                                       |
+| MSI installer                       | `D2940E63B2D0333166EDD12B7FEF61C64F1288ACD791BC405343982C536DB79A` |   12,050,432 | Scanner PASS; Product `TextbookLens` `0.1.0`; summary `x64;0`; `ALLUSERS=1`                                                    |
+| bundle/resources/migrations/notices | 20 files / 21,108,862 bytes                                        |   21,108,862 | Scanner PASS; no `.map`, `.pdb`, `.log`, fixture, private sentinel, credential, user path/data, or development-server artifact |
 
 Two isolated builds must compare file manifests and SHA-256 values. MSI/NSIS container timestamps,
 PE metadata, and a future code signature may make bytes differ; that is an explainable boundary,
@@ -100,17 +100,35 @@ reproducible: build A versus B differs for NSIS (9,000,265 / 8,999,366 bytes; SH
 `938AFFB1…A5DE` / `7E5F6334…486F`). This is recorded as an installer-tool metadata boundary;
 Task 9 must retain this result and must not claim byte-identical installation media.
 
+The credential-safe refresh ran the full offline `Stage All` preflight from clean commit
+`c5146f2ec89935ec2430089307611f62f5a9ee7d`: frontend format/lint/typecheck/build, 96 Vitest files
+and 382 tests, Rust fmt/clippy/all tests, sensitive/licenses/fixtures/generated checks, A/B/O/P/Q,
+both bundles, and the release scanner passed. The superseded Task 7 packages were copied byte for
+byte to read-only
+`D:\CodexBuild\textbooklens-p15t7-release-pre-credential-isolation-c5146f2-20260809` before the
+two authoritative files were replaced. Signing, timestamping, updater configuration, publication,
+remote CI, Task 8 rerun, and Task 9 remain **NOT CONFIGURED / NOT RUN**.
+
 ## Task 8 clean-Windows and real-provider result
 
-Task 8 started from exact HEAD `8af9882e44be33e18c91a39e81f324cf98b3b6d2` with parent
+The historical Task 8 run started from exact HEAD `8af9882e44be33e18c91a39e81f324cf98b3b6d2` with parent
 `c7716affae03fe820f76aceec34e0055c8105e53` and preserved its initial evidence in
 `458ea4f7dc939b070dc58a71290b2a069e601ed2`; the pre-restart continuation was recorded in
 `bbe4e2ede0616cd7de210ad5d56feb7d6a4901f5`. The protected Task 7 chain was not rewritten. Start,
-environment-switch, and final checks found the retained release directory unchanged at the
-size/hash values above. The daily-user desktop shortcut still targets the designated debug
-executable, which remains 43,559,424 bytes with SHA-256
-`38F6652F6F4B60185046DAB8426A3E9C0B69E912BE75118CA68B19D83F290521`; Task 8 did not launch, stop,
-overwrite, or relink it.
+environment-switch, and final checks found its then-current Task 7 release directory unchanged.
+That execution evidence belongs to the superseded candidate and is retained only as defect history.
+
+The credential-safe refresh did not resume or operate the retained Sandbox. It rebuilt the daily-user
+desktop target from the same final clean source and launched it once through the unchanged shortcut.
+The authoritative debug executable is 43,682,304 bytes with SHA-256
+`34E840E2B62E43AFD10281DFBD0E6199D9BA1B818763E117C49D717C6719C82E`; the shortcut still targets
+`D:\CodexBuild\textbooklens-p9b-target\debug\textbooklens.exe`, loaded the TextbookLens shell with
+no localhost/network-error surface, and was closed by its exact new PID. The shortcut itself remains
+1,380 bytes with SHA-256 `A5E428D50138B7751DA342370DC12AE73076453395B39031490A3B2F3E5A1905`.
+
+Task 8 must restart from a fresh clean environment with the replacement NSIS/MSI and no inherited
+provider state; the retained failed Sandbox is not acceptance evidence for this candidate. Task 8
+is **NOT RUN** for the refreshed candidate, and Task 9 remains **NOT RUN**.
 
 ### Environment proof and decision
 
