@@ -10,23 +10,26 @@ system scaling, backup/restore, delete/clear, fullscreen, and live-region covera
 PARTIAL. On 2026-08-09 the user explicitly accepted those listed V1 release risks. The Task 8 release
 decision is therefore **ACCEPTED WITH DOCUMENTED EXCEPTIONS**: this is not an unconditional technical
 PASS, does not alter any gate status, and is not a permanent feature guarantee. Windows 10 is neither
-supported nor validated. Task 9 is permitted to begin in a separate task but remains **NOT RUN** here.
+supported nor validated. Task 9 was permitted to begin in a separate task and has now completed the
+full local release gate from the current security-fix source. Task 8 remains **ACCEPTED WITH
+DOCUMENTED EXCEPTIONS** with every technical status preserved; Task 9 is **PASS**. This authorizes
+the local unsigned V1 checkpoint only, not signing or publication.
 
-Task8 ACCEPTED WITH DOCUMENTED EXCEPTIONS; Task9 NOT RUN.
+Task8 ACCEPTED WITH DOCUMENTED EXCEPTIONS; Task9 PASS.
 
 ## Immutable inputs
 
-| Input                  | Required value                                                                                                                                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source commit          | `8d0b83257f8ded7236e5feb6cd38d4cb16f13f27` (visual capture/anchor fix; parent RC record `23a88e38b81e50c7d81c4321e69decd02888e6dc`; credential isolation fix `4d37a5b3de7e096d9241686a2c85bd0bf3b3c5d3`) |
-| Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                                   |
-| Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                                      |
-| Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                                 |
-| Tauri CLI / Rust crate | `2.11.4` / `2.11.5`                                                                                                                                                                                      |
-| Application version    | `0.1.0` (`package.json`, `Cargo.toml`, and `tauri.conf.json`)                                                                                                                                            |
-| Product / identifier   | `TextbookLens` / `dev.textbooklens.desktop`                                                                                                                                                              |
-| Dependency records     | `package-lock.json` SHA-256 `E7593397180DCE443149265BF569464823CD43CB5650C586BB05003CD64776B0`; `src-tauri/Cargo.lock` SHA-256 `5AFE9A8782AEB56BC9A90F0FD3821DC48249DA8035CFEE818DB527259463E2EE`        |
-| Toolchain record       | `rust-toolchain.toml` SHA-256 `6B5C36CC63BE7BF3A075574039B8A49C1361FC1C3ACFCE234AFD28BCC7DECF13`                                                                                                         |
+| Input                  | Required value                                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source commit          | `b36b0f27449d56bdc66cd87fc1974e1f96322a8c` (`fix: update remaining vulnerable npm dependencies`; parent `3ace412b2575fc4b8ce4763cfa79c42cee9b75a4`)                                               |
+| Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                            |
+| Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                               |
+| Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                          |
+| Tauri CLI / Rust crate | `2.11.4` / `2.11.5`                                                                                                                                                                               |
+| Application version    | `0.1.0` (`package.json`, `Cargo.toml`, and `tauri.conf.json`)                                                                                                                                     |
+| Product / identifier   | `TextbookLens` / `dev.textbooklens.desktop`                                                                                                                                                       |
+| Dependency records     | `package-lock.json` SHA-256 `E728D7A62EA916107148DF6EEFD5A755A3AE0B0A08E45E5156C7C2AE9743E1D6`; `src-tauri/Cargo.lock` SHA-256 `5AFE9A8782AEB56BC9A90F0FD3821DC48249DA8035CFEE818DB527259463E2EE` |
+| Toolchain record       | `rust-toolchain.toml` SHA-256 `6B5C36CC63BE7BF3A075574039B8A49C1361FC1C3ACFCE234AFD28BCC7DECF13`                                                                                                  |
 
 No lockfile may change during installation, checking, or bundling. The release build uses
 `CARGO_INCREMENTAL=0`, `CARGO_BUILD_JOBS=1`, Cargo `-j 1`, a task-scoped target directory, and a
@@ -40,20 +43,23 @@ changes SQLx migration checksums. Before each build, verify every migration hash
 `0012`–`0015`, against the Git blob bytes.
 
 ```powershell
-$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-temp'
+$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-p15t9-b36b0f2-20260809-01-build\temp'
 $env:TMP = $env:TEMP
+$env:npm_config_cache = 'D:\CodexBuild\textbooklens-p15t9-b36b0f2-20260809-01-npm-cache'
+$env:CARGO_HOME = 'D:\CodexBuild\textbooklens-p15t9-b36b0f2-20260809-01-cargo-home'
+$env:PLAYWRIGHT_BROWSERS_PATH = 'D:\CodexBuild\textbooklens-p15t9-b36b0f2-20260809-01-playwright'
+$env:CARGO_TARGET_DIR = 'D:\CodexBuild\textbooklens-p15t7-p15t9-b36b0f2-20260809-01-build\target'
 $env:CARGO_INCREMENTAL = '0'
 $env:CARGO_BUILD_JOBS = '1'
-git clone --no-local -c core.autocrlf=false . D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-source
-Set-Location D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-source
-npm.cmd ci --offline
+git clone --no-local -c core.autocrlf=false . D:\CodexBuild\textbooklens-p15t9-b36b0f2-20260809-01-source
+Set-Location D:\CodexBuild\textbooklens-p15t9-b36b0f2-20260809-01-source
+npm.cmd ci
 cargo.exe metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage All -BuildRoot D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-build -Offline
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage All -BuildRoot D:\CodexBuild\textbooklens-p15t7-p15t9-b36b0f2-20260809-01-build -Offline
 ```
 
-When a network-resolution/download phase is authorized, it and the `npm ci --offline` cache-only
-phase must be recorded separately. This refresh authorized no network phase: a verified prior cache
-was copied into a fresh task-only npm-cache path, and `npm ci --offline` installed 705 packages with
+Task 9 ran fresh online resolution/audit checks and cache-only offline checks separately. Build A and
+build B each used a new task-only cache and `npm ci` installed 704 packages while auditing 705 with
 0 vulnerabilities. A missing cache is **NOT RUN**, never an offline pass. Do not read or write normal
 user app data, Documents, or normal Temp during the clean-build procedure.
 
@@ -86,13 +92,13 @@ registry, migrations, notices, and configured icon. It must not contain source m
 fixtures, credentials, user paths/data, debug symbols, or a development-server dependency. The
 release executable's only development-URL string hit is the Tauri `devUrl` configuration literal
 `http://localhost:1420`; release packaging uses `frontendDist` and ships no dev server. The final
-artifact directory is `D:\CodexBuild\textbooklens-p15t7-release`; it is retained for Task 8.
+authoritative artifact directory is `D:\CodexBuild\textbooklens-p15t7-release`.
 
 | Artifact                            | SHA-256                                                            | Size (bytes) | Scanner / inspection                                                                                                           |
 | ----------------------------------- | ------------------------------------------------------------------ | -----------: | ------------------------------------------------------------------------------------------------------------------------------ |
-| NSIS installer                      | `925E93FAD440715AC7D9A495571F9E745279B157073A4B61F84525CF609F9BDE` |    9,001,336 | Scanner PASS; outer bootstrap PE `0x014c`; release payload EXE is x86-64                                                       |
-| MSI installer                       | `A50AF90362DB868646D9BEEC32F311C47A9DFD2FD8B8561627415804831ED0E5` |   12,050,432 | Scanner PASS; Product `TextbookLens` `0.1.0`; summary `x64;0`; `ALLUSERS=1`                                                    |
-| bundle/resources/migrations/notices | 20 files / 21,108,082 bytes                                        |   21,108,082 | Scanner PASS; no `.map`, `.pdb`, `.log`, fixture, private sentinel, credential, user path/data, or development-server artifact |
+| NSIS installer                      | `5C5213EB90E441096D05261BEEB5C7D364B85ED8527E2E1E3A782E60DBA97AD8` |    8,996,761 | Scanner PASS; outer bootstrap PE `0x014c`; release payload EXE is x86-64; unsigned                                             |
+| MSI installer                       | `CC8F602564D401412608086D5F6F1A1DC9DB86C7D51000EBD9FEBF522A2C5E89` |   12,046,336 | Scanner PASS; Product `TextbookLens` `0.1.0`; summary `x64;0`; `ALLUSERS=1`; unsigned                                          |
+| bundle/resources/migrations/notices | 20 files / 21,099,411 bytes                                        |   21,099,411 | Scanner PASS; no `.map`, `.pdb`, `.log`, fixture, private sentinel, credential, user path/data, or development-server artifact |
 
 Two isolated builds must compare file manifests and SHA-256 values. MSI/NSIS container timestamps,
 PE metadata, and a future code signature may make bytes differ; that is an explainable boundary,
@@ -138,8 +144,8 @@ user-entered DeepSeek/Kimi test credentials while performing a same-version upgr
 replacement NSIS. This continuation is valid for upgrade, credential-isolation, app-owned-data, and
 provider regression evidence; it is not represented as a new no-state install. Fresh NSIS and MSI
 package-entry evidence remains separately established by the earlier disposable sessions. There is
-no unresolved product FAIL on the current candidate. Task 8 is **ACCEPTED WITH DOCUMENTED
-EXCEPTIONS**, and Task 9 remains **NOT RUN** in this task.
+no unresolved product FAIL on the current candidate. At that Task 8 checkpoint, the decision was
+**ACCEPTED WITH DOCUMENTED EXCEPTIONS** and Task 9 was **NOT RUN**.
 
 ### Environment proof and decision
 
@@ -301,7 +307,7 @@ These exceptions are a bounded V1 release-risk acceptance, not technical PASS re
 feature guarantees, and not permission to erase or weaken the underlying evidence. All PASS,
 PARTIAL, NOT RUN, and WARN rows above remain authoritative. With no unresolved product FAIL on the
 replacement RC, Task 8 is **ACCEPTED WITH DOCUMENTED EXCEPTIONS / 用户接受例外后准予进入 Task 9**.
-Task 9 remains NOT RUN in this task and must begin separately.
+At that Task 8 checkpoint, Task 9 was NOT RUN and had to begin separately.
 
 ## CI and publication state
 
@@ -327,3 +333,104 @@ signed or published.
   decision: **ACCEPTED WITH DOCUMENTED EXCEPTIONS**; this is not an unconditional technical PASS.
 - Release signing, timestamping, updater/update publication, clean-device upgrade, and final
   release approval: **NOT CONFIGURED / NOT RUN**.
+
+## Task 9 final release gate
+
+Task 9 executed from exact HEAD `b36b0f27449d56bdc66cd87fc1974e1f96322a8c`, parent
+`3ace412b2575fc4b8ce4763cfa79c42cee9b75a4`, with the expected subject
+`fix: update remaining vulnerable npm dependencies`. The original workspace index was empty; the
+only status entry was the untouched untracked `TextbookLens_User_Guide.docx`. The protected
+`docs/superpowers/specs/2026-08-01-local-first-ai-textbook-reader-design.md` remained absent from
+worktree, index, and HEAD.
+
+### Complete gate result
+
+Two independent `--no-local`, `core.autocrlf=false` clones used separate npm caches, `CARGO_HOME`,
+Playwright browser directories, Cargo targets, and `TEMP`/`TMP`:
+
+- Build A source:
+  `D:\CodexBuild\textbooklens-p15t9-b36b0f2-20260809-01-source`; build root:
+  `D:\CodexBuild\textbooklens-p15t7-p15t9-b36b0f2-20260809-01-build`.
+- Build B source:
+  `D:\CodexBuild\textbooklens-p15t9-b36b0f2-20260809-02-source`; build root:
+  `D:\CodexBuild\textbooklens-p15t7-p15t9-b36b0f2-20260809-02-build`.
+
+Both used `CARGO_INCREMENTAL=0`, `CARGO_BUILD_JOBS=1`, and Rust `-j 1`.
+
+| Required gate                                                    | Final result                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh locked install                                             | PASS in A and B: 704 packages installed, 705 audited, 0 vulnerabilities                                                                                                                                                                                  |
+| `scripts/preflight.ps1 -Stage All -Offline`                      | PASS in A across every stage; 98 Vitest files / 394 tests; Vite 2,221 modules; A/B/O/P/Q; both bundles and scanner                                                                                                                                       |
+| Full Rust all-features rerun                                     | PASS: 476 passed, 0 failed, 1 ignored manual keyring smoke                                                                                                                                                                                               |
+| Full Playwright                                                  | PASS: 61/61                                                                                                                                                                                                                                              |
+| Build B offline Toolchain/Frontend/Integrity/Bundle stages       | PASS: 394 Vitest tests; both bundles and scanner                                                                                                                                                                                                         |
+| npm audit, full and production, online and offline               | PASS: 0 vulnerabilities in all four runs                                                                                                                                                                                                                 |
+| npm graph and explicit reviewed-advisory enforcement             | PASS production graph: 483 nodes. Full graph: 1,590 nodes with only the documented dev-only ESLint peer mismatch. `check:dependencies` passed seven reviewed-advisory gates independently of `npm audit`; focused security tests passed 16/16            |
+| Exact JavaScript dependency versions                             | PASS: production DOMPurify `3.4.13`; production nanoid absent; dev nanoid `3.3.18` plus docx-nested `5.1.16`; `epubjs@0.3.93` parent-scoped exact override to production `@xmldom/xmldom` `0.8.13`                                                       |
+| Rust supply chain                                                | `cargo deny check` PASS online and offline with `cargo-deny 0.20.2`; current `reqwest` tree uses Rustls and contains no native-TLS, cookie-store, proxy, or SOCKS feature                                                                                |
+| Migration history and database upgrade                           | PASS: `destructive_boundaries` 6/6, `database_contract` 14/14; `0001`–`0015` introduction/HEAD/worktree bytes and fixed checksums match; fresh DB and every cutoff upgrade/reopen pass                                                                   |
+| Generated, sensitive, license, fixture, marker, privacy, scanner | PASS; final scanner 20 files / 21,099,411 bytes with six allowlisted provider origins                                                                                                                                                                    |
+| V1 scope and workspace                                           | PASS: no browser provider fetch/socket, telemetry, updater, account, cloud, sync, collaboration, old fixed-right-panel, or superseded Task 9 scope; only six allowlisted Rust provider origins; no tracked change outside the two final Task 9 documents |
+
+Build warnings remain non-blocking and are not waived failures: the documented dev-only ESLint 10 /
+`eslint-plugin-jsx-a11y` peer mismatch, TypeScript/Rust generator and Windows linker warnings, and
+Vite's chunk-size warning. A first online-audit wrapper received a transient non-JSON response; the
+direct online retry passed with zero vulnerabilities. No new product, security, migration, privacy,
+package, or scope failure was accepted into the Task 8 waiver.
+
+### Rebuild comparison and authoritative packages
+
+| Output      | Build A size / SHA-256                                                          | Build B size / SHA-256                                                          |
+| ----------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Release EXE | 30,965,760 / `51B38C18CE00C817835759B76CB8FB9A91F415CA7300F25AA899AC10968C5F65` | 30,965,760 / `1EEA3B82A26592D965B4366FE5DCA905B50B895631911E276EF10A50581FA10F` |
+| NSIS        | 8,996,761 / `5C5213EB90E441096D05261BEEB5C7D364B85ED8527E2E1E3A782E60DBA97AD8`  | 9,005,562 / `B825805971940F0DE8DCB9D98C6E366EBDB957F333D3E07A13A402B0E8C3E0A9`  |
+| MSI         | 12,046,336 / `CC8F602564D401412608086D5F6F1A1DC9DB86C7D51000EBD9FEBF522A2C5E89` | 12,046,336 / `07BE037C80C880DD7FBA68B05965642BA14AE6D77A76015474BD6BF0C3A6EB39` |
+
+The 64-file frontend `dist` and staged resource/migration/license/notice content match byte for
+byte. The EXE and installer containers differ because isolated source/Cargo paths and generated
+WiX/NSIS metadata/order differ. The result is **matching logical content/manifest but NOT
+bit-reproducible**.
+
+Before promotion, the pre-security-fix packages were copied byte-for-byte to read-only
+`D:\CodexBuild\textbooklens-p15t7-release-superseded-pre-security-fix-8d0b832-20260809` and their
+original values were confirmed:
+
+- NSIS: 9,001,336 bytes,
+  `925E93FAD440715AC7D9A495571F9E745279B157073A4B61F84525CF609F9BDE`.
+- MSI: 12,050,432 bytes,
+  `A50AF90362DB868646D9BEEC32F311C47A9DFD2FD8B8561627415804831ED0E5`.
+
+The final authority `D:\CodexBuild\textbooklens-p15t7-release` now contains exactly the build A
+NSIS and MSI shown in the package table above. Post-promotion hashes and the artifact scanner match
+the pre-promotion values. Both packages identify TextbookLens `0.1.0` for x64 and are unsigned.
+
+### Desktop shortcut consistency
+
+The desktop shortcut remained byte-identical with SHA-256
+`A5E428D50138B7751DA342370DC12AE73076453395B39031490A3B2F3E5A1905`. Its target is still
+`D:\CodexBuild\textbooklens-p9b-target\debug\textbooklens.exe`, working directory is the same
+`debug` directory, arguments are empty, icon is `,0`, and window style is `1`.
+
+After every release and installer gate passed and zero exact-path TextbookLens processes were
+confirmed, the P9B target was rebuilt from clean build A using the production frontend and
+`tauri build --debug --no-bundle`. No test, check, clippy, or generated command used the P9B target.
+The new executable is TextbookLens `0.1.0`, x64, unsigned, 43,682,304 bytes, SHA-256
+`C44DAED47BFAF4DC7D74AED45066543278E9B45EAC1D5EA3743E1FC53C8B54B0`.
+
+A true `.lnk` launch created exact-path PID `35064`. The TextbookLens shell was responsive and showed
+no localhost or network-error surface; no textbook was opened, and no provider or settings surface
+was accessed. Only that PID received `CloseMainWindow`; it exited normally and no exact-path process
+remained. The task-only screenshot was deleted. The Computer Use enumerator was unavailable with
+Windows error `0x80070003`, so the smoke used a PID/HWND/path-bound Windows API fallback and did not
+touch the retained Task 8 Sandbox.
+
+### Final decision and non-publication state
+
+Task 8 remains **ACCEPTED WITH DOCUMENTED EXCEPTIONS / 用户接受例外后准予进入 Task 9**. Its
+itemized PASS, PARTIAL, NOT RUN, and WARN statuses remain authoritative. Task 9 introduced no new
+waiver and is **PASS** for the local unsigned V1 release gate.
+
+Signing, timestamping, updater configuration, updater publication, remote CI, tag creation, push,
+upload, publication, and release remain **NOT CONFIGURED / NOT RUN**. No tag, push, sign, publish,
+upload, or remote-release action occurred. Task 8 Sandbox PID `10664` / HWND `132426` was not
+operated, closed, typed into, or used as a Task 9 test environment.
