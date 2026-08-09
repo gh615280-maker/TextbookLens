@@ -20,6 +20,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "check:generated": "node scripts/check-generated.mjs",
+    "check:dependencies": "node scripts/check-production-dependencies.mjs",
     "check:licenses": "node scripts/check-npm-licenses.mjs",
     "check:sensitive": "node scripts/check-sensitive-files.mjs",
     "fixtures:build": "node scripts/build-fixtures.mjs",
@@ -45,6 +46,11 @@
     "remark-math": "6.0.0",
     "uuid": "14.0.1",
     "zod": "4.4.3"
+  },
+  "overrides": {
+    "epubjs@0.3.93": {
+      "@xmldom/xmldom": "0.8.13"
+    }
   },
   "devDependencies": {
     "@axe-core/playwright": "4.12.1",

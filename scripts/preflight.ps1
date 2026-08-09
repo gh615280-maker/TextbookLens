@@ -96,6 +96,7 @@ try {
             Invoke-Checked 'Rust tests' $cargo @('test', '--locked', '--manifest-path', 'src-tauri/Cargo.toml', '--all-features', '-j', '1')
         }
         if (Test-Stage 'Integrity') {
+            Invoke-Checked 'production dependency security check' $npm @('run', 'check:dependencies')
             Invoke-Checked 'sensitive-file check' $npm @('run', 'check:sensitive')
             Invoke-Checked 'npm license check' $npm @('run', 'check:licenses')
             Invoke-Checked 'fixture verification' $npm @('run', 'fixtures:verify')
