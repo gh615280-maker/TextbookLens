@@ -4,13 +4,15 @@ This checklist is the technical record for a **local, unsigned Windows 11 x64 V1
 not a release approval. The cross-provider credential-retention/routing defect and the later
 visual-learning capture/anchor defect were fixed in the replacement release candidate. A continued
 Task 8 run on that candidate passed the credential-isolation regression, three-format full-reader
-restart, DeepSeek text, and Kimi vision gates. Task 8 nevertheless remains **RED / INCOMPLETE**:
-OpenAI, Gemini, and Anthropic have no test credentials; required structured/provider, true
-125/150/200% system scaling, backup/restore, delete/clear, fullscreen, and live-region coverage is
-incomplete or NOT RUN. Windows 10 is neither supported nor validated, and Task 9 remains **NOT RUN**
-and must not start.
+restart, DeepSeek text, and Kimi vision gates. Its technical ledger remains incomplete: OpenAI,
+Gemini, and Anthropic have no test credentials, and required structured/provider, true 125/150/200%
+system scaling, backup/restore, delete/clear, fullscreen, and live-region coverage remains NOT RUN or
+PARTIAL. On 2026-08-09 the user explicitly accepted those listed V1 release risks. The Task 8 release
+decision is therefore **ACCEPTED WITH DOCUMENTED EXCEPTIONS**: this is not an unconditional technical
+PASS, does not alter any gate status, and is not a permanent feature guarantee. Windows 10 is neither
+supported nor validated. Task 9 is permitted to begin in a separate task but remains **NOT RUN** here.
 
-Task8 replacement-RC continuation RED / INCOMPLETE; Task9 NOT RUN.
+Task8 ACCEPTED WITH DOCUMENTED EXCEPTIONS; Task9 NOT RUN.
 
 ## Immutable inputs
 
@@ -135,8 +137,9 @@ Task 8 later resumed the sole retained disposable credential session specificall
 user-entered DeepSeek/Kimi test credentials while performing a same-version upgrade to the
 replacement NSIS. This continuation is valid for upgrade, credential-isolation, app-owned-data, and
 provider regression evidence; it is not represented as a new no-state install. Fresh NSIS and MSI
-package-entry evidence remains separately established by the earlier disposable sessions. Task 8 is
-**RED / INCOMPLETE**, not a product FAIL on the current candidate, and Task 9 remains **NOT RUN**.
+package-entry evidence remains separately established by the earlier disposable sessions. There is
+no unresolved product FAIL on the current candidate. Task 8 is **ACCEPTED WITH DOCUMENTED
+EXCEPTIONS**, and Task 9 remains **NOT RUN** in this task.
 
 ### Environment proof and decision
 
@@ -166,10 +169,12 @@ later entered only DeepSeek and Kimi test credentials directly into product pass
 agent never read clipboard data, password fields, Credential Manager, disk, environment, or raw Key
 material.
 
-The current result is **RED / INCOMPLETE**. The historical cross-provider defect was reproduced on a
-superseded candidate, then fixed and passed targeted regression on the replacement candidate.
-Multiple required manual rows remain NOT RUN. Historical automation and browser emulation remain
-separate from current manual evidence.
+The historical cross-provider defect was reproduced on a superseded candidate, then fixed and passed
+targeted regression on the replacement candidate; no unresolved product FAIL remains. Multiple
+required manual rows remain NOT RUN, PARTIAL, or WARN. The user accepted those specifically listed
+V1 risks without changing the test results, so the release decision is **ACCEPTED WITH DOCUMENTED
+EXCEPTIONS**. Historical automation and browser emulation remain separate from current manual
+evidence.
 
 ### Installer execution and signature state
 
@@ -276,9 +281,27 @@ other Kimi region remains NOT RUN.
 | Kimi      | `kimi-k3`            | NOT RUN | vision PASS; structured page NOT RUN                                         | Actual auto-detected user region only; other region NOT RUN | `2026-08-09T06:37:49Z`     | Same-credential self-made visual Explain completed accurately                           |
 
 No raw Key, clipboard content, password value, request/response body, header, or remote identifier
-was read or recorded. OpenAI/Gemini/Anthropic remain final NOT RUN, and the missing required provider
-and clean-environment rows keep Task 8 RED / INCOMPLETE. `P15T8-SBX-CRED-03` remains running on the
-replacement RC at the final evidence checkpoint.
+was read or recorded. OpenAI/Gemini/Anthropic remain final NOT RUN. `P15T8-SBX-CRED-03` remains
+running on the replacement RC at the final evidence checkpoint.
+
+### User-accepted V1 release exceptions
+
+On 2026-08-09, after reviewing the normalized Task 8 evidence, the user explicitly accepted the
+following unexecuted or incomplete gates as V1 release exceptions:
+
+- OpenAI, Gemini, and Anthropic real-provider gates because no test credentials were available.
+- DeepSeek structured output and the unsupported-vision local zero-request assertion.
+- Kimi text, structured output, and the second regional route.
+- True Windows system 125%, 150%, and 200% DPI changes; fullscreen/F11; and live-region validation.
+- Backup/restore to a second clean profile or session and the post-restore no-Key reconnect check.
+- Delete-one, clear-all, and credential-cleanup destructive gates.
+- The complete uninstall residual scan; the recorded result remains WARN / PARTIAL.
+
+These exceptions are a bounded V1 release-risk acceptance, not technical PASS results, not permanent
+feature guarantees, and not permission to erase or weaken the underlying evidence. All PASS,
+PARTIAL, NOT RUN, and WARN rows above remain authoritative. With no unresolved product FAIL on the
+replacement RC, Task 8 is **ACCEPTED WITH DOCUMENTED EXCEPTIONS / 用户接受例外后准予进入 Task 9**.
+Task 9 remains NOT RUN in this task and must begin separately.
 
 ## CI and publication state
 
@@ -300,5 +323,7 @@ signed or published.
   above**.
 - Real-provider gates: **DeepSeek text PASS; Kimi vision PASS; OpenAI/Gemini/Anthropic, structured
   output, Kimi text, DeepSeek visual-zero-request, and second Kimi region NOT RUN**.
+- The user accepted the itemized incomplete gates as bounded V1 release exceptions. Task 8 release
+  decision: **ACCEPTED WITH DOCUMENTED EXCEPTIONS**; this is not an unconditional technical PASS.
 - Release signing, timestamping, updater/update publication, clean-device upgrade, and final
   release approval: **NOT CONFIGURED / NOT RUN**.
