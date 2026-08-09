@@ -25,29 +25,41 @@ export function AiServicesPage({
     providerViewReducer,
     initialProviderViewState,
   );
-  const load = useCallback(async () => {
-    try {
-      const [profiles, registry, settings] = await Promise.all([
-        api.listProfiles(),
-        api.listCapabilities(),
-        api.getSettings(),
-      ]);
-      dispatch({ type: 'loaded', profiles, registry, settings });
-    } catch (error) {
-      dispatch({ type: 'error', error: toUserError(error) });
-    }
-  }, [api]);
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const [profiles, registry, settings] = await Promise.all([
+          api.listProfiles(),
+          api.listCapabilities(),
+          api.getSettings(),
+        ]);
+        if (signal?.aborted) return;
+        dispatch({ type: 'loaded', profiles, registry, settings });
+      } catch (error) {
+        if (signal?.aborted) return;
+        dispatch({ type: 'error', error: toUserError(error) });
+      }
+    },
+    [api],
+  );
   useEffect(() => {
     void load();
   }, [load]);
-  const mutate = async (action: () => Promise<unknown>) => {
+  const mutate = async (
+    action: () => Promise<unknown>,
+    signal?: AbortSignal,
+  ) => {
     dispatch({ type: 'saving' });
     try {
       await action();
-      await load();
+      if (signal?.aborted) return;
+      await load(signal);
     } catch (error) {
+      if (signal?.aborted) return;
       dispatch({ type: 'error', error: toUserError(error) });
       throw error;
+    } finally {
+      if (signal?.aborted) dispatch({ type: 'done' });
     }
   };
   const registry = state.registry;
@@ -66,8 +78,8 @@ export function AiServicesPage({
         <ProviderConnectForm
           registry={registry}
           busy={state.stage === 'saving'}
-          onConnect={(request: SaveProviderProfileRequest) =>
-            mutate(() => api.validateAndSave(request))
+          onConnect={(request: SaveProviderProfileRequest, signal) =>
+            mutate(() => api.validateAndSave(request), signal)
           }
         />
       ) : (

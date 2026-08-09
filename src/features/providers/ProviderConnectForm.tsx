@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMessage } from '../../app/LanguageProvider';
 import type {
   ProviderCapabilityRegistryDto,
@@ -24,7 +24,10 @@ const PROVIDER_NAMES: Record<ProviderKind, string> = {
 interface Props {
   registry: ProviderCapabilityRegistryDto;
   busy: boolean;
-  onConnect(request: SaveProviderProfileRequest): Promise<void>;
+  onConnect(
+    request: SaveProviderProfileRequest,
+    signal: AbortSignal,
+  ): Promise<void>;
 }
 
 export function ProviderConnectForm({ registry, busy, onConnect }: Props) {
@@ -35,21 +38,30 @@ export function ProviderConnectForm({ registry, busy, onConnect }: Props) {
     registry.providers[0];
   const [modelId, setModelId] = useState(provider.defaultModel);
   const [credential, setCredential] = useState('');
-  useEffect(() => () => setCredential(''), []);
+  const activeAttempt = useRef<AbortController | null>(null);
+  useEffect(() => () => activeAttempt.current?.abort(), []);
   if (!provider) return null;
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (busy || credential.length === 0 || activeAttempt.current) return;
+    const attempt = new AbortController();
+    activeAttempt.current = attempt;
     const secret = credential;
     try {
-      await onConnect({
-        providerKind: kind,
-        displayName: PROVIDER_NAMES[kind],
-        modelId,
-        credential: secret,
-      });
-      setCredential('');
+      await onConnect(
+        {
+          providerKind: kind,
+          displayName: PROVIDER_NAMES[kind],
+          modelId,
+          credential: secret,
+        },
+        attempt.signal,
+      );
+      if (!attempt.signal.aborted) setCredential('');
     } catch {
       // The mounted field retains the key solely so the user can correct it.
+    } finally {
+      if (activeAttempt.current === attempt) activeAttempt.current = null;
     }
   }
   return (
@@ -64,6 +76,9 @@ export function ProviderConnectForm({ registry, busy, onConnect }: Props) {
           value={kind}
           onChange={(event) => {
             const nextKind = event.target.value as ProviderKind;
+            activeAttempt.current?.abort();
+            activeAttempt.current = null;
+            setCredential('');
             setKind(nextKind);
             setModelId(
               registry.providers.find((item) => item.kind === nextKind)

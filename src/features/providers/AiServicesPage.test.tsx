@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider, useLanguage } from '../../app/LanguageProvider';
 import type { UiLanguage } from '../../lib/i18n';
@@ -32,6 +33,56 @@ const registry = {
         {
           id: 'synthetic-text',
           displayName: 'Synthetic text',
+          contextWindowTokens: 1000,
+          defaultMaxOutputTokens: 100,
+          textChat: 'supported' as const,
+          imageInput: 'unknown' as const,
+          nativePdfInput: 'unknown' as const,
+          pdfInput: 'unknown' as const,
+          strictStructuredOutput: 'unsupported' as const,
+          imageLimits: null,
+          lastVerified: '2026-08-03',
+        },
+      ],
+    },
+    {
+      kind: 'deepseek' as const,
+      displayName: 'DeepSeek',
+      defaultModel: 'deepseek-chat',
+      fileCapabilities: {
+        fileExtraction: false,
+        fileOcr: false,
+        maxFileBytes: null,
+      },
+      models: [
+        {
+          id: 'deepseek-chat',
+          displayName: 'DeepSeek Chat',
+          contextWindowTokens: 1000,
+          defaultMaxOutputTokens: 100,
+          textChat: 'supported' as const,
+          imageInput: 'unknown' as const,
+          nativePdfInput: 'unknown' as const,
+          pdfInput: 'unknown' as const,
+          strictStructuredOutput: 'unsupported' as const,
+          imageLimits: null,
+          lastVerified: '2026-08-03',
+        },
+      ],
+    },
+    {
+      kind: 'kimi' as const,
+      displayName: 'Kimi',
+      defaultModel: 'kimi-k2',
+      fileCapabilities: {
+        fileExtraction: false,
+        fileOcr: false,
+        maxFileBytes: null,
+      },
+      models: [
+        {
+          id: 'kimi-k2',
+          displayName: 'Kimi K2',
           contextWindowTokens: 1000,
           defaultMaxOutputTokens: 100,
           textChat: 'supported' as const,
@@ -101,6 +152,111 @@ function renderPage(api: ProviderApi, language: UiLanguage = 'en') {
 }
 
 describe('AI services', () => {
+  it('isolates transient credentials across rapid provider switches in StrictMode', async () => {
+    const api = fakeApi();
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <LanguageProvider api={languageSettings('en')}>
+          <AiServicesPage api={api} />
+        </LanguageProvider>
+      </StrictMode>,
+    );
+
+    const provider = await screen.findByLabelText('Provider');
+    const credential = screen.getByLabelText('Key');
+    const connect = screen.getByRole('button', {
+      name: 'Validate & Connect',
+    });
+    await user.selectOptions(provider, 'deepseek');
+    expect(screen.getByLabelText('Model')).toHaveValue('deepseek-chat');
+    await user.type(credential, 'deepseek-secret');
+    await user.selectOptions(provider, 'openai');
+    expect(screen.getByLabelText('Model')).toHaveValue('synthetic-text');
+    expect(credential).toHaveValue('');
+    expect(connect).toBeDisabled();
+
+    await user.selectOptions(provider, 'kimi');
+    await user.type(credential, 'kimi-secret');
+    await user.selectOptions(provider, 'deepseek');
+    expect(credential).toHaveValue('');
+    await user.type(credential, 'second-deepseek-secret');
+    await user.selectOptions(provider, 'kimi');
+    expect(credential).toHaveValue('');
+    expect(connect).toBeDisabled();
+    expect(api.validateAndSave).not.toHaveBeenCalled();
+  });
+
+  it('submits only a newly entered credential with the current provider and default model', async () => {
+    const api = fakeApi();
+    const user = userEvent.setup();
+    renderPage(api);
+
+    const provider = await screen.findByLabelText('Provider');
+    const credential = screen.getByLabelText('Key');
+    await user.selectOptions(provider, 'deepseek');
+    await user.type(credential, 'discarded-deepseek-secret');
+    await user.selectOptions(provider, 'openai');
+    await user.type(credential, 'current-openai-secret');
+    await user.click(
+      screen.getByRole('button', { name: 'Validate & Connect' }),
+    );
+
+    expect(api.validateAndSave).toHaveBeenCalledTimes(1);
+    expect(api.validateAndSave).toHaveBeenCalledWith({
+      providerKind: 'openai',
+      displayName: 'OpenAI',
+      modelId: 'synthetic-text',
+      credential: 'current-openai-secret',
+    });
+  });
+
+  it('ignores a stale validation completion after the provider changes', async () => {
+    const api = fakeApi();
+    let finishFirst!: () => void;
+    const firstValidation = new Promise<typeof profile>((resolve) => {
+      finishFirst = () => resolve(profile);
+    });
+    api.listProfiles = vi.fn(async () => []);
+    api.validateAndSave = vi
+      .fn()
+      .mockImplementationOnce(() => firstValidation)
+      .mockResolvedValue(profile);
+    const user = userEvent.setup();
+    renderPage(api);
+
+    const provider = await screen.findByLabelText('Provider');
+    const credential = screen.getByLabelText('Key');
+    await user.selectOptions(provider, 'deepseek');
+    await user.type(credential, 'first-deepseek-secret');
+    await user.click(
+      screen.getByRole('button', { name: 'Validate & Connect' }),
+    );
+    await user.selectOptions(provider, 'openai');
+    await user.type(credential, 'fresh-openai-secret');
+
+    finishFirst();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Validate & Connect' }),
+      ).toBeEnabled(),
+    );
+    expect(credential).toHaveValue('fresh-openai-secret');
+    expect(api.listProfiles).toHaveBeenCalledTimes(1);
+    expect(api.validateAndSave).toHaveBeenCalledTimes(1);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Validate & Connect' }),
+    );
+    await waitFor(() => expect(api.validateAndSave).toHaveBeenCalledTimes(2));
+    expect(api.validateAndSave).toHaveBeenLastCalledWith({
+      providerKind: 'openai',
+      displayName: 'OpenAI',
+      modelId: 'synthetic-text',
+      credential: 'fresh-openai-secret',
+    });
+  });
+
   it('shows Unknown rather than treating unverified vision support as supported', async () => {
     renderPage(fakeApi());
     expect(await screen.findByText(/Vision: Unknown/)).toBeVisible();

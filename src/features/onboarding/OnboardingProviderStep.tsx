@@ -44,7 +44,10 @@ export function OnboardingProviderStep({
       mounted.current = false;
     };
   }, [api]);
-  function connect(request: SaveProviderProfileRequest): Promise<void> {
+  function connect(
+    request: SaveProviderProfileRequest,
+    signal: AbortSignal,
+  ): Promise<void> {
     if (inFlight.current) return inFlight.current;
     const operation = (async () => {
       if (mounted.current) {
@@ -53,9 +56,11 @@ export function OnboardingProviderStep({
       }
       try {
         await api.validateAndSave(request);
+        if (signal.aborted) return;
         if (!mounted.current) throw new DOMException('Stale UI', 'AbortError');
         await onConnected();
       } catch (reason) {
+        if (signal.aborted) return;
         if (mounted.current) setError(toUserError(reason));
         throw reason;
       } finally {
