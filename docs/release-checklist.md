@@ -1,11 +1,11 @@
 # Windows release checklist
 
 This checklist is the technical record for a **local, unsigned Windows 11 x64 V1 build**. It is
-not a release approval. Task 8 remains **RED / BLOCKED** after real Windows Sandbox execution:
-the NSIS primary flow and MSI independent smoke ran, but required three-format reading,
-125/150/200% system scaling, complete accessibility/backup/delete coverage, and all real-provider
-requests remain incomplete or NOT RUN. Windows 10 is neither supported nor validated, and Task 9
-must not start while these gates remain.
+not a release approval. Task 8 is **RED / FAIL** after real Windows Sandbox execution: the NSIS
+primary flow and MSI independent smoke ran, then the provider connect form exposed a cross-provider
+credential-retention/routing defect. Required three-format reading, 125/150/200% system scaling,
+complete accessibility/backup/delete coverage, and all real-provider request gates also remain
+incomplete or NOT RUN. Windows 10 is neither supported nor validated, and Task 9 must not start.
 
 ## Immutable inputs
 
@@ -139,9 +139,9 @@ database, private account path, or host credential was copied into the recorded 
 credential-input checkpoint, the user had not yet entered a Key and the agent had not read
 clipboard data.
 
-The result remains **RED / BLOCKED** because multiple required manual rows remain NOT RUN. No
-product FAIL was observed in the executed subset. Historical automation and browser emulation are
-kept separate from the current manual evidence.
+The result is **RED / FAIL**. A real cross-provider credential-retention/routing defect was observed
+after the clean-package subset, and multiple required manual rows also remain NOT RUN. Historical
+automation and browser emulation remain separate from the current manual evidence.
 
 ### Installer execution and signature state
 
@@ -184,24 +184,37 @@ that OpenAI, Gemini, and Anthropic credentials were unavailable. Task 8 did not 
 or inspect, extract, display, or move Credential Manager, disk, environment, or Key material. No
 Key was requested in chat.
 
-The required provider gates still did not run. After a fresh foreground proof for Sandbox HWND
-`132426`, read-only capture succeeded, but every Computer Use input attempt failed at the tool layer
-with normalized error `node_repl exec context not found`. No gate control was activated by the
-worker. Any connection-validation traffic caused by the user's direct setup was not independently
-observed and is not counted as a text, vision, or structured Task 8 PASS. This is a
-test-infrastructure blocker, not a product FAIL.
+The initial Computer Use input bridge failed with normalized error `node_repl exec context not
+found`. An authorized PID/HWND-bound native fallback then verified Sandbox PID `10664`, HWND
+`132426`, 144 DPI, and a fresh image before and after each action. It set DeepSeek as the learning
+default at `2026-08-09T00:14:54.964Z` and Kimi as the vision default at
+`2026-08-09T00:15:24.572Z`; those local routing changes do not count as provider-request PASS.
+
+At `2026-08-09T00:17:57.300Z`, an authoritative foreground capture showed OpenAI selected, a
+non-empty masked credential field, and normalized UI error `AI services request failed; check
+network or service key`. The user had supplied no OpenAI credential and Task 8 never read the field
+or clipboard. An input intended for a safe import control had been derived from a stale
+pre-calibration frame and landed on the live Validate-and-connect control; the run stopped
+immediately.
+
+`ProviderConnectForm.tsx` changes `kind` and `modelId` on provider selection without clearing
+`credential` (lines 65–71), while `submit` pairs the retained secret with the newly selected
+provider kind (lines 40–49). The credential value, request body, headers, response body, and remote
+identifiers were not inspected or recorded. This is a reproducible cross-provider
+credential-retention/routing product FAIL, not a valid OpenAI gate.
 
 | Provider  | Embedded exact model | Text    | Vision / structured                                                          | Region-specific coverage                                   | Status                                                                     |
 | --------- | -------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------- |
-| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | No user test credential; final NOT RUN                                     |
+| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | FAIL: unexpected retained-secret validation; not an OpenAI gate            |
 | Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | No user test credential; final NOT RUN                                     |
 | Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | No user test credential; final NOT RUN                                     |
-| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | Profile connected; tool-layer input blocker prevented a real request       |
-| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | Region not surfaced; CN/international remote gates NOT RUN | Profile connected; tool-layer input blocker prevented a real request       |
+| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | Profile connected; learning-default selection PASS; remote gate stopped    |
+| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | Region not surfaced; CN/international remote gates NOT RUN | Profile connected; vision-default selection PASS; remote gates stopped     |
 
-`P15T8-SBX-CRED-03` remains running on the connected-configuration surface. DeepSeek/Kimi real
-requests and the remaining clean-environment gates require a functioning GUI-input bridge;
-OpenAI/Gemini/Anthropic remain final NOT RUN for missing credentials.
+`P15T8-SBX-CRED-03` remains running at the failed connect surface for handoff. No further GUI action
+or provider request ran after the defect capture. OpenAI/Gemini/Anthropic remain NOT RUN as provider
+gates; DeepSeek/Kimi remote gates and the remaining clean-environment rows stopped under the
+fail-fast contract and require a separate product-fix task.
 
 ## CI and publication state
 

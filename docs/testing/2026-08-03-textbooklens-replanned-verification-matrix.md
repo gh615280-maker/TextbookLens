@@ -27,7 +27,7 @@
 | Phase 12 | registry/atomic history/multi-panel/hide continue  | PASS                                                     | 2026-08-06 / base `bee92405`; repairs `64ddedb3`, `895e24a`, `112f6b0`, `d1c6138`; Task 7 checkpoint working tree                            | Production request registry/orchestrator, atomic SQLite conversation/message/citation/annotation writes, floating-panel lifecycle, safe Markdown/KaTeX, restart/history/followup/delete, and three-format text/region relocation passed with synthetic local inputs only. Focused G–I 3/3, marker adapters 18/18, registry/orchestrator/lifecycle 17/17, persistence/restart 10/10; full Vitest 304/304, Playwright 27/27, Rust 333 passed/1 manual smoke ignored; every required Task 7 gate PASS. Phase 13 was not started. |
 | Phase 13 | delete/backup/restore/clear/privacy                | PASS                                                     | 2026-08-06 / base `2665d5f`; repairs `8d0d02a`, `e5a16f0`, `53d4b2e`; Task 6 checkpoint working tree                                         | Maintenance coordination, complete deletion, TLBACKUP v1 creation/verification, staged restart restore, clear-all credential retry, Settings IA, and P/Q privacy evidence passed with isolated synthetic data and strict local doubles only. Focused maintenance/import/index/learning/bindings suites passed; full Vitest 309/309, Playwright 30/30, Rust 402 passed/1 manual smoke ignored. No real credential, textbook, provider, network, Explorer, file dialog, restart, or release work ran.                           |
 | Phase 14 | deterministic overview/book questions              | PASS                                                     | 2026-08-07 / base `c0a13be`; repairs `4ce7565`, `247d078`; Task 5 checkpoint working tree                                                    | Three-format local overview, bounded book-question preparation, atomic synthetic streaming/history/delete, and strict-mock Chromium evidence passed. Focused Phase 14 Rust 3/3 and UI E2E 3/3; Phase 12 selection plus panel regression 6/6; full Vitest 324/324, Playwright 33/33, Rust 443 passed/1 manual smoke ignored. All required gates passed except the unchanged recorded npm audit state (4 high, 0 critical). No real provider, credential, textbook, network, clean install, release, or package operation ran.  |
-| Phase 15 | A–Q/clean Windows/package/release                  | TASK 5 AUTO PASS; TASKS 6–7 RECORDED; TASK 8 RED/BLOCKED | 2026-08-08 / Task 8 base `8af9882`; evidence `458ea4f`, `bbe4e2e`, `a091c46`                                                                 | Task 5 automated A–Q remains PASS. Task 8 ran real Windows Sandbox evidence: NSIS primary install/first-run/restart/same-version-upgrade/uninstall PASS, MSI independent install/launch/uninstall smoke PASS, three-language restart PASS, and bounded onboarding-surface contrast/keyboard/Narrator/NVDA checks PASS. Required three-format full reading, true 125/150/200% scale, full backup/delete/clear, live-region completion, fullscreen, and every real-provider gate remain PARTIAL or NOT RUN, so Task 8 is RED and Task 9 must not start. |
+| Phase 15 | A–Q/clean Windows/package/release                  | TASK 5 AUTO PASS; TASKS 6–7 RECORDED; TASK 8 RED/FAIL    | 2026-08-08 / Task 8 base `8af9882`; evidence `458ea4f`, `bbe4e2e`, `a091c46`                                                                 | Task 5 automated A–Q remains PASS. Task 8 ran real Windows Sandbox package, language, and bounded a11y evidence, then stopped on a real cross-provider credential-retention/routing FAIL in the connect form. Required three-format full reading, true 125/150/200% scale, backup/delete/clear, live-region, fullscreen, and real-provider request gates remain PARTIAL or NOT RUN. Task 8 is RED and Task 9 must not start. |
 
 ## 3. Provider 能力证据
 
@@ -796,9 +796,9 @@ Task 8 started on 2026-08-08 from exact HEAD
 `c7716affae03fe820f76aceec34e0055c8105e53`) and preserved its initial evidence as commit
 `458ea4f7dc939b070dc58a71290b2a069e601ed2`; pre-restart continuation evidence is commit
 `bbe4e2ede0616cd7de210ad5d56feb7d6a4901f5`. After the authorized Microsoft feature enablement and
-normal restart, Task 8 ran two real disposable Windows Sandbox sessions. The overall result remains
-**RED / BLOCKED** because only actually executed rows are PASS and multiple required GUI, data, and
-provider rows remain PARTIAL or NOT RUN.
+normal restart, Task 8 ran two real disposable Windows Sandbox sessions. The overall result is
+**RED / FAIL** because the provider connect form exposed a cross-provider credential-retention/routing
+defect; multiple required GUI, data, and provider rows also remain PARTIAL or NOT RUN.
 
 ### Baseline and protection evidence
 
@@ -865,8 +865,8 @@ remain unchanged.
 | Delete one book, clear all, second-book/original/backup retention, credential cleanup | NOT RUN        | Scoped source deletion is not a product delete/clear gate; no credentials were configured.                                                                    |
 | Uninstall residual scan                                                               | WARN / PARTIAL | NSIS data-delete removal removed product files/shortcuts; an empty Local `TextbookLens` directory remained. Full Roaming/credential scan was not completed.   |
 
-No Task 8 product FAIL was observed in the executed subset. PARTIAL/WARN and NOT RUN rows remain
-non-PASS release blockers.
+A Task 8 product FAIL was observed in the provider connect form after the clean-package subset.
+PARTIAL/WARN and NOT RUN rows remain additional non-PASS release blockers.
 
 ### Real-provider manual gates
 
@@ -878,21 +878,35 @@ that OpenAI, Gemini, and Anthropic credentials were unavailable. The agent did n
 data or inspect, display, extract, or move Credential Manager, disk, environment, or Key material.
 No Key was requested in chat.
 
-The required provider gates still did not run. After a fresh foreground proof for Sandbox HWND
-`132426`, read-only window capture succeeded, but every Computer Use input attempt failed at the
-tool layer with normalized error `node_repl exec context not found`. No gate control was activated
-by the worker. Any connection-validation traffic caused by the user's direct setup was not
-independently observed and is not counted as a text, vision, or structured Task 8 PASS. This is a
-test-infrastructure blocker, not a product FAIL.
+The initial Computer Use input bridge failed with normalized error `node_repl exec context not
+found`. The controller then authorized a PID/HWND-bound native fallback. That fallback verified
+Sandbox PID `10664`, HWND `132426`, 144 DPI, and a fresh image before and after each action. It set
+DeepSeek as the learning default at `2026-08-09T00:14:54.964Z` and Kimi as the vision default at
+`2026-08-09T00:15:24.572Z`; those local routing changes do not count as provider-request PASS.
+
+At `2026-08-09T00:17:57.300Z`, an authoritative foreground capture showed OpenAI selected in the
+connect form, a non-empty masked credential field, and the normalized UI error `AI services request
+failed; check network or service key`. The user had explicitly supplied no OpenAI credential and
+the worker never read the field or clipboard. An input intended for a safe import control had been
+derived from a stale pre-calibration frame and landed on the live Validate-and-connect control; the
+run stopped immediately.
+
+The product made that unexpected submission possible because `ProviderConnectForm.tsx` changes
+`kind` and `modelId` on provider selection without clearing `credential` (lines 65–71), while
+`submit` pairs the retained secret with the newly selected provider kind (lines 40–49). The credential
+value, request body, headers, response body, and remote identifiers were not inspected or recorded.
+This is a reproducible cross-provider credential-retention/routing defect and a Task 8 product FAIL,
+not a valid OpenAI gate.
 
 | Provider  | Embedded exact model | Text    | Vision / structured                                                          | Region-specific coverage                                   | UTC decision time          | Status                                                                 |
 | --------- | -------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------- |
-| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-09T00:04:33.064Z` | No user test credential; final NOT RUN                                   |
-| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-09T00:04:33.064Z` | No user test credential; final NOT RUN                                   |
-| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-09T00:04:33.064Z` | No user test credential; final NOT RUN                                   |
-| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | `2026-08-09T00:04:33.064Z` | Profile connected; tool-layer input blocker prevented a real request     |
-| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | Region not surfaced; CN/international remote gates NOT RUN | `2026-08-09T00:04:33.064Z` | Profile connected; tool-layer input blocker prevented a real request     |
+| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-09T00:17:57.300Z` | FAIL: unexpected retained-secret validation; not an OpenAI gate          |
+| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-09T00:17:57.300Z` | No user test credential; final NOT RUN                                   |
+| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | `2026-08-09T00:17:57.300Z` | No user test credential; final NOT RUN                                   |
+| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | `2026-08-09T00:17:57.300Z` | Profile connected; learning-default selection PASS; remote gate stopped  |
+| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | Region not surfaced; CN/international remote gates NOT RUN | `2026-08-09T00:17:57.300Z` | Profile connected; vision-default selection PASS; remote gates stopped   |
 
-Task 8 cannot pass and Task 9 must not start. `P15T8-SBX-CRED-03` remains running on the connected
-configuration surface. DeepSeek/Kimi real requests and the remaining clean-environment rows require
-a functioning GUI-input bridge; OpenAI/Gemini/Anthropic remain final NOT RUN for missing credentials.
+Task 8 is RED/FAIL and Task 9 must not start. `P15T8-SBX-CRED-03` remains running at the failed
+connect surface for handoff; no further GUI action or provider request ran after the defect capture.
+OpenAI/Gemini/Anthropic remain NOT RUN as provider gates. DeepSeek/Kimi remote gates and the remaining
+clean-environment rows stopped under the fail-fast contract and require a separate product-fix task.
