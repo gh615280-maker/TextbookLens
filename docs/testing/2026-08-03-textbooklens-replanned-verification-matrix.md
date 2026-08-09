@@ -878,11 +878,12 @@ that OpenAI, Gemini, and Anthropic credentials were unavailable. The agent did n
 data or inspect, display, extract, or move Credential Manager, disk, environment, or Key material.
 No Key was requested in chat.
 
-The provider requests still did not run. After a fresh foreground proof for Sandbox HWND `132426`,
-read-only window capture succeeded, but every Computer Use input attempt failed at the tool layer
-with normalized error `node_repl exec context not found`. No gate control was activated by the
-worker and zero external-provider requests were made. This is a test-infrastructure blocker, not a
-product FAIL.
+The required provider gates still did not run. After a fresh foreground proof for Sandbox HWND
+`132426`, read-only window capture succeeded, but every Computer Use input attempt failed at the
+tool layer with normalized error `node_repl exec context not found`. No gate control was activated
+by the worker. Any connection-validation traffic caused by the user's direct setup was not
+independently observed and is not counted as a text, vision, or structured Task 8 PASS. This is a
+test-infrastructure blocker, not a product FAIL.
 
 | Provider  | Embedded exact model | Text    | Vision / structured                                                          | Region-specific coverage                                   | UTC decision time          | Status                                                                 |
 | --------- | -------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------- |
