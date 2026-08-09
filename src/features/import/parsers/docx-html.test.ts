@@ -44,6 +44,14 @@ describe('sanitizeDocxHtml', () => {
     );
     expect(result.html).not.toContain('data:image/svg+xml');
     expect(result.html).toContain('data:image/png;base64,iVBORw0KGgo=');
+    const sanitizedDocument = new DOMParser().parseFromString(
+      result.html,
+      'text/html',
+    );
+    expect(sanitizedDocument.querySelector('a')).toBeNull();
+    expect(sanitizedDocument.querySelector('math')?.textContent).toContain(
+      'E=mc²',
+    );
     expect(result.sections[0]?.id).not.toBe('attacker');
     expect(result.sections[0]?.blocks[0]?.id).not.toBe('attacker');
   });

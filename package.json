@@ -31,7 +31,7 @@
   "dependencies": {
     "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-dialog": "2.7.2",
-    "dompurify": "3.4.12",
+    "dompurify": "3.4.13",
     "epubjs": "0.3.93",
     "katex": "0.16.27",
     "mammoth": "1.12.0",
