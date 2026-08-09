@@ -176,24 +176,30 @@ NOT RUN**.
 
 ### Real-provider manual gates
 
-At `2026-08-08T23:22:01.875Z`, `P15T8-SBX-CRED-03` had installed and launched the authoritative
-candidate, imported the self-made PDF, and stopped on provider onboarding with OpenAI selected and
-its blank Key field focused. Clipboard redirection is enabled solely for direct user entry into the
-product password field. Task 8 did not read clipboard data or inspect, extract, display, or move
-Credential Manager, disk, or environment secrets. No Key was requested in chat and zero
-external-provider requests had been made at this checkpoint.
+At `2026-08-09T00:04:33.064Z`, `P15T8-SBX-CRED-03` remained the sole running Sandbox. The user had
+entered only DeepSeek and Kimi test credentials directly in the product UI. A user-supplied safe
+screenshot plus the controller's read-only live capture showed `DeepSeek · deepseek-v4-flash` and
+`Kimi · kimi-k3` as connected, with the registry capability labels rendered. The user confirmed
+that OpenAI, Gemini, and Anthropic credentials were unavailable. Task 8 did not read clipboard data
+or inspect, extract, display, or move Credential Manager, disk, environment, or Key material. No
+Key was requested in chat.
+
+The provider requests still did not run. After a fresh foreground proof for Sandbox HWND `132426`,
+read-only capture succeeded, but every Computer Use input attempt failed at the tool layer with
+normalized error `node_repl exec context not found`. No gate control was activated by the worker and
+zero external-provider requests were made. This is a test-infrastructure blocker, not a product FAIL.
 
 | Provider  | Embedded exact model | Text    | Vision / structured                                                          | Region-specific coverage                                   | Status                                                                     |
 | --------- | -------------------- | ------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------- |
-| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | READY for direct user UI input; no Key entered at checkpoint               |
-| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Awaiting direct user UI input if a test credential is available            |
-| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | Awaiting direct user UI input if a test credential is available            |
-| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | Awaiting direct user UI input if a test credential is available            |
-| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | CN and international probe/chat/Files/cleanup both NOT RUN | Awaiting only the region credential(s) the user actually owns              |
+| OpenAI    | `gpt-5.6`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | No user test credential; final NOT RUN                                     |
+| Gemini    | `gemini-3.6-flash`   | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | No user test credential; final NOT RUN                                     |
+| Anthropic | `claude-sonnet-5`    | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | N/A                                                        | No user test credential; final NOT RUN                                     |
+| DeepSeek  | `deepseek-v4-flash`  | NOT RUN | strict-tool NOT RUN; unsupported visual/page local zero-request gate NOT RUN | N/A                                                        | Profile connected; tool-layer input blocker prevented a real request       |
+| Kimi      | `kimi-k3`            | NOT RUN | vision NOT RUN; structured page NOT RUN                                      | Region not surfaced; CN/international remote gates NOT RUN | Profile connected; tool-layer input blocker prevented a real request       |
 
-`P15T8-SBX-CRED-03` remains running at the blank OpenAI Key field for direct user entry. Keys must
-not be pasted into chat. After the user confirms only which provider names/regions were configured,
-the real-provider and remaining clean-environment gates can resume.
+`P15T8-SBX-CRED-03` remains running on the connected-configuration surface. DeepSeek/Kimi real
+requests and the remaining clean-environment gates require a functioning GUI-input bridge;
+OpenAI/Gemini/Anthropic remain final NOT RUN for missing credentials.
 
 ## CI and publication state
 
