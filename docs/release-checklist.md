@@ -1,26 +1,29 @@
 # Windows release checklist
 
 This checklist is the technical record for a **local, unsigned Windows 11 x64 V1 build**. It is
-not a release approval. The cross-provider credential-retention/routing defect found by Task 8 was
-fixed and a credential-safe release candidate was rebuilt from clean source. Task 8 has **NOT RUN**
-against this replacement candidate, so its earlier RED / FAIL evidence is not converted to PASS.
+not a release approval. The cross-provider credential-retention/routing defect found by Task 8 and
+the later visual-learning capture/anchor defect were fixed, and a replacement release candidate was
+rebuilt from clean source. Task 8 has **NOT RUN** against this replacement candidate, so its earlier
+RED / FAIL evidence is not converted to PASS.
 Required three-format reading, 125/150/200% system scaling, complete accessibility/backup/delete
 coverage, and all real-provider request gates remain incomplete or NOT RUN. Windows 10 is neither
 supported nor validated, and Task 9 remains **NOT RUN** and must not start.
 
+Task8 visual fix RC built; rerun NOT RUN; Task9 NOT RUN.
+
 ## Immutable inputs
 
-| Input                  | Required value                                                                                                                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source commit          | `c5146f2ec89935ec2430089307611f62f5a9ee7d` (credential isolation fix `4d37a5b3de7e096d9241686a2c85bd0bf3b3c5d3`; parent `3a9ec2146b5177ca51be185b677d4ccf68fc803e`)                               |
-| Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                            |
-| Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                               |
-| Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                          |
-| Tauri CLI / Rust crate | `2.11.4` / `2.11.5`                                                                                                                                                                               |
-| Application version    | `0.1.0` (`package.json`, `Cargo.toml`, and `tauri.conf.json`)                                                                                                                                     |
-| Product / identifier   | `TextbookLens` / `dev.textbooklens.desktop`                                                                                                                                                       |
-| Dependency records     | `package-lock.json` SHA-256 `E7593397180DCE443149265BF569464823CD43CB5650C586BB05003CD64776B0`; `src-tauri/Cargo.lock` SHA-256 `5AFE9A8782AEB56BC9A90F0FD3821DC48249DA8035CFEE818DB527259463E2EE` |
-| Toolchain record       | `rust-toolchain.toml` SHA-256 `6B5C36CC63BE7BF3A075574039B8A49C1361FC1C3ACFCE234AFD28BCC7DECF13`                                                                                                  |
+| Input                  | Required value                                                                                                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source commit          | `8d0b83257f8ded7236e5feb6cd38d4cb16f13f27` (visual capture/anchor fix; parent RC record `23a88e38b81e50c7d81c4321e69decd02888e6dc`; credential isolation fix `4d37a5b3de7e096d9241686a2c85bd0bf3b3c5d3`) |
+| Node / npm             | `v24.18.1` / `11.16.0`                                                                                                                                                                                   |
+| Rust / Cargo           | `1.97.1` / `1.97.1`                                                                                                                                                                                      |
+| Rust target            | `x86_64-pc-windows-msvc`                                                                                                                                                                                 |
+| Tauri CLI / Rust crate | `2.11.4` / `2.11.5`                                                                                                                                                                                      |
+| Application version    | `0.1.0` (`package.json`, `Cargo.toml`, and `tauri.conf.json`)                                                                                                                                            |
+| Product / identifier   | `TextbookLens` / `dev.textbooklens.desktop`                                                                                                                                                              |
+| Dependency records     | `package-lock.json` SHA-256 `E7593397180DCE443149265BF569464823CD43CB5650C586BB05003CD64776B0`; `src-tauri/Cargo.lock` SHA-256 `5AFE9A8782AEB56BC9A90F0FD3821DC48249DA8035CFEE818DB527259463E2EE`        |
+| Toolchain record       | `rust-toolchain.toml` SHA-256 `6B5C36CC63BE7BF3A075574039B8A49C1361FC1C3ACFCE234AFD28BCC7DECF13`                                                                                                         |
 
 No lockfile may change during installation, checking, or bundling. The release build uses
 `CARGO_INCREMENTAL=0`, `CARGO_BUILD_JOBS=1`, Cargo `-j 1`, a task-scoped target directory, and a
@@ -34,15 +37,15 @@ changes SQLx migration checksums. Before each build, verify every migration hash
 `0012`–`0015`, against the Git blob bytes.
 
 ```powershell
-$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-temp'
+$env:TEMP = 'D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-temp'
 $env:TMP = $env:TEMP
 $env:CARGO_INCREMENTAL = '0'
 $env:CARGO_BUILD_JOBS = '1'
-git clone --no-local -c core.autocrlf=false . D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-source
-Set-Location D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-source
+git clone --no-local -c core.autocrlf=false . D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-source
+Set-Location D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-source
 npm.cmd ci --offline
 cargo.exe metadata --locked --manifest-path src-tauri/Cargo.toml --no-deps
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage All -BuildRoot D:\CodexBuild\textbooklens-p15t7-rcfix-20260809-02-build -Offline
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/preflight.ps1 -Stage All -BuildRoot D:\CodexBuild\textbooklens-p15t7-visualfix-20260809-01-build -Offline
 ```
 
 When a network-resolution/download phase is authorized, it and the `npm ci --offline` cache-only
@@ -84,9 +87,9 @@ artifact directory is `D:\CodexBuild\textbooklens-p15t7-release`; it is retained
 
 | Artifact                            | SHA-256                                                            | Size (bytes) | Scanner / inspection                                                                                                           |
 | ----------------------------------- | ------------------------------------------------------------------ | -----------: | ------------------------------------------------------------------------------------------------------------------------------ |
-| NSIS installer                      | `1CFB207D58D654AAAE7D9942CEA37B1CFB4016D300FD1A74D33D91A305A24187` |    9,002,116 | Scanner PASS; outer bootstrap PE `0x014c`; release payload EXE is x86-64                                                       |
-| MSI installer                       | `D2940E63B2D0333166EDD12B7FEF61C64F1288ACD791BC405343982C536DB79A` |   12,050,432 | Scanner PASS; Product `TextbookLens` `0.1.0`; summary `x64;0`; `ALLUSERS=1`                                                    |
-| bundle/resources/migrations/notices | 20 files / 21,108,862 bytes                                        |   21,108,862 | Scanner PASS; no `.map`, `.pdb`, `.log`, fixture, private sentinel, credential, user path/data, or development-server artifact |
+| NSIS installer                      | `925E93FAD440715AC7D9A495571F9E745279B157073A4B61F84525CF609F9BDE` |    9,001,336 | Scanner PASS; outer bootstrap PE `0x014c`; release payload EXE is x86-64                                                       |
+| MSI installer                       | `A50AF90362DB868646D9BEEC32F311C47A9DFD2FD8B8561627415804831ED0E5` |   12,050,432 | Scanner PASS; Product `TextbookLens` `0.1.0`; summary `x64;0`; `ALLUSERS=1`                                                    |
+| bundle/resources/migrations/notices | 20 files / 21,108,082 bytes                                        |   21,108,082 | Scanner PASS; no `.map`, `.pdb`, `.log`, fixture, private sentinel, credential, user path/data, or development-server artifact |
 
 Two isolated builds must compare file manifests and SHA-256 values. MSI/NSIS container timestamps,
 PE metadata, and a future code signature may make bytes differ; that is an explainable boundary,
@@ -100,13 +103,13 @@ reproducible: build A versus B differs for NSIS (9,000,265 / 8,999,366 bytes; SH
 `938AFFB1…A5DE` / `7E5F6334…486F`). This is recorded as an installer-tool metadata boundary;
 Task 9 must retain this result and must not claim byte-identical installation media.
 
-The credential-safe refresh ran the full offline `Stage All` preflight from clean commit
-`c5146f2ec89935ec2430089307611f62f5a9ee7d`: frontend format/lint/typecheck/build, 96 Vitest files
-and 382 tests, Rust fmt/clippy/all tests, sensitive/licenses/fixtures/generated checks, A/B/O/P/Q,
-both bundles, and the release scanner passed. The superseded Task 7 packages were copied byte for
-byte to read-only
-`D:\CodexBuild\textbooklens-p15t7-release-pre-credential-isolation-c5146f2-20260809` before the
-two authoritative files were replaced. Signing, timestamping, updater configuration, publication,
+The visual-fix refresh ran the full offline `Stage All` preflight from clean commit
+`8d0b83257f8ded7236e5feb6cd38d4cb16f13f27`: frontend format/lint/typecheck/build, 96 Vitest files
+and 383 tests, Rust fmt/clippy/all tests (477 passed, 1 manual smoke ignored),
+sensitive/licenses/fixtures/generated checks, A/B/O/P/Q, both bundles, and the release scanner
+passed. The superseded `23a88e3` RC packages were copied byte for byte to read-only
+`D:\CodexBuild\textbooklens-p15t7-release-pre-visual-fix-23a88e3-20260809` before the two
+authoritative files were replaced. Signing, timestamping, updater configuration, publication,
 remote CI, Task 8 rerun, and Task 9 remain **NOT CONFIGURED / NOT RUN**.
 
 ## Task 8 clean-Windows and real-provider result
@@ -118,10 +121,10 @@ The historical Task 8 run started from exact HEAD `8af9882e44be33e18c91a39e81f32
 environment-switch, and final checks found its then-current Task 7 release directory unchanged.
 That execution evidence belongs to the superseded candidate and is retained only as defect history.
 
-The credential-safe refresh did not resume or operate the retained Sandbox. It rebuilt the daily-user
+The visual-fix refresh did not resume or operate the retained Sandbox. It rebuilt the daily-user
 desktop target from the same final clean source and launched it once through the unchanged shortcut.
-The authoritative debug executable is 43,682,304 bytes with SHA-256
-`34E840E2B62E43AFD10281DFBD0E6199D9BA1B818763E117C49D717C6719C82E`; the shortcut still targets
+The authoritative debug executable is 43,692,544 bytes with SHA-256
+`EEF2D354058422426E5B65851785D0E9B112BBE62D516CF74F6911E776153C33`; the shortcut still targets
 `D:\CodexBuild\textbooklens-p9b-target\debug\textbooklens.exe`, loaded the TextbookLens shell with
 no localhost/network-error surface, and was closed by its exact new PID. The shortcut itself remains
 1,380 bytes with SHA-256 `A5E428D50138B7751DA342370DC12AE73076453395B39031490A3B2F3E5A1905`.
