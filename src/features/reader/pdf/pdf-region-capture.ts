@@ -26,6 +26,7 @@ export interface PdfRegionPageData {
   page: number;
   rect: NormalizedRect;
   anchorRect?: NormalizedRect;
+  pageElement?: HTMLElement;
   viewport: PdfViewportLike;
   textItems: readonly PdfTextItem[];
   canvas: HTMLCanvasElement | null;
@@ -80,7 +81,12 @@ export async function capturePdfRegion(
   if (!(await confirmVisualCapture())) return null;
   throwIfAborted(signal);
   if (!data.canvas) return null;
-  const capture = await cropPng(data.canvas, data.rect, signal);
+  const capture = await cropPng(
+    data.canvas,
+    data.rect,
+    signal,
+    data.pageElement,
+  );
   try {
     const hash = await sha256(capture.bytes);
     throwIfAborted(signal);
@@ -134,7 +140,7 @@ export async function verifyPdfRegionAnchor(
   const canvas = page.querySelector<HTMLCanvasElement>('canvas');
   if (!canvas) return false;
   try {
-    const capture = await cropPng(canvas, anchor.rect, signal);
+    const capture = await cropPng(canvas, anchor.rect, signal, page);
     try {
       return (await sha256(capture.bytes)) === anchor.contentSha256;
     } finally {
@@ -142,6 +148,20 @@ export async function verifyPdfRegionAnchor(
     }
   } catch {
     return false;
+  }
+}
+
+/** Distinguishes a pixel-backed region from a text-backed region without retaining pixels. */
+export async function isVisualPdfRegionAnchor(
+  anchor: RegionAnchor,
+): Promise<boolean> {
+  if (!/^[0-9a-f]{64}$/u.test(anchor.contentSha256)) return false;
+  if (!anchor.textFallback) return true;
+  const bytes = utf8(anchor.textFallback.exact);
+  try {
+    return (await sha256(bytes)) !== anchor.contentSha256;
+  } finally {
+    bytes.fill(0);
   }
 }
 
@@ -209,9 +229,11 @@ async function cropPng(
   canvas: HTMLCanvasElement,
   rect: NormalizedRect,
   signal?: AbortSignal,
+  pageElement?: HTMLElement,
 ) {
-  const sourceWidth = Math.max(1, Math.floor(rect.width * canvas.width));
-  const sourceHeight = Math.max(1, Math.floor(rect.height * canvas.height));
+  const source = canvasSourceRect(canvas, rect, pageElement);
+  const sourceWidth = source.width;
+  const sourceHeight = source.height;
   const scale = Math.min(
     PDF_REGION_CAPTURE_LIMITS.maxScale,
     PDF_REGION_CAPTURE_LIMITS.maxWidth / sourceWidth,
@@ -230,8 +252,8 @@ async function cropPng(
     if (!context) throw new Error('PDF_REGION_CAPTURE_FAILED');
     context.drawImage(
       canvas,
-      Math.floor(rect.x * canvas.width),
-      Math.floor(rect.y * canvas.height),
+      source.x,
+      source.y,
       sourceWidth,
       sourceHeight,
       0,
@@ -272,6 +294,69 @@ async function cropPng(
     target.width = 0;
     target.height = 0;
   }
+}
+
+function canvasSourceRect(
+  canvas: HTMLCanvasElement,
+  rect: NormalizedRect,
+  pageElement?: HTMLElement,
+) {
+  const pageBounds = pageElement?.getBoundingClientRect();
+  const canvasBounds = canvas.getBoundingClientRect();
+  if (
+    pageBounds &&
+    pageBounds.width > 0 &&
+    pageBounds.height > 0 &&
+    canvasBounds.width > 0 &&
+    canvasBounds.height > 0
+  ) {
+    const selectedLeft = pageBounds.left + rect.x * pageBounds.width;
+    const selectedTop = pageBounds.top + rect.y * pageBounds.height;
+    const selectedRight = selectedLeft + rect.width * pageBounds.width;
+    const selectedBottom = selectedTop + rect.height * pageBounds.height;
+    const left = Math.max(canvasBounds.left, selectedLeft);
+    const top = Math.max(canvasBounds.top, selectedTop);
+    const right = Math.min(canvasBounds.right, selectedRight);
+    const bottom = Math.min(canvasBounds.bottom, selectedBottom);
+    if (right > left && bottom > top) {
+      const x = Math.max(
+        0,
+        Math.floor(
+          ((left - canvasBounds.left) / canvasBounds.width) * canvas.width,
+        ),
+      );
+      const y = Math.max(
+        0,
+        Math.floor(
+          ((top - canvasBounds.top) / canvasBounds.height) * canvas.height,
+        ),
+      );
+      const rightPixel = Math.min(
+        canvas.width,
+        Math.ceil(
+          ((right - canvasBounds.left) / canvasBounds.width) * canvas.width,
+        ),
+      );
+      const bottomPixel = Math.min(
+        canvas.height,
+        Math.ceil(
+          ((bottom - canvasBounds.top) / canvasBounds.height) * canvas.height,
+        ),
+      );
+      return {
+        x,
+        y,
+        width: Math.max(1, rightPixel - x),
+        height: Math.max(1, bottomPixel - y),
+      };
+    }
+  }
+  return {
+    x: Math.floor(rect.x * canvas.width),
+    y: Math.floor(rect.y * canvas.height),
+    width: Math.max(1, Math.floor(rect.width * canvas.width)),
+    height: Math.max(1, Math.floor(rect.height * canvas.height)),
+  };
 }
 
 function regionAnchor(

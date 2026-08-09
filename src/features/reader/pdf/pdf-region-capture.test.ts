@@ -149,6 +149,86 @@ describe('capturePdfRegion', () => {
     expect([...bytes]).toEqual([0, 0, 0]);
   });
 
+  it('maps the selected page box through the rendered canvas at CSS zoom', async () => {
+    const source = Object.assign(document.createElement('canvas'), {
+      width: 1200,
+      height: 1600,
+    });
+    source.getBoundingClientRect = () =>
+      ({
+        left: 118,
+        top: 68,
+        right: 718,
+        bottom: 868,
+        width: 600,
+        height: 800,
+      }) as DOMRect;
+    const pageElement = document.createElement('div');
+    pageElement.getBoundingClientRect = () =>
+      ({
+        left: 100,
+        top: 50,
+        right: 736,
+        bottom: 886,
+        width: 636,
+        height: 836,
+      }) as DOMRect;
+    const drawImage = vi.fn();
+    const target = {
+      width: 0,
+      height: 0,
+      getContext: () => ({ drawImage }),
+      toBlob(callback: (blob: Blob) => void) {
+        callback(
+          new Blob(
+            [
+              new Uint8Array([
+                0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3,
+              ]),
+            ],
+            { type: 'image/png' },
+          ),
+        );
+      },
+    };
+    vi.spyOn(document, 'createElement').mockImplementation(((tag: string) =>
+      tag === 'canvas'
+        ? (target as unknown as HTMLCanvasElement)
+        : document.createElementNS(
+            'http://www.w3.org/1999/xhtml',
+            tag,
+          )) as typeof document.createElement);
+
+    await capturePdfRegion(
+      {
+        page: 1,
+        rect: {
+          x: 118 / 636,
+          y: 118 / 836,
+          width: 300 / 636,
+          height: 400 / 836,
+        },
+        pageElement,
+        viewport,
+        textItems: [],
+        canvas: source,
+      },
+      () => true,
+    );
+
+    expect(drawImage).toHaveBeenCalledWith(
+      source,
+      200,
+      200,
+      600,
+      800,
+      0,
+      0,
+      600,
+      800,
+    );
+  });
+
   it('materializes no bytes when an aborted confirmation resolves late', async () => {
     const controller = new AbortController();
     const late = deferred<boolean>();

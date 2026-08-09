@@ -190,7 +190,7 @@ describe('PdfReaderAdapter', () => {
     ).toEqual({ found: false });
   });
 
-  it('reports primary, unique page-confined fallback, and ambiguous unresolved recovery', async () => {
+  it('reports primary visual geometry, unique text fallback, and ambiguous unresolved recovery', async () => {
     const viewer = {
       setDocument: vi.fn(),
       cleanup: vi.fn(),
@@ -298,6 +298,35 @@ describe('PdfReaderAdapter', () => {
       top: '10px',
     });
     expect(events.onMarkersResolved).toHaveBeenCalled();
+    expect(
+      await adapter.showAnnotations([
+        {
+          id: 'visual-region-with-fallback',
+          kind: 'ai_conversation',
+          conversationId: 'conversation',
+          label: 'View AI conversation marker',
+          relocationStatus: 'primary',
+          anchor: {
+            kind: 'region',
+            region: {
+              locator: { format: 'pdf', page: 1 },
+              rect: { x: 0.1, y: 0.1, width: 0.2, height: 0.1 },
+              contentSha256: 'f'.repeat(64),
+              textFallback: {
+                exact: 'blue title absent from the rendered text layer',
+                prefix: '',
+                suffix: '',
+              },
+            },
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        annotationId: 'visual-region-with-fallback',
+        relocationStatus: 'primary',
+      },
+    ]);
     const movedRegion = {
       id: 'moved-region-marker',
       kind: 'ai_conversation' as const,
@@ -319,7 +348,7 @@ describe('PdfReaderAdapter', () => {
       },
     };
     expect(await adapter.showAnnotations([movedRegion])).toEqual([
-      { annotationId: 'moved-region-marker', relocationStatus: 'fallback' },
+      { annotationId: 'moved-region-marker', relocationStatus: 'primary' },
     ]);
     expect(await adapter.showAnnotations([base])).toEqual([
       { annotationId: 'marker', relocationStatus: 'fallback' },
@@ -339,7 +368,7 @@ describe('PdfReaderAdapter', () => {
         },
       ]),
     ).toEqual([
-      { annotationId: 'moved-region-marker', relocationStatus: 'unresolved' },
+      { annotationId: 'moved-region-marker', relocationStatus: 'primary' },
     ]);
     expect(
       await adapter.showAnnotations([

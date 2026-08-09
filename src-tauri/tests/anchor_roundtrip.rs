@@ -53,7 +53,15 @@ fn annotations_legacy_text_and_tagged_region_anchors_survive_restart_for_all_for
         section_id: Some(docx_section),
     };
     let pdf_region = ContentAnchor::Region {
-        region: region(RegionLocator::pdf(1).unwrap(), "a"),
+        region: RegionAnchor::new(
+            RegionLocator::pdf(1).unwrap(),
+            NormalizedRect::new(0.1, 0.2, 0.3, 0.2).unwrap(),
+            "a".repeat(64),
+            Some(quote(
+                "visual title fallback absent from the local text layer",
+            )),
+        )
+        .unwrap(),
     };
     let epub_region = ContentAnchor::Region {
         region: region(
@@ -101,6 +109,22 @@ fn annotations_legacy_text_and_tagged_region_anchors_survive_restart_for_all_for
             &ContentAnchor::from(pdf_text.clone()),
         )
         .await;
+        seed_ai(
+            database.pool(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            pdf_book,
+            pdf_section,
+            &pdf_region,
+        )
+        .await;
+        let immediate = list_annotation_markers(database.pool(), pdf_book)
+            .await
+            .expect("new visual marker");
+        assert!(immediate.iter().any(|item| {
+            item.anchor.as_ref() == Some(&pdf_region)
+                && item.relocation_status == MarkerRelocationStatus::Primary
+        }));
         database.pool().close().await;
     });
     drop(database);

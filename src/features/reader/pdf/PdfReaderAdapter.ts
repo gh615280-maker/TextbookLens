@@ -31,6 +31,7 @@ import {
 import { addPdfRectOverlay } from './pdf-markers';
 import {
   capturePdfRegion,
+  isVisualPdfRegionAnchor,
   verifyPdfRegionAnchor,
   type PdfViewportLike,
 } from './pdf-region-capture';
@@ -307,7 +308,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
         const persistedVisualLocation =
           page &&
           item.relocationStatus === 'primary' &&
-          region.textFallback === null &&
+          (await isVisualPdfRegionAnchor(region)) &&
           validPersistedPdfRegion(page, region);
         if (page && (verified || persistedVisualLocation)) {
           addPdfRectOverlay(page, pageBounds(regionLocator.page, page), [
@@ -507,6 +508,7 @@ export class PdfReaderAdapter implements ReaderAdapter {
               page: selected.page,
               rect: selected.rect,
               anchorRect,
+              pageElement: start.page,
               viewport,
               textItems: textContent.items as never[],
               canvas: pageView.canvas ?? start.page.querySelector('canvas'),

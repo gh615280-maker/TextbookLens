@@ -411,7 +411,7 @@ fn preparation_cost_risk_is_profile_scoped_and_first_use_blocks() {
 fn preparation_visual_consent_ask_deny_allow_and_skip_preference_are_safe() {
     let fixture = Fixture::new();
     tauri::async_runtime::block_on(async {
-        let bytes = png(2, 2, b"VISUAL_CAPTURE_SENTINEL");
+        let bytes = include_bytes!("../../../fixtures/source/vision/tiny-blue.png").to_vec();
         let ask = fixture
             .service
             .prepare(fixture.visual_metadata(&bytes))

@@ -34,6 +34,12 @@ type SafeStartedRecord = {
   requestId: string;
   summary: Record<string, unknown>;
 };
+type SafeCaptureRecord = {
+  readonly width: number;
+  readonly height: number;
+  readonly encodedByteLength: number;
+  readonly bluePixelRatio: number;
+};
 
 class SyntheticSelectionBackend {
   readonly calls = new Map<string, number>();
@@ -42,6 +48,7 @@ class SyntheticSelectionBackend {
   readonly consoleErrors: string[] = [];
   readonly externalOrigins = new Set<string>();
   readonly pdf: number[];
+  readonly scannedPdf: number[];
   readonly epub: number[];
   readonly bluePng: string;
   language: 'zh-CN' | 'zh-TW' | 'en' = 'en';
@@ -53,9 +60,17 @@ class SyntheticSelectionBackend {
   discardCount = 0;
   providerStreams = 0;
   messageWrites = 0;
+  useVisualPdf = false;
+  stagedCapture: SafeCaptureRecord | null = null;
 
-  constructor(pdf: Uint8Array, epub: Uint8Array, bluePng: Uint8Array) {
+  constructor(
+    pdf: Uint8Array,
+    scannedPdf: Uint8Array,
+    epub: Uint8Array,
+    bluePng: Uint8Array,
+  ) {
     this.pdf = [...pdf];
+    this.scannedPdf = [...scannedPdf];
     this.epub = [...epub];
     this.bluePng = Buffer.from(bluePng).toString('base64');
   }
@@ -85,7 +100,14 @@ class SyntheticSelectionBackend {
         return [this.section(this.formatForBook(String(payload.bookId)))];
       case 'read_book_source': {
         const format = this.formatForBook(String(payload.bookId));
-        return { __binary: format === 'pdf' ? this.pdf : this.epub };
+        return {
+          __binary:
+            format === 'pdf'
+              ? this.useVisualPdf
+                ? this.scannedPdf
+                : this.pdf
+              : this.epub,
+        };
       }
       case 'read_derived_text':
         return this.docxHtml();
@@ -130,6 +152,7 @@ class SyntheticSelectionBackend {
           : null;
       case 'stage_region_capture':
         this.stageCount += 1;
+        this.stagedCapture = payload.capture as SafeCaptureRecord;
         return undefined;
       case 'discard_learning_preparation':
         this.discardCount += 1;
@@ -163,6 +186,7 @@ class SyntheticSelectionBackend {
       discardCount: this.discardCount,
       providerStreams: this.providerStreams,
       messageWrites: this.messageWrites,
+      stagedCapture: this.stagedCapture,
     };
   }
 
@@ -371,12 +395,18 @@ class SyntheticSelectionBackend {
 /* eslint-disable react-hooks/rules-of-hooks -- Playwright fixture callback. */
 const selectionTest = test.extend<{ backend: SyntheticSelectionBackend }>({
   backend: async ({ page }, use) => {
-    const [pdf, epub, bluePng] = await Promise.all([
+    const [pdf, scannedPdf, epub, bluePng] = await Promise.all([
       readFile('fixtures/textbook.pdf'),
+      readFile('fixtures/source/scanned-textbook.pdf'),
       readFile('fixtures/textbook.epub'),
       readFile('fixtures/source/vision/tiny-blue.png'),
     ]);
-    const backend = new SyntheticSelectionBackend(pdf, epub, bluePng);
+    const backend = new SyntheticSelectionBackend(
+      pdf,
+      scannedPdf,
+      epub,
+      bluePng,
+    );
     await installMock(page, backend);
     await use(backend);
   },
@@ -651,6 +681,45 @@ selectionTest(
   },
 );
 
+selectionTest(
+  'PDF visual selection stages the actual blue crop at native zoom coordinates',
+  async ({ page, backend }) => {
+    selectionTest.setTimeout(60_000);
+    backend.useVisualPdf = true;
+    backend.pdfZoom = 1.75;
+    await page.goto(`/books/${BOOKS.pdf}/read`);
+    const canvas = page.locator('.pdf-viewer [data-page-number="1"] canvas');
+    await expect(canvas).toBeVisible();
+    await canvas.evaluate((element) => {
+      const viewport = element.closest('.pdf-viewer-container');
+      if (viewport instanceof HTMLElement)
+        viewport.scrollTop = element.clientHeight * 0.72;
+    });
+    await page.getByRole('button', { name: 'Select area' }).click();
+    await drag(page, canvas, 0.16, 0.827, 0.35, 0.886);
+    await page.getByRole('menuitem', { name: 'Explain' }).click();
+    await page
+      .getByRole('dialog', { name: 'Confirm learning request' })
+      .getByRole('button', { name: 'Authorize and continue' })
+      .click();
+
+    await expect.poll(() => backend.stagedCapture).not.toBeNull();
+    expect(backend.stagedCapture).toEqual(
+      expect.objectContaining({
+        width: expect.any(Number),
+        height: expect.any(Number),
+        encodedByteLength: expect.any(Number),
+      }),
+    );
+    expect(backend.stagedCapture!.width).toBeGreaterThan(100);
+    expect(backend.stagedCapture!.height).toBeGreaterThan(40);
+    expect(backend.stagedCapture!.encodedByteLength).toBeGreaterThan(100);
+    expect(backend.stagedCapture!.bluePixelRatio).toBeGreaterThan(0.9);
+    await expect.poll(() => backend.started.length).toBe(1);
+    await assertPrivacy(page, backend);
+  },
+);
+
 async function installMock(page: Page, backend: SyntheticSelectionBackend) {
   page.on('console', (message) => {
     if (message.type() === 'error') backend.consoleErrors.push(message.text());
@@ -694,16 +763,46 @@ async function installMock(page: Page, backend: SyntheticSelectionBackend) {
         return nextCallbackId++;
       },
       unregisterCallback() {},
-      async invoke(command, payload = {}, options = {}) {
+      async invoke(command, payload = {}) {
         let safePayload: Record<string, unknown>;
         if (command === 'stage_region_capture') {
           const body = payload as Uint8Array;
+          const bitmap = await createImageBitmap(
+            new Blob([Uint8Array.from(body)], { type: 'image/png' }),
+          );
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const context = canvas.getContext('2d', { alpha: false });
+          if (!context) throw new Error('synthetic capture inspection failed');
+          context.drawImage(bitmap, 0, 0);
+          bitmap.close();
+          const pixels = context.getImageData(
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+          ).data;
+          let bluePixels = 0;
+          for (let index = 0; index < pixels.length; index += 4) {
+            if (
+              pixels[index] < 80 &&
+              pixels[index + 1] < 140 &&
+              pixels[index + 2] > 180
+            )
+              bluePixels += 1;
+          }
           safePayload = {
             encodedByteLength: body.byteLength,
-            metadata: JSON.parse(
-              options.headers?.['x-textbooklens-learning-capture'] ?? '{}',
-            ),
+            capture: {
+              width: canvas.width,
+              height: canvas.height,
+              encodedByteLength: body.byteLength,
+              bluePixelRatio: bluePixels / (canvas.width * canvas.height),
+            },
           };
+          canvas.width = 0;
+          canvas.height = 0;
           body.fill(0);
         } else if (command === 'subscribe_learning_request') {
           const args = payload as Record<string, unknown>;

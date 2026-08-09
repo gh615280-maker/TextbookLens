@@ -71,7 +71,7 @@ const STRUCTURED_REFUSAL: &str =
     include_str!("../../../../fixtures/providers/kimi/structured-refusal.json");
 const STRUCTURED_TRUNCATED: &str =
     include_str!("../../../../fixtures/providers/kimi/structured-truncated.json");
-const SYNTHETIC_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+const SYNTHETIC_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAEElEQVR4nGMwTDkJRAwQCgAj9gV5wT7pWAAAAABJRU5ErkJggg==";
 fn request() -> UnifiedChatRequest {
     UnifiedChatRequest {
         model: "fixture-kimi-model".into(),
@@ -137,9 +137,9 @@ fn synthetic_image(book_id: Uuid) -> crate::domain::VisionAsset {
         book_id,
         Uuid::new_v4(),
         ImageMime::Png,
-        1,
-        1,
-        b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01".to_vec(),
+        2,
+        2,
+        include_bytes!("../../../../fixtures/source/vision/tiny-blue.png").to_vec(),
         ImageLimits {
             max_images: 4,
             max_encoded_bytes_each: 4 * 1024 * 1024,
