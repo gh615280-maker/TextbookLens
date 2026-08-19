@@ -1,6 +1,7 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'
@@ -10,6 +11,7 @@ permissions:
 
 jobs:
   windows-installers:
+    if: github.ref_type == 'tag'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
