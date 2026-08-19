@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installers:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.1
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: 1.97.1-x86_64-pc-windows-msvc
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+      - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets --all-features -j 1 -- -D warnings
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml --all-features -j 1
+      - run: npm run check:dependencies
+      - run: npm run check:licenses
+      - run: npm run check:sensitive
+      - run: npm run check:generated
+      - run: npm run fixtures:verify
+      - run: npm run tauri build
+      - name: Audit and collect release assets
+        shell: pwsh
+        run: |
+          node scripts/audit-release-artifacts.mjs --no-defaults --root src-tauri/target/release/bundle --root src-tauri/resources --root src-tauri/migrations --file LICENSES.md --file THIRD_PARTY_NOTICES.md
+          $assetRoot = Join-Path $env:RUNNER_TEMP "textbooklens-release"
+          New-Item -ItemType Directory -Force -Path $assetRoot | Out-Null
+          $assets = Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -File -Include "*.exe", "*.msi"
+          if (($assets | Measure-Object).Count -ne 2) { throw "Expected exactly one EXE and one MSI installer." }
+          Copy-Item -LiteralPath $assets.FullName -Destination $assetRoot
+          $checksumLines = Get-ChildItem -LiteralPath $assetRoot -File | Sort-Object Name | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(), $_.Name
+          }
+          Set-Content -LiteralPath (Join-Path $assetRoot "SHA256SUMS.txt") -Value $checksumLines -Encoding utf8NoBOM
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assetRoot = Join-Path $env:RUNNER_TEMP "textbooklens-release"
+          $assets = Get-ChildItem -LiteralPath $assetRoot -File | ForEach-Object { $_.FullName }
+          gh release create $env:GITHUB_REF_NAME $assets --verify-tag --generate-notes --title "TextbookLens $env:GITHUB_REF_NAME"
