@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose an improvement grounded in a real user problem
+title: '[Feature]: '
+labels: ['enhancement', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: Explain the problem before prescribing an implementation. Requests should preserve the local-first privacy boundary.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who encounters this problem, and during which workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should become easier or possible?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested approach
+      description: Optional. Alternatives are welcome.
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Local-first and privacy impact
+      description: Would this introduce networking, new stored data, credentials, or external services?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current workaround or alternatives
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and the roadmap.
+          required: true
+        - label: This issue contains no private textbook content, credentials, prompts, answers, or provider payloads.
+          required: true
