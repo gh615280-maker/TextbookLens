@@ -1373,6 +1373,23 @@ async fn validate_schema(
         .await
         .map_err(|_| restore_preflight_failed())?;
     if actual != expected {
+        #[cfg(test)]
+        {
+            eprintln!(
+                "restore schema mismatch: actual_rows={} expected_rows={}",
+                actual.len(),
+                expected.len()
+            );
+            for index in 0..actual.len().max(expected.len()) {
+                if actual.get(index) != expected.get(index) {
+                    eprintln!(
+                        "restore schema mismatch at row {index}: actual={:?} expected={:?}",
+                        actual.get(index),
+                        expected.get(index)
+                    );
+                }
+            }
+        }
         return Err(restore_preflight_failed());
     }
     Ok(())
