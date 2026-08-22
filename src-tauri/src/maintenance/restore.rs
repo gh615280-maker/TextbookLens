@@ -1354,11 +1354,16 @@ async fn validate_migrations(connection: &mut SqliteConnection) -> Result<(), Re
 
 async fn validate_schema(
     connection: &mut SqliteConnection,
-    _operation: &RestoreOperationPaths,
+    operation: &RestoreOperationPaths,
 ) -> Result<(), RestoreArchiveError> {
     let actual = schema_rows(connection).await?;
+    let reference_path = operation.root.join("reference.sqlite3");
+    if path_exists(&reference_path).map_err(|_| restore_preflight_failed())? {
+        return Err(restore_preflight_failed());
+    }
     let options = SqliteConnectOptions::new()
-        .in_memory(true)
+        .filename(&reference_path)
+        .create_if_missing(true)
         .foreign_keys(true);
     let mut reference = SqliteConnection::connect_with(&options)
         .await
@@ -1373,26 +1378,10 @@ async fn validate_schema(
         .await
         .map_err(|_| restore_preflight_failed())?;
     if actual != expected {
-        #[cfg(test)]
-        {
-            eprintln!(
-                "restore schema mismatch: actual_rows={} expected_rows={}",
-                actual.len(),
-                expected.len()
-            );
-            for index in 0..actual.len().max(expected.len()) {
-                if actual.get(index) != expected.get(index) {
-                    eprintln!(
-                        "restore schema mismatch at row {index}: actual={:?} expected={:?}",
-                        actual.get(index),
-                        expected.get(index)
-                    );
-                }
-            }
-        }
+        cleanup_reference_files(&operation.root)?;
         return Err(restore_preflight_failed());
     }
-    Ok(())
+    cleanup_reference_files(&operation.root)
 }
 
 async fn schema_rows(
@@ -1406,6 +1395,7 @@ async fn schema_rows(
     .map_err(|_| restore_preflight_failed())?;
     rows.into_iter()
         .map(|row| {
+            let sql: Option<String> = row.try_get("sql").map_err(|_| restore_preflight_failed())?;
             Ok((
                 row.try_get("type")
                     .map_err(|_| restore_preflight_failed())?,
@@ -1413,10 +1403,26 @@ async fn schema_rows(
                     .map_err(|_| restore_preflight_failed())?,
                 row.try_get("tbl_name")
                     .map_err(|_| restore_preflight_failed())?,
-                row.try_get("sql").map_err(|_| restore_preflight_failed())?,
+                sql.map(|value| value.replace("\r\n", "\n").replace('\r', "\n")),
             ))
         })
         .collect()
+}
+
+fn cleanup_reference_files(operation_root: &Path) -> Result<(), RestoreArchiveError> {
+    for name in [
+        "reference.sqlite3",
+        "reference.sqlite3-wal",
+        "reference.sqlite3-shm",
+        "reference.sqlite3-journal",
+    ] {
+        let path = operation_root.join(name);
+        if path_exists(&path).map_err(|_| restore_preflight_failed())? {
+            require_regular_file(&path).map_err(|_| restore_preflight_failed())?;
+            fs::remove_file(&path).map_err(|_| restore_preflight_failed())?;
+        }
+    }
+    sync(operation_root).map_err(|_| restore_preflight_failed())
 }
 
 async fn validate_archive_ownership(
