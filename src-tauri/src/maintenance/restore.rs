@@ -1395,6 +1395,7 @@ async fn schema_rows(
     .map_err(|_| restore_preflight_failed())?;
     rows.into_iter()
         .map(|row| {
+            let sql: Option<String> = row.try_get("sql").map_err(|_| restore_preflight_failed())?;
             Ok((
                 row.try_get("type")
                     .map_err(|_| restore_preflight_failed())?,
@@ -1402,7 +1403,7 @@ async fn schema_rows(
                     .map_err(|_| restore_preflight_failed())?,
                 row.try_get("tbl_name")
                     .map_err(|_| restore_preflight_failed())?,
-                row.try_get("sql").map_err(|_| restore_preflight_failed())?,
+                sql.map(|value| value.replace("\r\n", "\n").replace('\r', "\n")),
             ))
         })
         .collect()

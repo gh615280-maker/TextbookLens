@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible TextbookLens problem
+title: '[Bug]: '
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve TextbookLens. Never attach real textbooks, API keys, private notes, source paths, prompts, answers, or provider responses. Use synthetic examples.
+  - type: input
+    id: version
+    attributes:
+      label: TextbookLens version
+      placeholder: '0.1.0'
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: 'Windows 11 24H2 x64'
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Document format involved
+      options:
+        - Not document-specific
+        - PDF
+        - EPUB
+        - DOCX
+        - Multiple formats
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use a synthetic or redistributable test file only.
+      placeholder: |
+        1. Open...
+        2. Choose...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional safe context
+      description: Screenshots and logs must contain synthetic data and no secrets or private paths.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed API keys, private content, personal paths, prompts, answers, and provider payloads.
+          required: true
+        - label: I searched existing issues for the same problem.
+          required: true
