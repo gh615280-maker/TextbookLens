@@ -1262,13 +1262,23 @@ async fn preflight_database(
     let mut connection = SqliteConnection::connect_with(&options)
         .await
         .map_err(|_| restore_preflight_failed())?;
+    #[cfg(test)]
+    eprintln!("restore preflight: database connected");
     sqlx::query("PRAGMA query_only = ON")
         .execute(&mut connection)
         .await
         .map_err(|_| restore_preflight_failed())?;
+    #[cfg(test)]
+    eprintln!("restore preflight: query-only enabled");
     require_database_integrity(&mut connection).await?;
+    #[cfg(test)]
+    eprintln!("restore preflight: integrity verified");
     validate_migrations(&mut connection).await?;
+    #[cfg(test)]
+    eprintln!("restore preflight: migrations verified");
     validate_schema(&mut connection, operation).await?;
+    #[cfg(test)]
+    eprintln!("restore preflight: schema verified");
     let forbidden_remote_rows: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM provider_remote_resources")
             .fetch_one(&mut connection)
@@ -1277,6 +1287,8 @@ async fn preflight_database(
     if forbidden_remote_rows != 0 {
         return Err(restore_preflight_failed());
     }
+    #[cfg(test)]
+    eprintln!("restore preflight: remote resources verified");
     let profile_rows = sqlx::query("SELECT id FROM provider_profiles ORDER BY id LIMIT ?")
         .bind(i64::try_from(MAX_BOOK_ROWS + 1).map_err(|_| restore_preflight_failed())?)
         .fetch_all(&mut connection)
@@ -1299,6 +1311,8 @@ async fn preflight_database(
         .close()
         .await
         .map_err(|_| restore_preflight_failed())?;
+    #[cfg(test)]
+    eprintln!("restore preflight: provider profiles verified");
     Ok(profiles)
 }
 
