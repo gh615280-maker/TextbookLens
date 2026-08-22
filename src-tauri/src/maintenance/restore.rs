@@ -1262,23 +1262,13 @@ async fn preflight_database(
     let mut connection = SqliteConnection::connect_with(&options)
         .await
         .map_err(|_| restore_preflight_failed())?;
-    #[cfg(test)]
-    eprintln!("restore preflight: database connected");
     sqlx::query("PRAGMA query_only = ON")
         .execute(&mut connection)
         .await
         .map_err(|_| restore_preflight_failed())?;
-    #[cfg(test)]
-    eprintln!("restore preflight: query-only enabled");
     require_database_integrity(&mut connection).await?;
-    #[cfg(test)]
-    eprintln!("restore preflight: integrity verified");
     validate_migrations(&mut connection).await?;
-    #[cfg(test)]
-    eprintln!("restore preflight: migrations verified");
     validate_schema(&mut connection, operation).await?;
-    #[cfg(test)]
-    eprintln!("restore preflight: schema verified");
     let forbidden_remote_rows: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM provider_remote_resources")
             .fetch_one(&mut connection)
@@ -1287,8 +1277,6 @@ async fn preflight_database(
     if forbidden_remote_rows != 0 {
         return Err(restore_preflight_failed());
     }
-    #[cfg(test)]
-    eprintln!("restore preflight: remote resources verified");
     let profile_rows = sqlx::query("SELECT id FROM provider_profiles ORDER BY id LIMIT ?")
         .bind(i64::try_from(MAX_BOOK_ROWS + 1).map_err(|_| restore_preflight_failed())?)
         .fetch_all(&mut connection)
@@ -1311,8 +1299,6 @@ async fn preflight_database(
         .close()
         .await
         .map_err(|_| restore_preflight_failed())?;
-    #[cfg(test)]
-    eprintln!("restore preflight: provider profiles verified");
     Ok(profiles)
 }
 
@@ -1368,16 +1354,11 @@ async fn validate_migrations(connection: &mut SqliteConnection) -> Result<(), Re
 
 async fn validate_schema(
     connection: &mut SqliteConnection,
-    operation: &RestoreOperationPaths,
+    _operation: &RestoreOperationPaths,
 ) -> Result<(), RestoreArchiveError> {
     let actual = schema_rows(connection).await?;
-    let reference_path = operation.root.join("reference.sqlite3");
-    if path_exists(&reference_path).map_err(|_| restore_preflight_failed())? {
-        return Err(restore_preflight_failed());
-    }
     let options = SqliteConnectOptions::new()
-        .filename(&reference_path)
-        .create_if_missing(true)
+        .in_memory(true)
         .foreign_keys(true);
     let mut reference = SqliteConnection::connect_with(&options)
         .await
@@ -1392,10 +1373,9 @@ async fn validate_schema(
         .await
         .map_err(|_| restore_preflight_failed())?;
     if actual != expected {
-        cleanup_reference_files(&operation.root)?;
         return Err(restore_preflight_failed());
     }
-    cleanup_reference_files(&operation.root)
+    Ok(())
 }
 
 async fn schema_rows(
@@ -1420,22 +1400,6 @@ async fn schema_rows(
             ))
         })
         .collect()
-}
-
-fn cleanup_reference_files(operation_root: &Path) -> Result<(), RestoreArchiveError> {
-    for name in [
-        "reference.sqlite3",
-        "reference.sqlite3-wal",
-        "reference.sqlite3-shm",
-        "reference.sqlite3-journal",
-    ] {
-        let path = operation_root.join(name);
-        if path_exists(&path).map_err(|_| restore_preflight_failed())? {
-            require_regular_file(&path).map_err(|_| restore_preflight_failed())?;
-            fs::remove_file(&path).map_err(|_| restore_preflight_failed())?;
-        }
-    }
-    sync(operation_root).map_err(|_| restore_preflight_failed())
 }
 
 async fn validate_archive_ownership(
