@@ -74,6 +74,7 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci
+      - run: npm run format:check
       - run: npx playwright install chromium
       - run: npm run test:e2e -- e2e/acceptance/scenario-isolation.spec.ts e2e/accessibility-visual.spec.ts e2e/local-data-privacy.spec.ts --grep "A:|B:|O:|P:|Q:" --workers=1
 

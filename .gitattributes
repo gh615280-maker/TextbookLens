@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 fixtures/source/textbook-content.json text eol=lf
 fixtures/source/fonts/OFL.txt text eol=lf
 src-tauri/migrations/*.sql text eol=lf

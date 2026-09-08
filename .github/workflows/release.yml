@@ -41,15 +41,37 @@ jobs:
       - run: npm run check:generated
       - run: npm run fixtures:verify
       - run: npm run tauri build
-      - name: Audit and collect release assets
+      - name: Collect standard installers
         shell: pwsh
         run: |
-          node scripts/audit-release-artifacts.mjs --no-defaults --root src-tauri/target/release/bundle --root src-tauri/resources --root src-tauri/migrations --file LICENSES.md --file THIRD_PARTY_NOTICES.md
+          $bundleRoot = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\release\bundle'
           $assetRoot = Join-Path $env:RUNNER_TEMP "textbooklens-release"
           New-Item -ItemType Directory -Force -Path $assetRoot | Out-Null
-          $assets = Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -File -Include "*.exe", "*.msi"
-          if (($assets | Measure-Object).Count -ne 2) { throw "Expected exactly one EXE and one MSI installer." }
-          Copy-Item -LiteralPath $assets.FullName -Destination $assetRoot
+          $exe = @(Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'nsis') -File -Filter '*.exe')
+          $msi = @(Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'msi') -File -Filter '*.msi')
+          if ($exe.Count -ne 1 -or $msi.Count -ne 1) { throw "Expected exactly one standard EXE and one standard MSI installer." }
+          Copy-Item -LiteralPath $exe[0].FullName -Destination $assetRoot
+          Copy-Item -LiteralPath $msi[0].FullName -Destination $assetRoot
+      - name: Build complete offline installers
+        run: npm run tauri -- bundle --config src-tauri/tauri.offline.conf.json
+      - name: Audit and collect offline release assets
+        shell: pwsh
+        run: |
+          $repoRoot = $env:GITHUB_WORKSPACE
+          $bundleRoot = Join-Path $repoRoot 'src-tauri\target\release\bundle'
+          $assetRoot = Join-Path $env:RUNNER_TEMP "textbooklens-release"
+          node scripts/audit-release-artifacts.mjs --no-defaults --root $bundleRoot --root (Join-Path $repoRoot 'src-tauri\resources') --root (Join-Path $repoRoot 'src-tauri\migrations') --file (Join-Path $repoRoot 'LICENSES.md') --file (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = @(Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'nsis') -File -Filter '*.exe')
+          $msi = @(Get-ChildItem -LiteralPath (Join-Path $bundleRoot 'msi') -File -Filter '*.msi')
+          if ($exe.Count -ne 1 -or $msi.Count -ne 1) { throw "Expected exactly one offline EXE and one offline MSI installer." }
+          $offlineExeName = $exe[0].Name -replace '-setup\.exe$', '-offline-setup.exe'
+          $offlineMsiName = $msi[0].Name -replace '\.msi$', '-offline.msi'
+          if ($offlineExeName -eq $exe[0].Name -or $offlineMsiName -eq $msi[0].Name) { throw "Unable to derive distinct offline installer names." }
+          Copy-Item -LiteralPath $exe[0].FullName -Destination (Join-Path $assetRoot $offlineExeName)
+          Copy-Item -LiteralPath $msi[0].FullName -Destination (Join-Path $assetRoot $offlineMsiName)
+          $installers = @(Get-ChildItem -LiteralPath $assetRoot -File | Where-Object Extension -in '.exe', '.msi')
+          if ($installers.Count -ne 4) { throw "Expected exactly four release installers." }
           $checksumLines = Get-ChildItem -LiteralPath $assetRoot -File | Sort-Object Name | ForEach-Object {
             "{0}  {1}" -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(), $_.Name
           }
