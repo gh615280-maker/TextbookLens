@@ -40,20 +40,25 @@ pub async fn get_onboarding_state(
         .any(|book| book.import_status == ImportStatus::Ready);
     let connected = |id: Option<uuid::Uuid>| {
         id.and_then(|profile_id| profiles.iter().find(|profile| profile.id == profile_id))
-            .is_some_and(|profile| profile.credential_status == CredentialStatus::Available)
+            .is_some_and(|profile| profile.credential_status != CredentialStatus::Missing)
     };
     let learning_profile_connected = connected(settings.default_learning_profile_id);
-    let vision_profile_connected = settings
+    let vision_profile_connected = if let Some(profile) = settings
         .default_vision_profile_id
-        .and_then(|profile_id| profiles.iter().find(|profile| profile.id == profile_id))
-        .is_some_and(|profile| {
-            profile.credential_status == CredentialStatus::Available
-                && state.provider_capabilities.operation_support(
-                    &profile.kind,
-                    &profile.model_id,
-                    crate::domain::AiOperation::VisionLearning,
-                ) == crate::domain::CapabilitySupport::Supported
-        });
+        .and_then(|id| profiles.iter().find(|profile| profile.id == id))
+    {
+        profile.credential_status != CredentialStatus::Missing
+            && crate::db::local_capabilities::supports(
+                state.db.pool(),
+                &state.provider_capabilities,
+                profile,
+                crate::domain::AiOperation::VisionLearning,
+            )
+            .await
+            .map_err(AppErrorDto::from)?
+    } else {
+        false
+    };
     let local_text_quality = match selected_book.as_ref() {
         Some(book) if book.import_status == ImportStatus::Ready => LocalTextQuality::Ready,
         Some(book)

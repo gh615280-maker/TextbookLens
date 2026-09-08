@@ -282,7 +282,7 @@ export function ReaderPage() {
               bookId,
               sectionId,
               profile,
-              position: selectionPosition(),
+              position: selection.position ?? selectionPosition(),
             }),
           );
         },
@@ -301,7 +301,12 @@ export function ReaderPage() {
           });
         },
         onMarkersResolved: () => setPanelContent(undefined),
-        onFailure: (error) => setPanelContent(error.message),
+        onFailure: (error) =>
+          setPanelContent(
+            error.code === 'FILE_CORRUPTED'
+              ? messageRef.current('reader.pdfRenderFailed')
+              : error.message,
+          ),
       },
       markerLayer,
     );

@@ -340,16 +340,23 @@ async fn queued_maintenance_is_fair_and_terminal_removal_keeps_continuation_leas
     let continuation = registry.operation_permit(book_id).unwrap();
 
     let writer_gate = gate.clone();
+    let (writer_queued_tx, writer_queued_rx) = tokio::sync::oneshot::channel();
     let (writer_ready_tx, writer_ready_rx) = tokio::sync::oneshot::channel();
     let (release_writer_tx, release_writer_rx) = tokio::sync::oneshot::channel();
     let writer = tokio::spawn(async move {
-        let exclusive = writer_gate.acquire_maintenance().await.unwrap();
+        let acquisition = writer_gate.acquire_maintenance();
+        tokio::pin!(acquisition);
+        // Polling registers the writer's ticket. A scheduler yield alone does
+        // not prove the writer ran before the later reader was spawned.
+        assert!(futures_util::poll!(acquisition.as_mut()).is_pending());
+        writer_queued_tx.send(()).unwrap();
+        let exclusive = acquisition.await.unwrap();
         writer_ready_tx.send(()).unwrap();
         release_writer_rx.await.unwrap();
         drop(exclusive);
     });
 
-    tokio::task::yield_now().await;
+    writer_queued_rx.await.unwrap();
     let reader_gate = gate.clone();
     let late_reader = tokio::spawn(async move {
         reader_gate

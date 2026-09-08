@@ -13,6 +13,8 @@ const projectRoot = path.resolve(path.dirname(scriptPath), '..');
 
 export const DEFAULT_AUDIT_LIMITS = Object.freeze({
   ...DEFAULT_SCAN_LIMITS,
+  // Installers may contain the official offline WebView2 runtime.
+  maxFileBytes: 512 * 1024 * 1024,
   maxFiles: 12_000,
   maxDepth: 24,
   maxTotalBytes: 2 * 1024 * 1024 * 1024,

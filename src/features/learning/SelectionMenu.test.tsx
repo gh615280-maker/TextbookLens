@@ -71,6 +71,67 @@ const labels = {
 afterEach(cleanup);
 
 describe('SelectionMenu', () => {
+  it('keeps an expanded question form inside the viewport without closing the selection', async () => {
+    const measure = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        return new DOMRect(
+          0,
+          0,
+          400,
+          this.getAttribute('role') === 'menu' && this.querySelector('textarea')
+            ? 220
+            : 44,
+        );
+      });
+    try {
+      const onClose = vi.fn();
+      render(
+        <SelectionMenu
+          snapshot={{
+            ...snapshot,
+            position: { x: 700, y: window.innerHeight - 20 },
+          }}
+          labels={labels}
+          api={{
+            prepare: vi.fn(),
+            authorize: vi.fn(),
+            stageRegionCapture: vi.fn(),
+            discard: vi.fn(),
+            invalidate: vi.fn(),
+          }}
+          noteApi={{
+            create: vi.fn(),
+            update: vi.fn(),
+            delete: vi.fn(),
+            get: vi.fn(),
+            list: vi.fn(),
+          }}
+          surface={{ handoff: vi.fn() }}
+          onClose={onClose}
+          onError={vi.fn()}
+        />,
+      );
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Ask' }));
+      const menu = screen.getByRole('menu');
+      expect(Number.parseFloat(menu.style.top) + 220).toBeLessThanOrEqual(
+        window.innerHeight,
+      );
+      expect(Number.parseFloat(menu.style.left) + 400).toBeLessThanOrEqual(
+        window.innerWidth,
+      );
+      await userEvent.type(
+        screen.getByRole('textbox', { name: 'Input' }),
+        'A question',
+      );
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole('textbox', { name: 'Input' })).toHaveValue(
+        'A question',
+      );
+    } finally {
+      measure.mockRestore();
+    }
+  });
   it('keeps visual capture bytes alive through the StrictMode effect replay', async () => {
     const bytes = new Uint8Array([137, 80, 78, 71]);
     const release = vi.fn(() => bytes.fill(0));

@@ -4,6 +4,82 @@ import { EpubReaderAdapter } from './EpubReaderAdapter';
 import { hashEpubRegionElement } from './epub-region-capture';
 
 describe('EpubReaderAdapter', () => {
+  it('uses persisted EPUB IDs for selection and progress after empty spine entries', async () => {
+    const id = '33333333-3333-4333-8333-333333333333';
+    const cfi = 'epubcfi(/6/38!/4/2/1:0)';
+    const document = new DOMParser().parseFromString(
+      '<body><p>synthetic selection</p></body>',
+      'text/html',
+    );
+    const range = document.createRange();
+    range.selectNodeContents(document.querySelector('p')!);
+    const handlers = new Map<string, (...args: unknown[]) => void>();
+    const rendition = {
+      display: vi.fn(async () => {}),
+      on: vi.fn((name: string, handler: (...args: unknown[]) => void) => {
+        handlers.set(name, handler);
+      }),
+      off: vi.fn(),
+      destroy: vi.fn(),
+      annotations: { add: vi.fn() },
+      hooks: { content: { register: vi.fn() } },
+    };
+    const book = {
+      open: vi.fn(async () => {}),
+      ready: Promise.resolve(),
+      renderTo: () => rendition,
+      getRange: async () => range,
+      destroy: vi.fn(),
+      spine: { get: () => ({ index: 18 }) },
+    };
+    const onSelection = vi.fn();
+    const onProgress = vi.fn();
+    const adapter = new EpubReaderAdapter(
+      window.document.body,
+      {
+        onSelection,
+        onProgress,
+        onMarkerActivate: vi.fn(),
+        onFailure: vi.fn(),
+      },
+      () => book,
+    );
+    const source = {
+      kind: 'document_bytes' as const,
+      bytes: new ArrayBuffer(1),
+      sectionBindings: [
+        {
+          id,
+          locator: {
+            format: 'epub' as const,
+            cfi: 'epubcfi(/6/38!/4/2)',
+            sectionId: id,
+          },
+        },
+      ],
+    };
+    await adapter.open(source);
+    handlers.get('relocated')?.({ start: { cfi } });
+    expect(adapter.getProgress().locator).toEqual({
+      format: 'epub',
+      cfi,
+      sectionId: id,
+    });
+    handlers.get('selected')?.(cfi);
+    await vi.waitFor(() =>
+      expect(onSelection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          anchor: expect.objectContaining({
+            sectionId: id,
+            locator: { format: 'epub', cfi, sectionId: id },
+          }),
+        }),
+      ),
+    );
+    handlers.get('relocated')?.({ start: { cfi: 'epubcfi(/6/2!/4/2)' } });
+    expect(adapter.getProgress().locator).toBeNull();
+    adapter.dispose();
+  });
   it('opens byte data in continuous vertical flow, restores CFI, and destroys rendition/book', async () => {
     const destroyBook = vi.fn();
     const destroyRendition = vi.fn();

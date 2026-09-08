@@ -1,4 +1,28 @@
 export const zhCN = {
+  'library.column.actions': '操作',
+  'reader.pdfRenderFailed':
+    '此 PDF 页面无法显示，请重新打开教材或尝试其他页面。',
+  'localModels.title': '本地 AI · 离线使用',
+  'localModels.description':
+    '已安装 Ollama 或 LM Studio 并下载模型？一键启动本机服务、添加模型并用于文字问答，无需 API 密钥。支持识图的 Ollama 模型还可设为视觉服务。',
+  'localModels.connect': '一键连接本地 AI',
+  'localModels.connecting': '正在连接本地 AI…',
+  'localModels.wait':
+    '正在检测软件、启动服务并测试模型。首次加载可能需要几分钟，请保持应用打开。',
+  'localModels.success':
+    '已添加或更新 {count} 个本地模型，并设为文字问答默认模型。',
+  'localModels.offline': '离线 · 无需 API 密钥',
+  'localModels.status.connected': '已连接，文字问答可用',
+  'localModels.status.notInstalled': '未找到已安装的软件',
+  'localModels.status.unavailable':
+    '服务未能启动或连接，请确认软件可以在本机正常运行后重试',
+  'localModels.status.authentication':
+    '本机服务要求身份验证，请在该软件中配置允许本机访问后重试',
+  'localModels.status.noModels':
+    '未找到已下载的本地文字模型；云模型和远程设备模型不参与离线连接',
+  'localModels.status.noUsableModels':
+    '发现了模型，但未能完成回答测试，请检查运行内存和模型是否能在原软件中使用',
+  'localModels.error': '本地模型连接未完成，请稍后重试。',
   'nav.onboarding': '开始使用',
   'nav.library': '图书馆',
   'nav.settings': '设置',

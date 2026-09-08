@@ -95,12 +95,14 @@ export function LibraryItem({
 
   if (view === 'details') {
     return (
-      <div role="row">
+      <div role="row" className="library-details__row" data-selected={selected}>
         <span role="gridcell">
           <button
             {...commonProps}
             aria-label={book.title}
             aria-pressed={selected}
+            className="library-details__title"
+            title={book.title}
             ref={(element) => {
               triggerRef.current = element;
             }}
@@ -149,12 +151,13 @@ export function LibraryItem({
   }
 
   return (
-    <li>
+    <li className="library-card" data-selected={selected}>
       <button
         {...commonProps}
         aria-label={book.title}
         aria-pressed={selected}
         className="library-item"
+        title={book.title}
         ref={(element) => {
           triggerRef.current = element;
         }}
@@ -163,10 +166,13 @@ export function LibraryItem({
         <span aria-hidden="true" className="library-item__icon">
           {book.format.toUpperCase()}
         </span>
-        <span>{book.title}</span>
-        {selected ? <span>{message('library.selected')}</span> : null}
-        <span>{book.format.toUpperCase()}</span>
-        <span>{status}</span>
+        <span className="library-item__title">{book.title}</span>
+        {selected ? (
+          <span className="library-item__selected">
+            {message('library.selected')}
+          </span>
+        ) : null}
+        <span className="library-item__import-status">{status}</span>
         <LibraryItemStatus book={book} id={id} />
       </button>
       <BookIndexStatus

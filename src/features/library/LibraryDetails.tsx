@@ -40,7 +40,7 @@ export function LibraryDetails({
       role="grid"
       style={{ overflowX: 'auto' }}
     >
-      <div role="row">
+      <div role="row" className="library-details__header">
         <span role="columnheader">{message('library.column.title')}</span>
         <span role="columnheader">{message('library.column.format')}</span>
         <span role="columnheader">
@@ -48,6 +48,7 @@ export function LibraryDetails({
         </span>
         <span role="columnheader">{message('library.column.indexStatus')}</span>
         <span role="columnheader">{message('library.column.lastOpened')}</span>
+        <span role="columnheader">{message('library.column.actions')}</span>
       </div>
       {books.map((book, index) => (
         <LibraryItem

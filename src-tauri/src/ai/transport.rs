@@ -438,6 +438,7 @@ fn production_origin(kind: &ProviderKind) -> Option<&'static str> {
         ProviderKind::Anthropic => Some("https://api.anthropic.com/"),
         ProviderKind::DeepSeek => Some("https://api.deepseek.com/"),
         ProviderKind::Kimi => None,
+        ProviderKind::Ollama | ProviderKind::LmStudio => None,
     }
 }
 

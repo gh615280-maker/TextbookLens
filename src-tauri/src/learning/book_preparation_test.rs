@@ -48,6 +48,35 @@ const QUESTION: &str = "How does orbital flux determine the synthetic example?";
 const TEACHING_SENTINEL: &str = "Teach with one bounded counterexample.";
 
 #[test]
+fn local_model_book_questions_prepare_and_consume_without_credentials() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        sqlx::query("UPDATE provider_profiles SET provider_kind='ollama',model_id='synthetic:small',context_window_tokens=8192,local_port=11434 WHERE id=?")
+            .bind(fixture.profile_id.to_string()).execute(fixture.pool()).await.unwrap();
+        let book = seed_book(fixture.pool(), BookFormat::Pdf, "local").await;
+        fixture.access.reset_counts();
+        let summary = fixture
+            .service
+            .prepare(PrepareBookLearningRequestMetadata::New {
+                book_id: book.book_id,
+                question: QUESTION.to_owned(),
+            })
+            .await
+            .unwrap();
+        let prepared = fixture
+            .service
+            .consume_for_execution(summary.preparation_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            prepared.provider_kind(),
+            &crate::domain::ProviderKind::Ollama
+        );
+        assert_eq!(fixture.access.credential_calls(), 0);
+    });
+}
+
+#[test]
 fn new_book_questions_are_deterministic_private_and_local_for_all_formats() {
     let fixture = Fixture::new();
     tauri::async_runtime::block_on(async {

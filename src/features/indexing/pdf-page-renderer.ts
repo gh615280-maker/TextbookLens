@@ -1,4 +1,5 @@
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { localPdfOptions } from '../../lib/pdf-options';
 
 import type { RenderedPdfPageDto } from './indexing-contract';
 
@@ -44,10 +45,7 @@ export async function renderPdfPageLocally(
   if (availableTotal <= 0)
     throw new PdfPageRenderError('RENDER_LIMIT_EXCEEDED');
   const encodedLimit = Math.min(bounded.maxEncodedBytes, availableTotal);
-  const loadingTask = getDocument({
-    data: new Uint8Array(source),
-    isEvalSupported: false,
-  } as never);
+  const loadingTask = getDocument(localPdfOptions(source) as never);
   let document: Awaited<typeof loadingTask.promise> | undefined;
   try {
     document = await loadingTask.promise;

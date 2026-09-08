@@ -79,7 +79,7 @@ export class ReaderController {
       }
       this.#adapter = adapter;
       this.#bookId = bookId;
-      this.#source =
+      const source: ReaderSource =
         bootstrap.book.format === 'docx'
           ? {
               kind: 'sanitized_html',
@@ -88,10 +88,14 @@ export class ReaderController {
           : {
               kind: 'document_bytes',
               bytes: toArrayBuffer(await this.api.readBookSource(bookId)),
+              ...(bootstrap.book.format === 'epub'
+                ? { sectionBindings: await this.api.listReaderSections(bookId) }
+                : {}),
             };
       if (generation !== this.#openGeneration || adapter !== this.#adapter)
         return;
-      await adapter.open(this.#source, bootstrap.lastLocator);
+      this.#source = source;
+      await adapter.open(source, bootstrap.lastLocator);
       if (generation !== this.#openGeneration || adapter !== this.#adapter)
         return;
       if (

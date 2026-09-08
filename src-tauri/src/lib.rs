@@ -95,6 +95,7 @@ pub fn run() {
             commands::credentials::replace_provider_profile_credential,
             commands::providers::list_provider_capabilities,
             commands::providers::list_provider_profiles,
+            commands::providers::connect_local_models,
             commands::providers::set_active_provider_profile,
             commands::providers::set_default_provider_profile,
             commands::providers::update_provider_operation_consent,

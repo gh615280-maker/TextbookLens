@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
 import { NoteEditor, type NoteEditorLabels } from '../notes/NoteEditor';
@@ -81,6 +81,20 @@ export function SelectionMenu({
     value: string | null;
     summary: Readonly<PreparationSummary>;
   } | null>(null);
+
+  useLayoutEffect(() => {
+    const element = menuRef.current;
+    if (!element) return;
+    const reposition = () =>
+      setPosition(
+        clampMenuPosition(snapshot.position, element.getBoundingClientRect()),
+      );
+    reposition();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(reposition);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [snapshot, activeAction]);
 
   useEffect(() => {
     activeSnapshot.current = snapshot;

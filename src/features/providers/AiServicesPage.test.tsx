@@ -99,6 +99,11 @@ const registry = {
 };
 function fakeApi(): ProviderApi {
   return {
+    connectLocal: vi.fn(async () => ({
+      profiles: [],
+      defaultProfileId: null,
+      services: [],
+    })),
     listCapabilities: vi.fn(async () => registry),
     listProfiles: vi.fn(async () => [profile]),
     getSettings: vi.fn(async () => ({
@@ -121,6 +126,86 @@ function fakeApi(): ProviderApi {
   };
 }
 afterEach(() => cleanup());
+
+it('shows discovered local vision support and lets the user select it for images', async () => {
+  const api = fakeApi();
+  const localProfile = {
+    ...profile,
+    kind: 'ollama' as const,
+    displayName: 'Local vision',
+    modelId: 'synthetic:vision',
+    credentialStatus: 'not_required' as const,
+  };
+  vi.mocked(api.listProfiles).mockResolvedValue([localProfile]);
+  vi.mocked(api.listCapabilities).mockResolvedValue({
+    ...registry,
+    providers: [
+      ...registry.providers,
+      {
+        ...registry.providers[0],
+        kind: 'ollama',
+        defaultModel: localProfile.modelId,
+        models: [
+          {
+            ...registry.providers[0].models[0],
+            id: localProfile.modelId,
+            imageInput: 'supported',
+            imageLimits: {
+              maxImages: 1,
+              maxEncodedBytesEach: 2097152n,
+              maxTotalEncodedBytes: 2097152n,
+              maxDimensionPx: 2048,
+              maxDecodedPixelsEach: 1048576n,
+            },
+          },
+        ],
+      },
+    ],
+  });
+  renderPage(api);
+  expect(await screen.findByText(/Vision: Supported/)).toBeVisible();
+  await userEvent.click(screen.getByRole('button', { name: 'Use for vision' }));
+  expect(api.setDefault).toHaveBeenCalledWith(
+    'vision_learning',
+    localProfile.id,
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Replace key' }),
+  ).not.toBeInTheDocument();
+});
+
+it('adds and selects an offline model with one click without asking for a key', async () => {
+  const api = fakeApi();
+  const localProfile = {
+    ...profile,
+    kind: 'ollama',
+    displayName: 'Ollama · Synthetic local',
+    modelId: 'synthetic-local:small',
+    credentialStatus: 'not_required',
+  };
+  Object.assign(api, {
+    connectLocal: vi.fn(async () => {
+      vi.mocked(api.listProfiles).mockResolvedValue([localProfile] as never);
+      return {
+        profiles: [localProfile],
+        defaultProfileId: profile.id,
+        services: [{ kind: 'ollama', status: 'connected', modelCount: 1 }],
+      };
+    }),
+  });
+  renderPage(api);
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Auto-connect local AI' }),
+  );
+  expect(
+    await screen.findByRole('article', { name: localProfile.displayName }),
+  ).toBeVisible();
+  expect(screen.getByText('Offline · No API key required')).toBeVisible();
+  expect(screen.getByText('Learning default')).toBeVisible();
+  expect(
+    screen.queryByRole('button', { name: 'Replace key' }),
+  ).not.toBeInTheDocument();
+});
 
 function languageSettings(language: UiLanguage) {
   const value = (uiLanguage: UiLanguage) => ({

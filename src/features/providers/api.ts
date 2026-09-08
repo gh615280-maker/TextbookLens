@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toUserError } from '../../lib/errors';
 import type {
   AiOperation,
+  LocalModelConnectResult,
   ProviderCapabilityRegistryDto,
   ProviderKind,
   ProviderOperationConsentCategory,
@@ -19,6 +20,7 @@ export interface SaveProviderProfileRequest {
 }
 
 export interface ProviderApi {
+  connectLocal(): Promise<LocalModelConnectResult>;
   listCapabilities(): Promise<ProviderCapabilityRegistryDto>;
   listProfiles(operation?: AiOperation): Promise<ProviderProfileSummary[]>;
   getSettings(): Promise<AppSettingsDto>;
@@ -40,6 +42,13 @@ export interface ProviderApi {
 }
 
 export class TauriProviderApi implements ProviderApi {
+  async connectLocal() {
+    try {
+      return await invoke<LocalModelConnectResult>('connect_local_models');
+    } catch (error) {
+      throw toUserError(error);
+    }
+  }
   async listCapabilities() {
     return invoke<ProviderCapabilityRegistryDto>('list_provider_capabilities');
   }

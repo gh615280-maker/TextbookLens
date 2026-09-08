@@ -4,6 +4,7 @@ import { toUserError, type UserFacingError } from '../../lib/errors';
 import type { BookSummary } from '../../lib/generated/book';
 import type { ProviderCapabilityRegistryDto } from '../../lib/generated/provider';
 import { ProviderConnectForm } from '../providers/ProviderConnectForm';
+import { LocalModelConnect } from '../providers/LocalModelConnect';
 import {
   TauriProviderApi,
   type ProviderApi,
@@ -76,6 +77,12 @@ export function OnboardingProviderStep({
       <h2 id="onboarding-provider-title">{message('onboarding.provider')}</h2>
       <p>{message('onboarding.provider.description')}</p>
       <p>{message('onboarding.provider.bookStatus', { title: book.title })}</p>
+      <LocalModelConnect
+        api={api}
+        busy={busy}
+        onConnected={onConnected}
+        onBusyChange={setBusy}
+      />
       {error ? (
         <div role="alert">
           <p>{error.message}</p>

@@ -720,6 +720,7 @@ fn export_bindings() {
     ProviderCapability::export_all(&config).unwrap();
     ProviderCapabilityRegistryDto::export_all(&config).unwrap();
     CredentialStatus::export_all(&config).unwrap();
+    textbooklens_lib::domain::LocalModelConnectResult::export_all(&config).unwrap();
     ProviderOperationConsentCategory::export_all(&config).unwrap();
     ProviderOperationConsentDecision::export_all(&config).unwrap();
     ProviderOperationConsent::export_all(&config).unwrap();

@@ -5,6 +5,7 @@ import type {
   TextQuote,
 } from '../../../lib/generated/document';
 import { epubRegionContainer } from './epub-region-selection';
+import { canonicalEpubAttribute } from './epub-resource-references';
 
 export const EPUB_REGION_CAPTURE_LIMITS = Object.freeze({
   maxScale: 2,
@@ -471,7 +472,10 @@ function appendCanonical(node: Node, parts: string[]): void {
     )
     .filter((attribute) => !attribute.name.toLowerCase().startsWith('on'))
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((attribute) => `${attribute.name}=${attribute.value.normalize('NFC')}`)
+    .map(
+      (attribute) =>
+        `${attribute.name}=${canonicalEpubAttribute(element, attribute).normalize('NFC')}`,
+    )
     .join(';');
   parts.push(`<${element.tagName.toLowerCase()}|${attributes}>`);
 }

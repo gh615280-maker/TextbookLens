@@ -1,7 +1,7 @@
 {
   "name": "textbooklens",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
@@ -9,6 +9,8 @@
     "npm": "=11.16.0"
   },
   "scripts": {
+    "predev": "node scripts/sync-pdf-resources.mjs",
+    "prebuild": "node scripts/sync-pdf-resources.mjs",
     "dev": "vite",
     "preview": "vite preview",
     "build": "tsc -b && vite build",
@@ -49,7 +51,7 @@
   },
   "overrides": {
     "epubjs@0.3.93": {
-      "@xmldom/xmldom": "0.8.13"
+      "@xmldom/xmldom": "0.8.15"
     }
   },
   "devDependencies": {

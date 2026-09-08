@@ -8,6 +8,7 @@ const moduleFile = import.meta.url.startsWith('file:')
 const projectRoot = path.resolve(path.dirname(moduleFile), '..');
 
 export const XMLDOM_ADVISORIES = Object.freeze([
+  'GHSA-6gmq-8vp8-gcm6',
   'GHSA-wh4c-j3r5-mjhp',
   'GHSA-j759-j44w-7fr8',
   'GHSA-x6wf-f3px-wcqx',
@@ -232,8 +233,8 @@ export function isAffectedXmldomVersion(version) {
   const patch = Number(match[3]);
   if (major > 0) return false;
   if (minor < 8) return true;
-  if (minor === 8) return patch < 13;
-  if (minor === 9) return patch < 10;
+  if (minor === 8) return patch < 15;
+  if (minor === 9) return patch < 12;
   return false;
 }
 

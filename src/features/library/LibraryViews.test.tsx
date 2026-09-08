@@ -149,6 +149,7 @@ describe('library views', () => {
       'Import progress',
       'Index status',
       'Last opened',
+      'Actions',
     ]);
     const row = screen.getAllByRole('row')[1];
     row.focus();

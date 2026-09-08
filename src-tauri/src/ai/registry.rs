@@ -18,6 +18,16 @@ const MAX_REGISTRY_IMAGE_DIMENSION: u32 = 8_192;
 const MAX_REGISTRY_DECODED_PIXELS: u64 = 40_000_000;
 pub const UNKNOWN_MODEL_CONTEXT_WINDOW_TOKENS: u32 = 32_000;
 
+pub fn local_output_tokens(context: u32) -> u32 {
+    // Reasoning and visible text share the generation allowance. The normal
+    // 8192-token local context already reserves 4096 tokens for generation.
+    if context >= 8_192 {
+        4_096
+    } else {
+        (context / 4).clamp(256, 2_048)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ProviderCapabilityRegistry {
     schema_version: u16,
@@ -172,6 +182,13 @@ impl ProviderCapabilityRegistry {
         model_id: &str,
         operation: AiOperation,
     ) -> CapabilitySupport {
+        if kind.is_local() {
+            return if operation == AiOperation::TextLearning {
+                CapabilitySupport::Supported
+            } else {
+                CapabilitySupport::Unsupported
+            };
+        }
         let Some(model) = self.model(kind, model_id) else {
             return CapabilitySupport::Unknown;
         };
@@ -233,6 +250,31 @@ impl ProviderCapabilityRegistry {
             .iter()
             .find(|capability| &capability.kind == kind)
             .and_then(|capability| capability.models.iter().find(|model| model.id == model_id))
+    }
+
+    /// Local capabilities come from validated installed models, never the cloud model catalog.
+    pub fn model_for_profile(
+        &self,
+        kind: &ProviderKind,
+        id: &str,
+        context: u32,
+    ) -> Option<ProviderModelCapability> {
+        if kind.is_local() {
+            return Some(ProviderModelCapability {
+                id: id.to_owned(),
+                display_name: id.to_owned(),
+                context_window_tokens: context,
+                default_max_output_tokens: local_output_tokens(context),
+                text_chat: CapabilitySupport::Supported,
+                image_input: CapabilitySupport::Unsupported,
+                native_pdf_input: CapabilitySupport::Unsupported,
+                pdf_input: CapabilitySupport::Unsupported,
+                strict_structured_output: CapabilitySupport::Unsupported,
+                image_limits: None,
+                last_verified: String::new(),
+            });
+        }
+        self.model(kind, id).cloned()
     }
 }
 

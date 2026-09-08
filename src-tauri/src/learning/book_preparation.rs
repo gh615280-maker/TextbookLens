@@ -468,9 +468,11 @@ impl BookLearningPreparationService {
         // Credential, consent, and other provider-adjacent state are forbidden above this point.
         self.require_snapshot_unchanged(&metadata, &snapshot.fingerprint)
             .await?;
-        self.sensitive_access
-            .require_credential(snapshot.binding.profile_id)
-            .await?;
+        if !snapshot.binding.provider_kind.is_local() {
+            self.sensitive_access
+                .require_credential(snapshot.binding.profile_id)
+                .await?;
+        }
         let consent = consent_snapshot(
             snapshot.binding.profile_id,
             self.sensitive_access
@@ -588,10 +590,11 @@ impl BookLearningPreparationService {
             self.registry.discard(binding.preparation_id);
             return Err(error);
         }
-        if let Err(error) = self
-            .sensitive_access
-            .require_credential(binding.profile_id)
-            .await
+        if !binding.provider_kind.is_local()
+            && let Err(error) = self
+                .sensitive_access
+                .require_credential(binding.profile_id)
+                .await
         {
             self.registry.discard(binding.preparation_id);
             return Err(error);
@@ -690,6 +693,7 @@ struct BookSummaryDraft {
 
 #[derive(Clone)]
 struct BookRegistryBinding {
+    provider_kind: ProviderKind,
     preparation_id: Uuid,
     book_id: Uuid,
     target: BookPreparationTarget,
@@ -829,6 +833,7 @@ impl BookPreparationRegistry {
             .get(&preparation_id)
             .ok_or_else(|| AppError::new(AppErrorCode::RequestConflict))?;
         Ok(BookRegistryBinding {
+            provider_kind: entry.request.binding.provider_kind.clone(),
             preparation_id,
             book_id: entry.request.binding.book.book_id,
             target: entry.request.target.clone(),
@@ -1170,18 +1175,11 @@ async fn load_provider_binding(
     {
         return Err(AppError::unsupported_provider_capability());
     }
-    let provider = capabilities
-        .capabilities()
-        .iter()
-        .find(|candidate| candidate.kind == provider_kind)
-        .ok_or_else(AppError::unsupported_provider_capability)?;
-    let model = provider
-        .models
-        .iter()
-        .find(|candidate| candidate.id == model_id)
-        .ok_or_else(AppError::unsupported_provider_capability)?;
     let profile_window = u32::try_from(profile.try_get::<i64, _>("context_window_tokens")?)
         .map_err(|_| database_error())?;
+    let model = capabilities
+        .model_for_profile(&provider_kind, &model_id, profile_window)
+        .ok_or_else(AppError::unsupported_provider_capability)?;
     let context_window_tokens = profile_window.min(model.context_window_tokens);
     if context_window_tokens == 0 {
         return Err(database_error());
@@ -1199,8 +1197,8 @@ async fn load_provider_binding(
     Ok(ProviderBindingSnapshot {
         book,
         profile_id,
+        provider_display_name: provider_kind.display_name().to_owned(),
         provider_kind,
-        provider_display_name: provider.display_name.clone(),
         profile_display_name,
         model_id,
         model_display_name: model.display_name.clone(),
@@ -1953,6 +1951,8 @@ fn parse_provider_kind(value: &str) -> AppResult<ProviderKind> {
         "anthropic" => Ok(ProviderKind::Anthropic),
         "deepseek" => Ok(ProviderKind::DeepSeek),
         "kimi" => Ok(ProviderKind::Kimi),
+        "ollama" => Ok(ProviderKind::Ollama),
+        "lm_studio" => Ok(ProviderKind::LmStudio),
         _ => Err(database_error()),
     }
 }
@@ -1972,6 +1972,8 @@ fn provider_kind_name(value: &ProviderKind) -> &'static str {
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::Kimi => "kimi",
+        ProviderKind::Ollama => "ollama",
+        ProviderKind::LmStudio => "lm_studio",
     }
 }
 

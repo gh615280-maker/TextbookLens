@@ -1,6 +1,31 @@
 import type { MessageCatalog } from '../i18n';
 
 export const en = {
+  'library.column.actions': 'Actions',
+  'reader.pdfRenderFailed':
+    'This PDF page could not be displayed. Reopen the book or try another page.',
+  'localModels.title': 'Local AI · Offline',
+  'localModels.description':
+    'Already have Ollama or LM Studio and downloaded models? Start the local service, add models, and enable text answers with one click. No API key required. Ollama vision models can also be selected for image questions.',
+  'localModels.connect': 'Auto-connect local AI',
+  'localModels.connecting': 'Connecting local AI…',
+  'localModels.wait':
+    'Finding software, starting services, and testing a model. Initial loading may take a few minutes. Keep the app open.',
+  'localModels.success':
+    'Added or updated {count} local models and selected a default for text answers.',
+  'localModels.offline': 'Offline · No API key required',
+  'localModels.status.connected': 'Connected and ready for text answers',
+  'localModels.status.notInstalled': 'Installed software not found',
+  'localModels.status.unavailable':
+    'Could not start or reach the service. Check that the software runs locally, then retry.',
+  'localModels.status.authentication':
+    'The local service requires authentication. Configure local access in that software, then retry.',
+  'localModels.status.noModels':
+    'No downloaded local text models found. Cloud models and remote devices are excluded.',
+  'localModels.status.noUsableModels':
+    'Models were found, but the answer test failed. Check available memory and try the model in its original app.',
+  'localModels.error':
+    'Local model connection did not finish. Please try again.',
   'nav.onboarding': 'Get started',
   'nav.library': 'Library',
   'nav.settings': 'Settings',

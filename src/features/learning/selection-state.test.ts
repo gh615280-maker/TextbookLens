@@ -15,6 +15,34 @@ const ids = {
 };
 
 describe('learning selection state', () => {
+  it('canonicalizes both EPUB section fields before handing a selection to Rust', () => {
+    const locator = {
+      format: 'epub' as const,
+      cfi: 'epubcfi(/6/38!/4/2/1:0)',
+      sectionId: 'spine-18',
+    };
+    const snapshot = menuSnapshotFromText(
+      {
+        text: 'selected',
+        anchor: {
+          locator,
+          sectionId: 'spine-18',
+          quote: { exact: 'selected', prefix: '', suffix: '' },
+        },
+      },
+      { ...ids, position: { x: 10, y: 20 } },
+    );
+    expect(
+      preparationMetadata(snapshot, 'ask', 'Question').anchor,
+    ).toMatchObject({
+      kind: 'text',
+      selection: {
+        sectionId: ids.sectionId,
+        locator: { sectionId: ids.sectionId },
+      },
+    });
+    expect(locator.sectionId).toBe('spine-18');
+  });
   it('freezes text and reliable-region selections into the same menu model', () => {
     const text = menuSnapshotFromText(
       {

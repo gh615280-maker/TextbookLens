@@ -97,6 +97,8 @@ export function menuSnapshotFromText(
 ): Readonly<LearningSelectionSnapshot> {
   const anchor = clone(selection.anchor);
   anchor.sectionId = input.sectionId;
+  if (anchor.locator.format === 'epub')
+    anchor.locator.sectionId = input.sectionId;
   return freezeSnapshot({
     ...input,
     anchor: { kind: 'text', selection: anchor },

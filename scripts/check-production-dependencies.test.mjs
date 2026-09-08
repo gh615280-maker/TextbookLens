@@ -14,7 +14,7 @@ function fixture() {
     manifest: {
       dependencies: { dompurify: '3.4.13', epubjs: '0.3.93' },
       overrides: {
-        'epubjs@0.3.93': { '@xmldom/xmldom': '0.8.13' },
+        'epubjs@0.3.93': { '@xmldom/xmldom': '0.8.15' },
       },
     },
     lockfile: {
@@ -28,7 +28,7 @@ function fixture() {
           version: '0.3.93',
           dependencies: { '@xmldom/xmldom': '^0.7.5' },
         },
-        'node_modules/@xmldom/xmldom': { version: '0.8.13' },
+        'node_modules/@xmldom/xmldom': { version: '0.8.15' },
         'node_modules/postcss': {
           version: '8.5.26',
           dev: true,
@@ -56,7 +56,7 @@ describe('supply-chain dependency security policy', () => {
       production: [],
       development: ['3.3.17', '5.1.16'],
     });
-    expect(productionXmldomVersions(lockfile)).toEqual(['0.8.13']);
+    expect(productionXmldomVersions(lockfile)).toEqual(['0.8.15']);
   });
 
   it('rejects affected DOMPurify releases and requires an exact direct patch', () => {
@@ -111,16 +111,18 @@ describe('supply-chain dependency security policy', () => {
   it('rejects every reviewed vulnerable @xmldom/xmldom release line', () => {
     expect(isAffectedXmldomVersion('0.7.13')).toBe(true);
     expect(isAffectedXmldomVersion('0.8.12')).toBe(true);
-    expect(isAffectedXmldomVersion('0.8.13')).toBe(false);
+    expect(isAffectedXmldomVersion('0.8.14')).toBe(true);
+    expect(isAffectedXmldomVersion('0.9.11')).toBe(true);
+    expect(isAffectedXmldomVersion('0.8.15')).toBe(false);
     expect(isAffectedXmldomVersion('0.9.9')).toBe(true);
-    expect(isAffectedXmldomVersion('0.9.10')).toBe(false);
+    expect(isAffectedXmldomVersion('0.9.12')).toBe(false);
 
     const { manifest, lockfile } = fixture();
     lockfile.packages['node_modules/@xmldom/xmldom'].version = '0.7.13';
     expect(auditDependencyPolicy(manifest, lockfile)).toEqual(
       expect.arrayContaining([
         expect.stringContaining('@xmldom/xmldom 0.7.13 is affected'),
-        expect.stringContaining('does not contain the epubjs override 0.8.13'),
+        expect.stringContaining('does not contain the epubjs override 0.8.15'),
       ]),
     );
   });
@@ -141,7 +143,7 @@ describe('supply-chain dependency security policy', () => {
   it('requires a scoped exact safe override when the epubjs range is unsafe', () => {
     const { manifest, lockfile } = fixture();
     manifest.overrides = {
-      epubjs: { '@xmldom/xmldom': '^0.8.13' },
+      epubjs: { '@xmldom/xmldom': '^0.8.15' },
     };
 
     expect(auditDependencyPolicy(manifest, lockfile)).toEqual(

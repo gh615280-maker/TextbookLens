@@ -19,8 +19,8 @@ use crate::{
     credentials::CredentialStore,
     db::{providers, settings, teaching},
     domain::{
-        AiOperation, CapabilitySupport, ContentAnchor, ContextMode, DocumentLocator,
-        NormalizedRect, ProviderKind, ProviderOperationConsent, ProviderOperationConsentCategory,
+        AiOperation, ContentAnchor, ContextMode, DocumentLocator, NormalizedRect, ProviderKind,
+        ProviderOperationConsent, ProviderOperationConsentCategory,
         ProviderOperationConsentDecision, RegionAnchor, RegionLocator, TeachingInstructionDto,
         UiLanguage,
     },
@@ -464,11 +464,16 @@ impl LearningPreparationService {
             },
         )
         .await?;
-        let budget = InputBudget::new(
+        let mut budget = InputBudget::new(
             initial_binding.context_window_tokens,
             initial_binding.context_mode.clone(),
             initial_binding.default_max_output_tokens,
         );
+        if initial_binding.provider_kind.is_local() && metadata.content_kind.will_send_image() {
+            // A bounded single image still consumes visual tokens in addition to the text prompt.
+            budget.usable_input = budget.usable_input.saturating_sub(2048);
+            budget.protocol_reserve = budget.protocol_reserve.saturating_add(2048);
+        }
         let (prepared_prompt, packed_context) = PromptPolicy.pack_and_prepare(
             PromptInput {
                 operation: metadata.action.prompt_operation(),
@@ -488,9 +493,11 @@ impl LearningPreparationService {
         // Everything below this barrier may touch credential, consent, or image/provider-adjacent
         // state. Mandatory retrieval and prompt packing above must succeed first.
         self.require_binding_unchanged(&initial_binding).await?;
-        self.sensitive_access
-            .require_credential(initial_binding.profile_id)
-            .await?;
+        if !initial_binding.provider_kind.is_local() {
+            self.sensitive_access
+                .require_credential(initial_binding.profile_id)
+                .await?;
+        }
         let consent = consent_snapshot(
             initial_binding.profile_id,
             self.sensitive_access
@@ -631,10 +638,11 @@ impl LearningPreparationService {
             self.registry.discard(binding.preparation_id);
             return Err(error);
         }
-        if let Err(error) = self
-            .sensitive_access
-            .require_credential(binding.provider.profile_id)
-            .await
+        if !binding.provider.provider_kind.is_local()
+            && let Err(error) = self
+                .sensitive_access
+                .require_credential(binding.provider.profile_id)
+                .await
         {
             self.registry.discard(binding.preparation_id);
             return Err(error);
@@ -1328,21 +1336,10 @@ async fn load_binding(
     } else {
         AiOperation::TextLearning
     };
-    if capabilities.operation_support(&profile.kind, &profile.model_id, operation)
-        != CapabilitySupport::Supported
-    {
+    if !crate::db::local_capabilities::supports(pool, capabilities, &profile, operation).await? {
         return Err(AppError::unsupported_provider_capability());
     }
-    let provider = capabilities
-        .capabilities()
-        .iter()
-        .find(|candidate| candidate.kind == profile.kind)
-        .ok_or_else(AppError::unsupported_provider_capability)?;
-    let model = provider
-        .models
-        .iter()
-        .find(|candidate| candidate.id == profile.model_id)
-        .ok_or_else(AppError::unsupported_provider_capability)?;
+    let model = crate::db::local_capabilities::model(pool, capabilities, &profile).await?;
     let capture_limits = if requires_vision {
         Some(RegionCaptureLimits::from_provider(
             model
@@ -1363,8 +1360,8 @@ async fn load_binding(
         book,
         section_id,
         profile_id,
+        provider_display_name: profile.kind.display_name().to_owned(),
         provider_kind: profile.kind,
-        provider_display_name: provider.display_name.clone(),
         profile_display_name: profile.display_name,
         model_id: profile.model_id,
         model_display_name: model.display_name.clone(),

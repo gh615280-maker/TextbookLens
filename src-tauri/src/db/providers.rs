@@ -60,6 +60,60 @@ pub fn credential_key(profile_id: Uuid) -> String {
     format!("textbooklens/{profile_id}")
 }
 
+pub(crate) async fn load_local_port(pool: &SqlitePool, profile_id: Uuid) -> AppResult<u16> {
+    let port: Option<i64> = sqlx::query_scalar("SELECT local_port FROM provider_profiles WHERE id = ? AND provider_kind IN ('ollama','lm_studio')")
+        .bind(profile_id.to_string()).fetch_optional(pool).await?.flatten();
+    port.and_then(|port| u16::try_from(port).ok())
+        .filter(|port| *port > 0)
+        .ok_or_else(|| AppError::new(AppErrorCode::DatabaseError))
+}
+
+pub(crate) async fn save_local_models(
+    pool: &SqlitePool,
+    _guard: &ProviderMutationGuard,
+    kind: ProviderKind,
+    port: u16,
+    models: &[crate::ai::local::LocalModel],
+) -> AppResult<Vec<ProviderProfileSummary>> {
+    if !kind.is_local() || port == 0 {
+        return Err(AppError::new(AppErrorCode::InvalidInput));
+    }
+    let mut transaction = pool.begin().await?;
+    let now = Utc::now().to_rfc3339();
+    let mut profiles = Vec::new();
+    for model in models {
+        let name: String = format!("{} · {}", kind.display_name(), model.id)
+            .chars()
+            .take(80)
+            .collect();
+        sqlx::query("INSERT INTO provider_profiles (id,provider_kind,display_name,model_id,context_window_tokens,is_active,created_at,updated_at,validated_at,local_port,local_vision) VALUES (?,?,?,?,?,0,?,?,?,?,?) ON CONFLICT(provider_kind,local_port,model_id) WHERE local_port IS NOT NULL DO UPDATE SET context_window_tokens=excluded.context_window_tokens,updated_at=excluded.updated_at,validated_at=excluded.validated_at,local_vision=excluded.local_vision")
+            .bind(Uuid::new_v4().to_string()).bind(provider_kind_name(&kind)).bind(name).bind(&model.id).bind(model.context)
+            .bind(&now).bind(&now).bind(&now).bind(port as i64).bind(model.vision).execute(&mut *transaction).await?;
+        let row = sqlx::query("SELECT id,provider_kind,display_name,model_id,context_window_tokens,is_active,validated_at,kimi_api_region FROM provider_profiles WHERE provider_kind=? AND local_port=? AND model_id=?")
+            .bind(provider_kind_name(&kind)).bind(port as i64).bind(&model.id).fetch_one(&mut *transaction).await?;
+        let profile = profile_summary_from_row(&row, CredentialStatus::NotRequired)?;
+        for category in consent_categories() {
+            sqlx::query("INSERT OR IGNORE INTO provider_operation_consents (profile_id,category,decision,updated_at) VALUES (?,?,'ask',?)")
+                .bind(profile.id.to_string()).bind(consent_category_name(category)).bind(&now).execute(&mut *transaction).await?;
+        }
+        profiles.push(profile);
+    }
+    transaction.commit().await?;
+    Ok(profiles)
+}
+
+pub(crate) async fn select_local_default(
+    pool: &SqlitePool,
+    _guard: &ProviderMutationGuard,
+    id: Uuid,
+) -> AppResult<()> {
+    load_local_port(pool, id).await?;
+    let mut transaction = pool.begin().await?;
+    set_learning_default(&mut transaction, Some(id)).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
 async fn provider_mutation_lock(pool: &SqlitePool) -> AppResult<Arc<AsyncMutex<()>>> {
     let pool_identity: String =
         sqlx::query_scalar("SELECT file FROM pragma_database_list WHERE name = 'main'")
@@ -114,7 +168,9 @@ pub async fn list_provider_profiles(
     for row in rows {
         let id = parse_uuid(row.try_get("id")?)?;
         let derived_key = credential_key(id);
-        let credential_status = if store.get(&derived_key).await.is_ok() {
+        let credential_status = if parse_provider_kind(row.try_get("provider_kind")?)?.is_local() {
+            CredentialStatus::NotRequired
+        } else if store.get(&derived_key).await.is_ok() {
             CredentialStatus::Available
         } else {
             CredentialStatus::Missing
@@ -447,7 +503,7 @@ async fn delete_provider_profile_inner(
     profile_id: Uuid,
 ) -> AppResult<()> {
     let row = sqlx::query(
-        "SELECT is_active, EXISTS(SELECT 1 FROM app_settings WHERE id = 1 AND active_provider_profile_id = provider_profiles.id) AS legacy_selected, EXISTS(SELECT 1 FROM app_settings WHERE id = 1 AND default_learning_profile_id = provider_profiles.id) AS learning_selected, EXISTS(SELECT 1 FROM app_settings WHERE id = 1 AND default_vision_profile_id = provider_profiles.id) AS vision_selected FROM provider_profiles WHERE id = ?",
+        "SELECT provider_kind, is_active, EXISTS(SELECT 1 FROM app_settings WHERE id = 1 AND active_provider_profile_id = provider_profiles.id) AS legacy_selected, EXISTS(SELECT 1 FROM app_settings WHERE id = 1 AND default_learning_profile_id = provider_profiles.id) AS learning_selected, EXISTS(SELECT 1 FROM app_settings WHERE id = 1 AND default_vision_profile_id = provider_profiles.id) AS vision_selected FROM provider_profiles WHERE id = ?",
     )
     .bind(profile_id.to_string())
     .fetch_optional(pool)
@@ -463,8 +519,13 @@ async fn delete_provider_profile_inner(
     let vision_selected = row.try_get::<bool, _>("vision_selected")?;
 
     let derived_key = credential_key(profile_id);
-    let old_secret = store.get(&derived_key).await?;
-    store.delete(&derived_key).await?;
+    let old_secret = if parse_provider_kind(row.try_get("provider_kind")?)?.is_local() {
+        None
+    } else {
+        let secret = store.get(&derived_key).await?;
+        store.delete(&derived_key).await?;
+        Some(secret)
+    };
 
     let database_result: AppResult<()> = async {
         let mut transaction = pool.begin().await?;
@@ -500,7 +561,9 @@ async fn delete_provider_profile_inner(
     .await;
 
     if let Err(error) = database_result {
-        if store.set(&derived_key, old_secret).await.is_err() {
+        if let Some(old_secret) = old_secret
+            && store.set(&derived_key, old_secret).await.is_err()
+        {
             return Err(AppError::credential_store(
                 "credential restoration failed after provider deletion rollback; sensitive values omitted",
             ));
@@ -555,12 +618,13 @@ async fn first_compatible_profile(
     operation: AiOperation,
 ) -> AppResult<Option<Uuid>> {
     let rows = sqlx::query(
-        "SELECT id, provider_kind, model_id, validated_at FROM provider_profiles ORDER BY created_at, id",
+        "SELECT id, provider_kind, model_id, validated_at, local_vision FROM provider_profiles ORDER BY created_at, id",
     )
     .fetch_all(&mut **transaction)
     .await?;
     for row in rows {
         let profile = ProfileCapability {
+            local_vision: row.try_get("local_vision")?,
             id: parse_uuid(row.try_get("id")?)?,
             kind: parse_provider_kind(row.try_get("provider_kind")?)?,
             model_id: row.try_get("model_id")?,
@@ -577,6 +641,7 @@ async fn first_compatible_profile(
 }
 
 struct ProfileCapability {
+    local_vision: bool,
     id: Uuid,
     kind: ProviderKind,
     model_id: String,
@@ -588,13 +653,14 @@ async fn load_profile_capability(
     profile_id: Uuid,
 ) -> AppResult<ProfileCapability> {
     let row = sqlx::query(
-        "SELECT id, provider_kind, model_id, validated_at FROM provider_profiles WHERE id = ?",
+        "SELECT id, provider_kind, model_id, validated_at, local_vision FROM provider_profiles WHERE id = ?",
     )
     .bind(profile_id.to_string())
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
     Ok(ProfileCapability {
+        local_vision: row.try_get("local_vision")?,
         id: parse_uuid(row.try_get("id")?)?,
         kind: parse_provider_kind(row.try_get("provider_kind")?)?,
         model_id: row.try_get("model_id")?,
@@ -610,6 +676,13 @@ fn profile_supports_operation(
     profile: &ProfileCapability,
     operation: AiOperation,
 ) -> bool {
+    if profile.kind.is_local() {
+        return operation == AiOperation::TextLearning
+            || (operation == AiOperation::VisionLearning
+                && profile.kind == ProviderKind::Ollama
+                && profile.local_vision
+                && profile.validated_at.is_some());
+    }
     match registry.operation_support(&profile.kind, &profile.model_id, operation) {
         CapabilitySupport::Supported => true,
         CapabilitySupport::Unknown => {
@@ -668,6 +741,11 @@ fn profile_summary_from_row(
     credential_status: CredentialStatus,
 ) -> AppResult<ProviderProfileSummary> {
     let kind = parse_provider_kind(row.try_get("provider_kind")?)?;
+    let credential_status = if kind.is_local() {
+        CredentialStatus::NotRequired
+    } else {
+        credential_status
+    };
     let kimi_api_region = row
         .try_get::<Option<String>, _>("kimi_api_region")?
         .map(|value| parse_kimi_api_region(&value))
@@ -732,6 +810,8 @@ fn provider_kind_name(value: &ProviderKind) -> &'static str {
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::Kimi => "kimi",
+        ProviderKind::Ollama => "ollama",
+        ProviderKind::LmStudio => "lm_studio",
     }
 }
 
@@ -742,6 +822,8 @@ fn parse_provider_kind(value: String) -> AppResult<ProviderKind> {
         "anthropic" => Ok(ProviderKind::Anthropic),
         "deepseek" => Ok(ProviderKind::DeepSeek),
         "kimi" => Ok(ProviderKind::Kimi),
+        "ollama" => Ok(ProviderKind::Ollama),
+        "lm_studio" => Ok(ProviderKind::LmStudio),
         _ => Err(AppError::new(AppErrorCode::DatabaseError)),
     }
 }

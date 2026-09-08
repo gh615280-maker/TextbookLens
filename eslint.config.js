@@ -12,6 +12,7 @@ export default tseslint.config(
       'playwright-report',
       'src-tauri/target',
       'test-results',
+      'public/pdfjs',
     ],
   },
   js.configs.recommended,
