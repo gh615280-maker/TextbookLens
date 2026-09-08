@@ -1,5 +1,13 @@
 import { Buffer } from 'node:buffer';
-import { link, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  link,
+  mkdtemp,
+  mkdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -24,8 +32,10 @@ afterEach(async () => {
 });
 
 async function temporaryRoot() {
+  // Windows TEMP may use an 8.3 alias. Normal fixtures need canonical paths;
+  // the tests below still pass their deliberately created aliases unchanged.
   const root = await mkdtemp(
-    path.join(tmpdir(), 'textbooklens-artifact-test-'),
+    path.join(await realpath(tmpdir()), 'textbooklens-artifact-test-'),
   );
   temporaryRoots.push(root);
   return root;
