@@ -646,6 +646,90 @@ learningTest(
   },
 );
 
+for (const surface of [
+  'marker row',
+  'marker button',
+  'resize handle',
+] as const) {
+  learningTest(
+    `H: reopened answer controls remain clickable over the reader ${surface}`,
+    async ({ page, backend }) => {
+      await openReader(page);
+      const requestId = await startSelection(page, backend, BLOCK_ALPHA, ALPHA);
+      await emit(page, backend, requestId, {
+        type: 'text_delta',
+        text: 'Durable overlapping answer.',
+      });
+      await emit(page, backend, requestId, { type: 'completed' });
+      await panelForAnswer(page, 'Durable overlapping answer.')
+        .getByRole('button', { name: 'Hide' })
+        .click();
+
+      const readerMarker = page.locator(
+        '.docx-reader-markers .reader-marker-button',
+      );
+      await readerMarker.click();
+      const reopened = page.locator('[data-panel-id]');
+      await expect(reopened).toContainText('Durable overlapping answer.');
+      const panelId = await reopened.getAttribute('data-panel-id');
+      const bottomHandle = reopened.getByRole('button', {
+        name: 'Resize learning panel bottom edge',
+      });
+      for (let step = 0; step < 18; step += 1) {
+        await bottomHandle.press('ArrowUp');
+      }
+      const target =
+        surface === 'marker row'
+          ? page.locator('.docx-reader-markers')
+          : surface === 'marker button'
+            ? readerMarker
+            : page.locator('[data-reader-resize-handle="e"]');
+      const targetBox = await box(target);
+      const point = {
+        x:
+          targetBox.x +
+          targetBox.width * (surface === 'marker row' ? 0.25 : 0.5),
+        y: targetBox.y + targetBox.height / 2,
+      };
+      const hide = reopened.getByRole('button', { name: 'Hide' });
+      const original = await box(hide);
+      const mover = reopened.getByRole('button', {
+        name: 'Move learning panel',
+      });
+      // Use the product's keyboard movement, keeping the reader overlay beneath
+      // a real button. Do not force clicks or change CSS/z-index in the test.
+      for (const [delta, negative, positive] of [
+        [
+          point.x - (original.x + original.width / 2),
+          'ArrowLeft',
+          'ArrowRight',
+        ],
+        [point.y - (original.y + original.height / 2), 'ArrowUp', 'ArrowDown'],
+      ] as const) {
+        const steps = Math.round(delta / 16);
+        for (let step = 0; step < Math.abs(steps); step += 1) {
+          await mover.press(steps < 0 ? negative : positive);
+        }
+      }
+      const moved = await box(hide);
+      expect(point.x).toBeGreaterThan(moved.x);
+      expect(point.x).toBeLessThan(moved.x + moved.width);
+      expect(point.y).toBeGreaterThan(moved.y);
+      expect(point.y).toBeLessThan(moved.y + moved.height);
+      await hide.click({
+        position: { x: point.x - moved.x, y: point.y - moved.y },
+        timeout: 3_000,
+      });
+      await expect(reopened).toHaveCount(0);
+      // The reader's real marker remains usable when the floating panel hides.
+      await readerMarker.click();
+      await expect(reopened).toHaveCount(1);
+      expect(await reopened.getAttribute('data-panel-id')).toBe(panelId);
+      await expect(reopened).toContainText('Durable overlapping answer.');
+    },
+  );
+}
+
 learningTest(
   'I: restart restores only durable history, captures current followup profile, and deletes atomically',
   async ({ page, backend }) => {

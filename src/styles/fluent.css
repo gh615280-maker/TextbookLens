@@ -542,6 +542,7 @@ main {
 
 .reader-document-frame {
   position: relative;
+  isolation: isolate;
   width: min(100%, var(--reader-width, var(--reader-column-width)));
   max-width: 100%;
   height: min(75vh, 56rem);
