@@ -22,7 +22,7 @@ const boundaryXml = `<?xml version="1.0" encoding="UTF-8"?>
 
 describe('EPUB.js xmldom compatibility', () => {
   it('keeps the browser-native and forced fallback parser paths compatible', () => {
-    expect(xmldomPackage.version).toBe('0.8.13');
+    expect(xmldomPackage.version).toBe('0.8.15');
 
     const nativeDocument = parseWithEpubJs(boundaryXml, 'application/xml');
     const fallbackDocument = parseWithEpubJs(
@@ -119,7 +119,7 @@ describe('EPUB.js xmldom compatibility', () => {
 
   it('round-trips valid XML node boundaries without creating extra markup', () => {
     const document = new XmldomParser().parseFromString(
-      boundaryXml,
+      boundaryXml.replace(/^<\?xml[^?]*\?>\s*/u, ''),
       'application/xml',
     );
     const serialized = strictSerialize(document);
@@ -136,6 +136,31 @@ describe('EPUB.js xmldom compatibility', () => {
     expect(childNodeTypes(reparsed.documentElement)).toEqual(
       expect.arrayContaining([Node.COMMENT_NODE, Node.CDATA_SECTION_NODE]),
     );
+  });
+
+  it('rejects a reserved XML processing-instruction target in strict serialization', () => {
+    // xmldom represents an XML declaration as a PI; strict DOM serialization
+    // now correctly rejects the reserved target instead of treating it as an ordinary PI.
+    const document = new XmldomParser().parseFromString(
+      boundaryXml,
+      'application/xml',
+    );
+    expect(() => strictSerialize(document)).toThrowError(
+      /processing instruction target/iu,
+    );
+  });
+
+  it('rejects invalid entity-reference names at creation and strict serialization', () => {
+    const document = new DOMImplementation().createDocument(
+      null,
+      'root',
+      null,
+    ) as XMLDocument & { createEntityReference(name: string): Node };
+    expect(() => document.createEntityReference('invalid<name')).toThrow();
+    const reference = document.createEntityReference('valid');
+    expect(strictSerialize(reference)).toBe('&valid;');
+    (reference as Node & { nodeName: string }).nodeName = 'invalid<name';
+    expect(() => strictSerialize(reference)).toThrow();
   });
 });
 

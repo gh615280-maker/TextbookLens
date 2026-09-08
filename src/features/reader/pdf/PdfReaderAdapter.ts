@@ -3,6 +3,7 @@ import type {
   NormalizedRect,
 } from '../../../lib/generated/document';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { localPdfOptions } from '../../../lib/pdf-options';
 import {
   EventBus,
   PDFLinkService,
@@ -109,7 +110,16 @@ export class PdfReaderAdapter implements ReaderAdapter {
   #annotationRefreshFrame: number | null = null;
   #eventBus: EventBus | null = null;
   #scaleObserver: MutationObserver | null = null;
-  #onPageRendered = () => {
+  #onPageRendered = (event?: { error?: unknown }) => {
+    if (event?.error) {
+      this.events.onFailure({
+        code: 'FILE_CORRUPTED',
+        message: 'This PDF page could not be displayed.',
+        nextStep: 'Reopen the book or try another page.',
+        diagnosticId: null,
+      });
+      return;
+    }
     if (this.#annotationItems.length) this.#annotationsNeedRefresh = true;
     if (
       !this.#annotationsNeedRefresh ||
@@ -734,10 +744,9 @@ function validPersistedPdfRegion(
 
 function loadPdf(bytes: ArrayBuffer): PdfLoadingTask {
   // The parser/viewer is deliberately data-only: PDF.js receives no URL and cannot fetch a remote source.
-  return getDocument({
-    data: new Uint8Array(bytes),
-    isEvalSupported: false,
-  } as never) as unknown as PdfLoadingTask;
+  return getDocument(
+    localPdfOptions(bytes) as never,
+  ) as unknown as PdfLoadingTask;
 }
 
 function createPdfViewer(

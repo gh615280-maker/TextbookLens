@@ -26,7 +26,9 @@ class FakeApi implements ReaderApi {
   readonly getReaderSettings = vi.fn();
   readonly updateReaderSettings = vi.fn();
   readonly saveReadingProgress = vi.fn();
-  readonly listReaderSections = vi.fn(async () => []);
+  readonly listReaderSections = vi.fn<ReaderApi['listReaderSections']>(
+    async () => [],
+  );
   readonly ensurePdfPageSections = vi.fn(async () => []);
   readonly searchBook = vi.fn(async () => []);
   readonly listAnnotationMarkers = vi.fn<ReaderApi['listAnnotationMarkers']>(
@@ -58,6 +60,65 @@ function adapter(format: ReaderAdapter['format']) {
 }
 
 describe('ReaderController', () => {
+  it('does not retain an EPUB source when chapter lookup finishes after switching books', async () => {
+    const api = new FakeApi();
+    api.current = bootstrap('epub');
+    let release!: (
+      sections: Awaited<ReturnType<ReaderApi['listReaderSections']>>,
+    ) => void;
+    api.listReaderSections.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const epub = adapter('epub');
+    const docx = adapter('docx');
+    const controller = new ReaderController(api, {
+      epub: () => epub,
+      docx: () => docx,
+    });
+    const opening = controller.open(bookId);
+    await vi.waitFor(() => expect(api.listReaderSections).toHaveBeenCalled());
+    api.current = bootstrap('docx');
+    await controller.open('new-book');
+    release([]);
+    await opening;
+    expect(epub.open).not.toHaveBeenCalled();
+    expect(docx.open).toHaveBeenCalledOnce();
+    expect(controller.sourceForTesting()).toBeNull();
+    controller.dispose();
+  });
+  it('supplies persisted EPUB bindings before the rendition can emit a location', async () => {
+    const api = new FakeApi();
+    api.current = bootstrap('epub');
+    const id = '33333333-3333-4333-8333-333333333333';
+    const sections = [
+      {
+        id,
+        parentId: null,
+        ordinal: 0,
+        title: 'Synthetic chapter',
+        locator: {
+          format: 'epub' as const,
+          cfi: 'epubcfi(/6/38!/4/2)',
+          sectionId: id,
+        },
+      },
+    ];
+    api.listReaderSections.mockResolvedValue(sections);
+    const epub = adapter('epub');
+    const controller = new ReaderController(api, { epub: () => epub });
+    await controller.open(bookId);
+    expect(epub.open).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'document_bytes',
+        sectionBindings: sections,
+      }),
+      null,
+    );
+    controller.dispose();
+  });
   it('opens only the matching adapter and releases document bytes after opening', async () => {
     const api = new FakeApi();
     const pdf = adapter('pdf');

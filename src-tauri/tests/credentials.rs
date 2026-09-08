@@ -264,12 +264,13 @@ fn windows_credential_manager_disposable_round_trip() {
             .set(&key, SecretString::from("disposable-smoke-value"))
             .await?;
         let stored = store.get(&key).await?;
-        let matches = stored.expose_secret() == "disposable-smoke-value";
-        let cleanup = store.delete(&key).await;
-        cleanup?;
-        Ok::<bool, textbooklens_lib::errors::AppError>(matches)
+        Ok::<bool, textbooklens_lib::errors::AppError>(
+            stored.expose_secret() == "disposable-smoke-value",
+        )
     });
 
+    let cleanup = tauri::async_runtime::block_on(store.delete(&key));
+    cleanup.unwrap();
     assert!(result.unwrap());
 }
 

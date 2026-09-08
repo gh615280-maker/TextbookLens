@@ -28,6 +28,15 @@ fn budget_exactly_caps_standard_long_and_reserves_output_plus_framing() {
 }
 
 #[test]
+fn small_local_context_leaves_room_for_a_question_and_bounded_answer() {
+    let budget = InputBudget::new(4096, ContextMode::Standard, 1024);
+    assert_eq!(budget.output_reserve, 1024);
+    assert_eq!(budget.usable_input, 2560);
+    assert!(budget.require_fits(2560).is_ok());
+    assert!(budget.require_fits(2561).is_err());
+}
+
+#[test]
 fn budget_boundaries_saturate_and_exact_fit_is_accepted() {
     let no_input = InputBudget::new(4_607, ContextMode::Long, u32::MAX);
     assert_eq!(no_input.usable_input, 0);

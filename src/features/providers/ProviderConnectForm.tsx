@@ -15,6 +15,8 @@ const PROVIDERS: ProviderKind[] = [
   'kimi',
 ];
 const PROVIDER_NAMES: Record<ProviderKind, string> = {
+  ollama: 'Ollama',
+  lm_studio: 'LM Studio',
   openai: 'OpenAI',
   gemini: 'Google Gemini',
   anthropic: 'Anthropic',

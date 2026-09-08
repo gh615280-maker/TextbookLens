@@ -112,6 +112,18 @@ const MIGRATION_HASHES: &[(i64, &str, &[u8], &str)] = &[
         include_bytes!("../migrations/0015_kimi_api_region_binding.sql"),
         "55556c7e0824176396be3798b28263bc8f0441c4603cf43098c60c1742effd75",
     ),
+    (
+        16,
+        "0016_local_model_profiles.sql",
+        include_bytes!("../migrations/0016_local_model_profiles.sql"),
+        "997894df81856f3552f0816f2e6a0dc4e437bc66d8fb05e8a6f7337cb12def4f",
+    ),
+    (
+        17,
+        "0017_local_vision.sql",
+        include_bytes!("../migrations/0017_local_vision.sql"),
+        "dbf5e77fb309dc66f28c44600b5267b96aabf9522587358add877f09c5775c28",
+    ),
 ];
 
 const BOOK_ID: &str = "00000000-0000-4000-8000-000000000101";
@@ -127,7 +139,7 @@ const PROFILE_ID: &str = "00000000-0000-4000-8000-000000000109";
 type SchemaRow = (String, String, String, Option<String>);
 
 #[test]
-fn migration_files_and_embedded_history_are_immutable_through_v15() {
+fn migration_files_and_embedded_history_are_immutable_through_v16() {
     assert_eq!(MIGRATOR.migrations.len(), MIGRATION_HASHES.len());
     assert_eq!(
         MIGRATOR
@@ -136,7 +148,7 @@ fn migration_files_and_embedded_history_are_immutable_through_v15() {
             .filter(|migration| migration.no_tx)
             .map(|migration| migration.version)
             .collect::<Vec<_>>(),
-        vec![2, 11]
+        vec![2, 11, 16]
     );
 
     for ((version, name, bytes, expected_hash), migration) in
@@ -175,7 +187,7 @@ fn every_historical_cutoff_upgrades_to_the_exact_fresh_contract_and_reopens() {
     block_on(fresh_database.pool().close());
     drop(fresh_database);
 
-    for cutoff in 1..=15 {
+    for cutoff in 1..=16 {
         let temporary = TempDir::new().unwrap();
         let database_path = temporary.path().join(format!("cutoff-{cutoff}.sqlite3"));
         let pool = block_on(raw_pool(&database_path));

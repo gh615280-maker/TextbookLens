@@ -69,7 +69,7 @@ export class TauriTeachingApi implements TeachingApi {
       return profiles.some(
         (profile) =>
           profile.id === settings.defaultLearningProfileId &&
-          profile.credentialStatus === 'available',
+          profile.credentialStatus !== 'missing',
       );
     } catch (error) {
       throw toUserError(error);

@@ -2447,6 +2447,8 @@ const fn provider_kind_name(value: &ProviderKind) -> &'static str {
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::DeepSeek => "deepseek",
         ProviderKind::Kimi => "kimi",
+        ProviderKind::Ollama => "ollama",
+        ProviderKind::LmStudio => "lm_studio",
     }
 }
 

@@ -20,6 +20,73 @@ const NOW: &str = "2026-08-05T00:00:00.000Z";
 const BODY_SENTINEL: &str = "NOTE_BODY_PRIVATE_SENTINEL";
 const HASH_SENTINEL: &str = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
 
+#[test]
+fn epub_image_element_cfi_can_be_saved_and_reopened_only_in_its_own_spine() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("image-anchor.sqlite3");
+    let database = Database::open(&path).unwrap();
+    let book_id = Uuid::new_v4();
+    let section_id = Uuid::new_v4();
+    tauri::async_runtime::block_on(async {
+        seed_book(
+            database.pool(),
+            book_id,
+            section_id,
+            "epub",
+            DocumentLocator::epub("epubcfi(/6/2!/4/2[chapter-1]/2)".into(), section_id).unwrap(),
+            None,
+        )
+        .await;
+        create_note(
+            database.pool(),
+            CreateNote {
+                book_id,
+                section_id,
+                anchor: region_anchor(
+                    RegionLocator::epub(section_id, "epubcfi(/6/2!/4/12/2)".into()).unwrap(),
+                ),
+                selected_text: None,
+                note_text: "Synthetic image note".into(),
+            },
+        )
+        .await
+        .unwrap();
+        for cfi in [
+            "epubcfi(/6/4!/4/12/2)",
+            "epubcfi(/6/2!/)",
+            "epubcfi(/6/2[bad!/4/12/2)",
+        ] {
+            let error = create_note(
+                database.pool(),
+                CreateNote {
+                    book_id,
+                    section_id,
+                    anchor: region_anchor(RegionLocator::epub(section_id, cfi.into()).unwrap()),
+                    selected_text: None,
+                    note_text: "Must reject".into(),
+                },
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(error.code, AppErrorCode::AnchorNotFound);
+        }
+        database.pool().close().await;
+    });
+    drop(database);
+    let reopened = Database::open(&path).unwrap();
+    tauri::async_runtime::block_on(async {
+        let markers = list_annotation_markers(reopened.pool(), book_id)
+            .await
+            .unwrap();
+        assert_eq!(markers.len(), 1);
+        assert_eq!(
+            markers[0].relocation_status,
+            MarkerRelocationStatus::Primary
+        );
+        reopened.pool().close().await;
+    });
+}
+
 struct Fixture {
     _temporary: tempfile::TempDir,
     database: Database,

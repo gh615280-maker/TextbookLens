@@ -176,6 +176,11 @@ function providerApi(
   ) => Promise<ProviderProfileSummary> = async () => profile,
 ): ProviderApi {
   return {
+    connectLocal: async () => ({
+      profiles: [],
+      defaultProfileId: null,
+      services: [],
+    }),
     listCapabilities: async () => registry,
     listProfiles: async () => [],
     getSettings: async () => settings,

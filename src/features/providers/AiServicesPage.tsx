@@ -4,6 +4,7 @@ import { useMessage } from '../../app/LanguageProvider';
 import { toUserError } from '../../lib/errors';
 import { ProviderConnectForm } from './ProviderConnectForm';
 import { ProviderProfileRow } from './ProviderProfileRow';
+import { LocalModelConnect } from './LocalModelConnect';
 import {
   TauriProviderApi,
   type ProviderApi,
@@ -68,6 +69,12 @@ export function AiServicesPage({
     <section aria-labelledby="ai-services-title" className="phase-page">
       <h1 id="ai-services-title">{message('aiServices.title')}</h1>
       <p>{message('aiServices.description')}</p>
+      <LocalModelConnect
+        api={api}
+        busy={state.stage === 'saving' || state.stage === 'loading'}
+        onConnected={load}
+        onBusyChange={(busy) => dispatch({ type: busy ? 'saving' : 'done' })}
+      />
       {state.error ? (
         <div role="alert">
           <p>{message('aiServices.error')}</p>

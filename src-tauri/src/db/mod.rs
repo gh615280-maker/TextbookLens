@@ -2,6 +2,7 @@ pub mod annotations;
 pub mod conversations;
 pub mod corrections;
 pub mod indexing;
+pub(crate) mod local_capabilities;
 pub mod messages;
 pub mod notes;
 pub mod overview;
@@ -275,7 +276,7 @@ fn atomic_migration_sql(migration: &sqlx::migrate::Migration) -> MigrationResult
     if !migration.no_tx {
         return Ok(migration.sql.clone());
     }
-    if !matches!(migration.version, 2 | 11) {
+    if !matches!(migration.version, 2 | 11 | 16) {
         return Err(());
     }
 

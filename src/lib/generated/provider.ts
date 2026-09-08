@@ -4,11 +4,17 @@ export type AiOperation = "text_learning" | "vision_learning" | "structured_page
 
 export type CapabilitySupport = "supported" | "unsupported" | "unknown";
 
-export type CredentialStatus = "available" | "missing";
+export type CredentialStatus = "available" | "missing" | "not_required";
 
 export type ImageLimits = { maxImages: number, maxEncodedBytesEach: bigint, maxTotalEncodedBytes: bigint, maxDimensionPx: number, maxDecodedPixelsEach: bigint, };
 
 export type KimiApiRegion = "cn" | "international";
+
+export type LocalModelConnectResult = { profiles: Array<ProviderProfileSummary>, defaultProfileId: string | null, services: Array<LocalServiceReport>, };
+
+export type LocalServiceReport = { kind: ProviderKind, status: LocalServiceStatus, modelCount: number, };
+
+export type LocalServiceStatus = "connected" | "not_installed" | "unavailable" | "authentication_required" | "no_models" | "no_usable_models";
 
 export type ProviderCapability = { kind: ProviderKind, displayName: string, defaultModel: string, fileCapabilities: ProviderFileCapabilities, models: Array<ProviderModelCapability>, };
 
@@ -16,7 +22,7 @@ export type ProviderCapabilityRegistryDto = { schemaVersion: number, providers: 
 
 export type ProviderFileCapabilities = { fileExtraction: boolean, fileOcr: boolean, maxFileBytes: bigint | null, };
 
-export type ProviderKind = "openai" | "gemini" | "anthropic" | "deepseek" | "kimi";
+export type ProviderKind = "openai" | "gemini" | "anthropic" | "deepseek" | "kimi" | "ollama" | "lm_studio";
 
 export type ProviderModelCapability = { id: string, displayName: string, contextWindowTokens: number, defaultMaxOutputTokens: number, textChat: CapabilitySupport, imageInput: CapabilitySupport, nativePdfInput: CapabilitySupport, pdfInput: CapabilitySupport, strictStructuredOutput: CapabilitySupport, imageLimits: ImageLimits | null, lastVerified: string, };
 

@@ -158,11 +158,35 @@ impl ProviderRuntime {
         region_override: Option<KimiApiRegion>,
     ) -> AppResult<LoadedProvider> {
         let mut profile = providers::load_provider_profile_metadata(pool, profile_id).await?;
-        self.ensure_model_support(&profile.kind, &profile.model_id, operation)?;
+        if profile.kind.is_local() {
+            if !crate::db::local_capabilities::supports(pool, &self.registry, &profile, operation)
+                .await?
+            {
+                return Err(AppError::unsupported_provider_capability());
+            }
+        } else {
+            self.ensure_model_support(&profile.kind, &profile.model_id, operation)?;
+        }
         if profile.kind != ProviderKind::Kimi && region_override.is_some() {
             return Err(AppError::new(AppErrorCode::InvalidInput));
         }
         let region = region_override.or(profile.kimi_api_region);
+        if profile.kind.is_local() {
+            let port = providers::load_local_port(pool, profile_id).await?;
+            let adapter = super::local::LocalProvider::new(
+                profile.kind.clone(),
+                port,
+                profile.context_window_tokens,
+            )
+            .map_err(AiError::into_app_error)?;
+            return Ok(LoadedProvider {
+                profile,
+                operation,
+                adapter: Box::new(adapter),
+                // Legacy trait argument is unused by LocalProvider; no credential is read or sent.
+                credential: SecretString::default(),
+            });
+        }
         let adapter = self.adapter(&profile.kind, region)?;
         if adapter.kind() != profile.kind {
             return Err(AppError::new(AppErrorCode::ProviderUnavailable));
@@ -187,6 +211,9 @@ impl ProviderRuntime {
         credential: SecretString,
         operation: AiOperation,
     ) -> AppResult<ValidatedProviderCredential> {
+        if kind.is_local() {
+            return Err(AppError::new(AppErrorCode::InvalidInput));
+        }
         validate_credential(&credential).map_err(|error| error.into_app_error())?;
         let model_id = self.resolve_model(&kind, requested_model)?;
         self.ensure_model_support(&kind, &model_id, operation)?;
@@ -265,6 +292,14 @@ impl ProviderRuntime {
         model_id: &str,
         operation: AiOperation,
     ) -> AppResult<()> {
+        if kind.is_local() {
+            validate_model_id(model_id).map_err(AiError::into_app_error)?;
+            return if operation == AiOperation::TextLearning {
+                Ok(())
+            } else {
+                Err(AppError::unsupported_provider_capability())
+            };
+        }
         let owns_model = self
             .registry
             .capabilities()
@@ -290,6 +325,7 @@ impl ProviderRuntime {
         #[cfg(test)]
         if let Some(origin) = self.loopback_origin.as_deref() {
             return match kind {
+                ProviderKind::Ollama | ProviderKind::LmStudio => Err(AiError::invalid_input()),
                 ProviderKind::OpenAi => OpenAiProvider::new_for_test(origin)
                     .map(|provider| Box::new(provider) as Box<dyn AiProvider>),
                 ProviderKind::Gemini => GeminiProvider::new_for_test(origin)
@@ -320,6 +356,7 @@ impl ProviderRuntime {
         }
 
         match kind {
+            ProviderKind::Ollama | ProviderKind::LmStudio => Err(AiError::invalid_input()),
             ProviderKind::OpenAi => {
                 OpenAiProvider::new().map(|provider| Box::new(provider) as Box<dyn AiProvider>)
             }

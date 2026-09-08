@@ -319,7 +319,9 @@ export function ReaderLayout({
     const found = (await onNavigate?.(locator)) ?? false;
     if (found) {
       setActiveLayer(null);
-      document.querySelector<HTMLElement>('.reader-main')?.focus();
+      rootRef.current
+        ?.querySelector<HTMLElement>('.reader-main')
+        ?.focus({ preventScroll: true });
     }
     return found;
   };
@@ -330,7 +332,7 @@ export function ReaderLayout({
       className={`reader-layout theme-${settings?.theme ?? 'system'}`}
       style={style}
     >
-      <header>
+      <header className="reader-header">
         <ReaderToolbar
           labels={labels}
           title={title}
@@ -566,10 +568,11 @@ const ResizableReaderDocument = forwardRef<
     const bounds = frameRef.current?.getBoundingClientRect();
     return {
       width:
-        size?.width ?? (bounds?.width && bounds.width > 0 ? bounds.width : 720),
+        bounds?.width && bounds.width > 0 ? bounds.width : (size?.width ?? 720),
       height:
-        size?.height ??
-        (bounds?.height && bounds.height > 0 ? bounds.height : 720),
+        bounds?.height && bounds.height > 0
+          ? bounds.height
+          : (size?.height ?? 720),
     };
   };
 

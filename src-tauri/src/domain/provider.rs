@@ -14,6 +14,56 @@ pub enum ProviderKind {
     #[serde(rename = "deepseek")]
     DeepSeek,
     Kimi,
+    Ollama,
+    LmStudio,
+}
+
+impl ProviderKind {
+    pub const fn is_local(&self) -> bool {
+        matches!(self, Self::Ollama | Self::LmStudio)
+    }
+
+    pub const fn display_name(&self) -> &'static str {
+        match self {
+            Self::OpenAi => "OpenAI",
+            Self::Gemini => "Google Gemini",
+            Self::Anthropic => "Anthropic",
+            Self::DeepSeek => "DeepSeek",
+            Self::Kimi => "Kimi",
+            Self::Ollama => "Ollama",
+            Self::LmStudio => "LM Studio",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "provider.ts")]
+pub enum LocalServiceStatus {
+    Connected,
+    NotInstalled,
+    Unavailable,
+    AuthenticationRequired,
+    NoModels,
+    NoUsableModels,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "provider.ts")]
+pub struct LocalServiceReport {
+    pub kind: ProviderKind,
+    pub status: LocalServiceStatus,
+    pub model_count: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "provider.ts")]
+pub struct LocalModelConnectResult {
+    pub profiles: Vec<ProviderProfileSummary>,
+    pub default_profile_id: Option<Uuid>,
+    pub services: Vec<LocalServiceReport>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -106,6 +156,7 @@ pub struct ProviderCapabilityRegistryDto {
 pub enum CredentialStatus {
     Available,
     Missing,
+    NotRequired,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

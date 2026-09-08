@@ -374,6 +374,7 @@ impl MarkerRelocationContext {
                 locator_section == &section_id
                     && stored_section == &section_id
                     && (cfi == stored_cfi
+                        || same_epub_spine(cfi, stored_cfi)
                         || self.blocks.iter().any(|block| {
                             block.section_id == section_id
                                 && matches!(&block.locator, Some(DocumentLocator::Epub { section_id: block_section, cfi: block_cfi }) if block_section == &section_id && block_cfi == cfi)
@@ -676,6 +677,7 @@ async fn resolve_region_anchor(
             locator_section == &section_id
                 && stored_section == &section_id
                 && (cfi == stored_cfi
+                    || same_epub_spine(cfi, stored_cfi)
                     || epub_block_locator_exists(pool, book_id, section_id, cfi).await?)
         }
         (RegionLocator::Docx { block_id }, "docx", _) => {
@@ -716,6 +718,55 @@ async fn epub_block_locator_exists(
     .bind(cfi)
     .fetch_one(pool)
     .await?)
+}
+
+// An image element has its own CFI, often absent from the text-only block index.
+// The database verifies section/spine ownership; the reader verifies the exact
+// element and its content hash when placing a marker.
+fn same_epub_spine(cfi: &str, section_cfi: &str) -> bool {
+    fn package(cfi: &str) -> Option<&str> {
+        if cfi.len() > 8192 || cfi.chars().any(char::is_control) {
+            return None;
+        }
+        let inner = cfi.strip_prefix("epubcfi(")?.strip_suffix(')')?;
+        let (package, local) = inner.split_once('!')?;
+        if !local.starts_with('/')
+            || !local.as_bytes().get(1).is_some_and(u8::is_ascii_digit)
+            || local.contains('!')
+        {
+            return None;
+        }
+        let mut assertion = false;
+        let mut escaped = false;
+        for c in inner.chars() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match c {
+                '^' => escaped = true,
+                '[' if !assertion => assertion = true,
+                ']' if assertion => assertion = false,
+                '[' | ']' | '(' | ')' => return None,
+                _ => {}
+            }
+        }
+        if assertion || escaped {
+            return None;
+        }
+        let steps = package.strip_prefix('/')?.split('/').collect::<Vec<_>>();
+        if steps.len() != 2 {
+            return None;
+        }
+        for step in steps {
+            let number = step.split('[').next()?.parse::<u32>().ok()?;
+            if number == 0 || !number.is_multiple_of(2) {
+                return None;
+            }
+        }
+        Some(package)
+    }
+    matches!((package(cfi),package(section_cfi)),(Some(left),Some(right)) if left==right)
 }
 
 async fn primary_hash_semantics_hold(

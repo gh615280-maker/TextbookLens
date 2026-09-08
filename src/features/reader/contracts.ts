@@ -8,11 +8,22 @@ import type {
 } from '../../lib/generated/document';
 
 export type ReaderSource =
-  | { kind: 'document_bytes'; bytes: ArrayBuffer }
+  | {
+      kind: 'document_bytes';
+      bytes: ArrayBuffer;
+      sectionBindings?: readonly ReaderSectionBinding[];
+    }
   | { kind: 'sanitized_html'; html: string };
+
+export interface ReaderSectionBinding {
+  id: string;
+  locator: DocumentLocator;
+}
 
 export interface SelectionSnapshot {
   text: string;
+  /** Outer viewport position; EPUB selections originate in a separate iframe. */
+  position?: { x: number; y: number };
   anchor: {
     locator: DocumentLocator;
     quote: TextQuote;

@@ -27,7 +27,14 @@ impl InputBudget {
             ContextMode::Long => LONG_CONTEXT_CAP,
         };
         let effective_window = model_context_tokens.min(mode_cap);
-        let output_reserve = requested_output_tokens.max(MINIMUM_OUTPUT_RESERVE);
+        // Small local models can explicitly reserve less output; the cloud-sized
+        // floor would otherwise leave no room for any question.
+        let output_reserve =
+            if effective_window < 8_192 && requested_output_tokens <= effective_window / 4 {
+                requested_output_tokens
+            } else {
+                requested_output_tokens.max(MINIMUM_OUTPUT_RESERVE)
+            };
         let usable_input = effective_window
             .saturating_sub(output_reserve)
             .saturating_sub(PROTOCOL_RESERVE);

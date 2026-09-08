@@ -12,6 +12,105 @@ const sections: ReaderSection[] = [
 ];
 
 describe('reader section resolution', () => {
+  it('resolves skipped EPUB spine entries by CFI instead of the normalized ordinal', () => {
+    const epubSections: ReaderSection[] = [12, 20, 38].map((step, ordinal) => ({
+      id: `00000000-0000-4000-8000-00000000000${ordinal + 1}`,
+      parentId: null,
+      ordinal,
+      title: `Synthetic chapter ${ordinal}`,
+      locator: {
+        format: 'epub',
+        cfi: `epubcfi(/6/${step}[chapter-${ordinal}]!/4/2)`,
+        sectionId: `00000000-0000-4000-8000-00000000000${ordinal + 1}`,
+      },
+    }));
+    const locator = {
+      format: 'epub' as const,
+      cfi: 'epubcfi(/6/38[chapter-2]!/4/94,/1:0,/1:9)',
+      sectionId: 'spine-18',
+    };
+    expect(
+      sectionIdForTextSelection(
+        {
+          text: 'selection',
+          anchor: {
+            locator,
+            sectionId: 'spine-18',
+            quote: { exact: 'selection', prefix: '', suffix: '' },
+          },
+        },
+        epubSections,
+      ),
+    ).toBe(epubSections[2]!.id);
+    expect(
+      sectionIdForRegionSelection(
+        {
+          sectionId: 'spine-18',
+          cfi: locator.cfi,
+          rect: { x: 0, y: 0, width: 0.5, height: 0.5 },
+          text: 'selection',
+          capture: null,
+          anchor: {
+            kind: 'region',
+            region: {
+              locator,
+              rect: { x: 0, y: 0, width: 0.5, height: 0.5 },
+              contentSha256: 'a'.repeat(64),
+              textFallback: null,
+            },
+          },
+        },
+        epubSections,
+      ),
+    ).toBe(epubSections[2]!.id);
+    // Normalized ordinal zero is not the unindexed image-only spine zero.
+    expect(
+      sectionIdForTextSelection(
+        {
+          text: 'selection',
+          anchor: {
+            locator: {
+              ...locator,
+              cfi: 'epubcfi(/6/2!/4/2)',
+              sectionId: 'spine-0',
+            },
+            sectionId: 'spine-0',
+            quote: { exact: 'selection', prefix: '', suffix: '' },
+          },
+        },
+        epubSections,
+      ),
+    ).toBeUndefined();
+  });
+
+  it('does not accept an EPUB section ID that contradicts its CFI', () => {
+    const id = '33333333-3333-4333-8333-333333333333';
+    const epub: ReaderSection = {
+      id,
+      parentId: null,
+      ordinal: 0,
+      title: 'Synthetic',
+      locator: { format: 'epub', cfi: 'epubcfi(/6/12!/4/2)', sectionId: id },
+    };
+    expect(
+      sectionIdForTextSelection(
+        {
+          text: 'selection',
+          anchor: {
+            sectionId: id,
+            locator: {
+              format: 'epub',
+              cfi: 'epubcfi(/6/38!/4/2)',
+              sectionId: id,
+            },
+            quote: { exact: 'selection', prefix: '', suffix: '' },
+          },
+        },
+        [epub],
+      ),
+    ).toBeUndefined();
+  });
+
   it('maps PDF text and region selections to the section owning their page', () => {
     expect(
       sectionIdForTextSelection(
@@ -82,7 +181,7 @@ describe('reader section resolution', () => {
       title: 'EPUB section',
       locator: {
         format: 'epub' as const,
-        cfi: 'epubcfi(/6/6)',
+        cfi: 'epubcfi(/6/6!/4/2)',
         sectionId: '33333333-3333-4333-8333-333333333333',
       },
     };

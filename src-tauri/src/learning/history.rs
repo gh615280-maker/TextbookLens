@@ -78,15 +78,11 @@ pub async fn prepare_conversation_followup(
         .ok_or_else(|| AppError::new(AppErrorCode::NotFound))?;
     let profile = providers::load_provider_profile_metadata(pool, profile_id).await?;
     let model = capabilities
-        .capabilities()
-        .iter()
-        .find(|provider| provider.kind == profile.kind)
-        .and_then(|provider| {
-            provider
-                .models
-                .iter()
-                .find(|model| model.id == profile.model_id)
-        })
+        .model_for_profile(
+            &profile.kind,
+            &profile.model_id,
+            profile.context_window_tokens,
+        )
         .ok_or_else(AppError::unsupported_provider_capability)?;
     if capabilities.operation_support(&profile.kind, &profile.model_id, AiOperation::TextLearning)
         != crate::domain::CapabilitySupport::Supported

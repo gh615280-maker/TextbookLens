@@ -14,8 +14,13 @@ use crate::{
 };
 
 #[tauri::command]
-pub fn list_provider_capabilities(state: State<'_, AppState>) -> ProviderCapabilityRegistryDto {
-    state.provider_capabilities.public_registry()
+pub async fn list_provider_capabilities(
+    state: State<'_, AppState>,
+) -> Result<ProviderCapabilityRegistryDto, AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
+    crate::db::local_capabilities::public_registry(state.db.pool(), &state.provider_capabilities)
+        .await
+        .map_err(AppErrorDto::from)
 }
 
 #[tauri::command]
@@ -28,12 +33,25 @@ pub async fn list_provider_profiles(
         providers::list_provider_profiles(state.db.pool(), state.credential_store.as_ref())
             .await
             .map_err(AppErrorDto::from)?;
-    Ok(match operation {
-        Some(operation) => state
-            .provider_capabilities
-            .resolve_operation(operation, &profiles),
-        None => profiles,
-    })
+    if let Some(operation) = operation {
+        let mut compatible = Vec::new();
+        for profile in profiles {
+            if crate::db::local_capabilities::supports(
+                state.db.pool(),
+                &state.provider_capabilities,
+                &profile,
+                operation,
+            )
+            .await
+            .map_err(AppErrorDto::from)?
+            {
+                compatible.push(profile);
+            }
+        }
+        Ok(compatible)
+    } else {
+        Ok(profiles)
+    }
 }
 
 #[tauri::command]
@@ -138,5 +156,15 @@ fn maintenance_permit(
         .maintenance_gate
         .try_acquire_normal(ActiveOperationKind::Storage)
         .map_err(crate::errors::AppError::from)
+        .map_err(AppErrorDto::from)
+}
+
+#[tauri::command]
+pub async fn connect_local_models(
+    state: State<'_, AppState>,
+) -> Result<crate::domain::LocalModelConnectResult, AppErrorDto> {
+    let _permit = maintenance_permit(&state)?;
+    crate::ai::local::connect_local_models(state.db.pool())
+        .await
         .map_err(AppErrorDto::from)
 }

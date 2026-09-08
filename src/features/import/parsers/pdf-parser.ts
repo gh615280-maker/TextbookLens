@@ -3,6 +3,7 @@ import {
   GlobalWorkerOptions,
 } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerSrc from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
+import { localPdfOptions } from '../../../lib/pdf-options';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 
 import type {
@@ -52,7 +53,7 @@ export class PdfParser implements DocumentParser {
     let document:
       Awaited<ReturnType<typeof getDocument>['promise']> | undefined;
     try {
-      loadingTask = getDocument({ data: new Uint8Array(context.source) });
+      loadingTask = getDocument(localPdfOptions(context.source));
       document = await loadingTask.promise;
       const metadata = await document.getMetadata().catch(() => null);
       const info = metadata?.info as
@@ -135,10 +136,7 @@ export async function inspectLocalPdfPageQuality(
   signal: AbortSignal,
 ): Promise<LocalPdfPageQualityDto[]> {
   throwIfAborted(signal);
-  const loadingTask = getDocument({
-    data: new Uint8Array(source),
-    isEvalSupported: false,
-  } as never);
+  const loadingTask = getDocument(localPdfOptions(source) as never);
   let document: Awaited<ReturnType<typeof getDocument>['promise']> | undefined;
   try {
     document = await loadingTask.promise;

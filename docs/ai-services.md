@@ -1,6 +1,6 @@
 # AI services
 
-TextbookLens supports user-configured official OpenAI, Gemini, Anthropic, DeepSeek, and Kimi services. Requests leave from the Rust desktop layer; the browser UI does not fetch providers or configure a production base URL. Adding or replacing a key validates it before a key/profile update is committed. Keys are in Windows Credential Manager, not profile lists, SQLite/frontend state, or backups.
+TextbookLens supports user-configured official OpenAI, Gemini, Anthropic, DeepSeek, and Kimi services, plus [Ollama local text/image models and experimental LM Studio text models](local-models.md). Requests leave from the Rust desktop layer; the browser UI does not fetch providers or configure a production base URL. Adding or replacing a cloud key validates it before a key/profile update is committed. Cloud keys are in Windows Credential Manager, not profile lists, SQLite/frontend state, or backups. Local profiles use a discovered loopback port and require no cloud key.
 
 ## Configured capability registry
 

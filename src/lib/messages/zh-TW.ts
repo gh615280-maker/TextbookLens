@@ -1,6 +1,30 @@
 import type { MessageCatalog } from '../i18n';
 
 export const zhTW = {
+  'library.column.actions': '操作',
+  'reader.pdfRenderFailed':
+    '此 PDF 頁面無法顯示，請重新開啟教材或嘗試其他頁面。',
+  'localModels.title': '本機 AI · 離線使用',
+  'localModels.description':
+    '已安裝 Ollama 或 LM Studio 並下載模型？一鍵啟動本機服務、新增模型並用於文字問答，無需 API 金鑰。支援圖片辨識的 Ollama 模型也可設為視覺服務。',
+  'localModels.connect': '一鍵連接本機 AI',
+  'localModels.connecting': '正在連接本機 AI…',
+  'localModels.wait':
+    '正在偵測軟體、啟動服務並測試模型。首次載入可能需要幾分鐘，請保持應用程式開啟。',
+  'localModels.success':
+    '已新增或更新 {count} 個本機模型，並設為文字問答預設模型。',
+  'localModels.offline': '離線 · 無需 API 金鑰',
+  'localModels.status.connected': '已連接，文字問答可用',
+  'localModels.status.notInstalled': '未找到已安裝的軟體',
+  'localModels.status.unavailable':
+    '服務無法啟動或連接，請確認軟體可在本機正常執行後重試',
+  'localModels.status.authentication':
+    '本機服務要求驗證身分，請在該軟體中設定允許本機存取後重試',
+  'localModels.status.noModels':
+    '未找到已下載的本機文字模型；雲端模型和遠端裝置模型不參與離線連接',
+  'localModels.status.noUsableModels':
+    '找到模型，但未能完成回答測試，請檢查記憶體和模型是否能在原軟體中使用',
+  'localModels.error': '本機模型連接未完成，請稍後重試。',
   'nav.onboarding': '開始使用',
   'nav.library': '圖書館',
   'nav.settings': '設定',

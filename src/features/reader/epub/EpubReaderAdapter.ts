@@ -11,11 +11,21 @@ import type {
   RegionSelectionResult,
   SelectionSnapshot,
   AnnotationMarker,
+  ReaderSectionBinding,
 } from '../contracts';
 import { groupOverlappingMarkers } from '../markers/MarkerLayer';
 import { iframeClientPointToLocal } from '../region-preview-geometry';
 import { recoverEpubCfi } from './epub-markers';
-import { sanitizeEpubDocument, snapshotEpubRange } from './epub-selection';
+import {
+  epubSelectionPosition,
+  sanitizeEpubDocument,
+  snapshotEpubRange,
+} from './epub-selection';
+import { sectionIdForEpubCfi } from '../section-resolution';
+import {
+  rememberEpubResourceReferences,
+  restoreEpubResourceReferences,
+} from './epub-resource-references';
 import {
   captureEpubRegion,
   hashEpubRegionElement,
@@ -43,7 +53,12 @@ type BookLike = {
   getRange(cfi: string): Promise<Range>;
   load?: (...args: unknown[]) => Promise<unknown>;
   destroy(): void;
-  spine: { get(cfi: string): SpineSectionLike | undefined };
+  spine: {
+    get(cfi: string): SpineSectionLike | undefined;
+    hooks?: {
+      content: { register(handler: (document: Document) => void): void };
+    };
+  };
   locations?: {
     generate(size: number): Promise<void>;
     percentageFromCfi(cfi: string): number;
@@ -87,6 +102,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
   #cfi = '';
   #generation = 0;
   #locationsReady = false;
+  #sectionBindings: readonly ReaderSectionBinding[] | null = null;
   #markerCfis: string[] = [];
   #contents = new Map<Document, EpubContentsLike>();
   #regionAbort: AbortController | null = null;
@@ -94,8 +110,8 @@ export class EpubReaderAdapter implements ReaderAdapter {
   #regionCleanup: (() => void) | null = null;
   #regionAttach: ((contents: EpubContentsLike) => void) | null = null;
   #regionCapture: RegionSelectionResult['capture'] = null;
-  #selected = (cfi: string) => {
-    void this.captureSelection(cfi);
+  #selected = (cfi: string, contents?: EpubContentsLike) => {
+    void this.captureSelection(cfi, contents);
   };
   #relocated = (location: { start?: { cfi?: string } }) => {
     if (location.start?.cfi) this.#cfi = location.start.cfi;
@@ -115,7 +131,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     private readonly container: HTMLElement,
     private readonly events: ReaderAdapterEvents,
     private readonly factory: BookFactory = () =>
-      ePub({ replacements: 'none' }) as unknown as BookLike,
+      ePub({ replacements: 'blobUrl' }) as unknown as BookLike,
   ) {}
 
   async open(
@@ -125,10 +141,15 @@ export class EpubReaderAdapter implements ReaderAdapter {
     if (source.kind !== 'document_bytes')
       throw new TypeError('EPUB reader requires in-memory document bytes');
     this.dispose();
+    this.#sectionBindings = source.sectionBindings ?? null;
     const generation = this.#generation;
     this.container.classList.add('epub-reader');
     const book = this.factory();
     this.#book = book;
+    book.spine.hooks?.content.register((document) => {
+      sanitizeEpubDocument(document);
+      rememberEpubResourceReferences(document);
+    });
     await book.open(source.bytes);
     await book.ready;
     if (generation !== this.#generation || this.#book !== book) {
@@ -146,6 +167,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
       if (generation !== this.#generation || rendition !== this.#rendition)
         return;
       sanitizeEpubDocument(contents.document);
+      restoreEpubResourceReferences(contents.document);
       this.#contents.set(contents.document, contents);
       this.#regionAttach?.(contents);
     });
@@ -154,9 +176,17 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.container.addEventListener('keydown', this.#keyDown);
     this.#cfi = initial?.format === 'epub' ? initial.cfi : '';
     await rendition.display(this.#cfi || undefined);
-    void book.locations?.generate(1024).then(() => {
-      if (generation === this.#generation) this.#locationsReady = true;
-    });
+    void book.locations
+      ?.generate(1024)
+      .then(() => {
+        if (generation === this.#generation) {
+          this.#locationsReady = true;
+          this.events.onProgress(this.getProgress());
+        }
+      })
+      .catch(() => {
+        /* CFI navigation still works if a location index cannot be generated. */
+      });
   }
   getSelectionSnapshot(): SelectionSnapshot | null {
     return this.#selection;
@@ -165,6 +195,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
     if (locator.format !== 'epub' || !this.#rendition) return { found: false };
     await this.#rendition.display(locator.cfi);
     this.#cfi = locator.cfi;
+    this.events.onProgress(this.getProgress());
     return { found: true };
   }
   async showAnnotations(
@@ -250,8 +281,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
         >;
         const resolver = {
           getRange: (cfi: string) => this.#book!.getRange(cfi),
-          sectionIdForCfi: (cfi: string) =>
-            exactSectionId(this.#book, cfi) ?? '',
+          sectionIdForCfi: (cfi: string) => this.resolveSectionId(cfi) ?? '',
         };
         const primary = await resolveEpubRegionAnchor(resolver, region);
         if (primary) {
@@ -319,15 +349,17 @@ export class EpubReaderAdapter implements ReaderAdapter {
       this.#cfi && this.#locationsReady
         ? (this.#book?.locations?.percentageFromCfi(this.#cfi) ?? 0)
         : 0;
+    const sectionId = this.resolveSectionId(this.#cfi);
     return {
       fraction,
-      locator: this.#cfi
-        ? {
-            format: 'epub',
-            cfi: this.#cfi,
-            sectionId: sectionId(this.#book, this.#cfi),
-          }
-        : null,
+      locator:
+        this.#cfi && sectionId
+          ? {
+              format: 'epub',
+              cfi: this.#cfi,
+              sectionId,
+            }
+          : null,
     };
   }
 
@@ -424,10 +456,11 @@ export class EpubReaderAdapter implements ReaderAdapter {
         const element = pointTarget(contents, event);
         if (!element) return;
         const cfi = contents.cfiFromNode(element);
-        const currentSection = `spine-${contents.sectionIndex}`;
+        const currentSection = this.resolveSectionId(cfi);
         if (
           !cfi ||
-          exactSectionId(this.#book, cfi) !== currentSection ||
+          !currentSection ||
+          this.#book?.spine.get(cfi)?.index !== contents.sectionIndex ||
           element.getBoundingClientRect().width <= 0 ||
           element.getBoundingClientRect().height <= 0
         ) {
@@ -507,7 +540,7 @@ export class EpubReaderAdapter implements ReaderAdapter {
             region.locator.format !== 'epub' ||
             currentContents !== selected.contents ||
             !selected.element.isConnected ||
-            exactSectionId(this.#book, selected.cfi) !== selected.sectionId ||
+            this.resolveSectionId(selected.cfi) !== selected.sectionId ||
             currentHash !== region.contentSha256
           ) {
             throw new EpubRegionSelectionError('epub_region_content_changed');
@@ -610,22 +643,38 @@ export class EpubReaderAdapter implements ReaderAdapter {
     this.#book = null;
     this.#selection = null;
     this.#locationsReady = false;
+    this.#sectionBindings = null;
     this.#markerCfis = [];
     this.#contents.clear();
     this.#regionAttach = null;
     this.container.replaceChildren();
     this.container.classList.remove('epub-reader');
   }
-  private async captureSelection(cfi: string): Promise<void> {
+  private resolveSectionId(cfi: string): string | null {
+    return this.#sectionBindings === null
+      ? exactSectionId(this.#book, cfi)
+      : (sectionIdForEpubCfi(this.#sectionBindings, cfi) ?? null);
+  }
+
+  private async captureSelection(
+    cfi: string,
+    contents?: EpubContentsLike,
+  ): Promise<void> {
     const generation = this.#generation;
     const book = this.#book;
     if (!book) return;
-    const range = await book.getRange(cfi);
+    const selection = contents?.document.defaultView?.getSelection();
+    const range = selection?.rangeCount
+      ? selection.getRangeAt(0).cloneRange()
+      : await book.getRange(cfi);
     if (generation !== this.#generation || book !== this.#book) return;
-    const snapshot = snapshotEpubRange(range, sectionId(book, cfi), cfi);
+    const sectionId = this.resolveSectionId(cfi);
+    if (!sectionId) return;
+    const snapshot = snapshotEpubRange(range, sectionId, cfi);
     if (!snapshot) return;
     this.#selection = {
       text: snapshot.text,
+      position: epubSelectionPosition(range),
       anchor: {
         locator: { format: 'epub', cfi, sectionId: snapshot.sectionId },
         quote: snapshot.quote,
@@ -634,9 +683,6 @@ export class EpubReaderAdapter implements ReaderAdapter {
     };
     this.events.onSelection(this.#selection);
   }
-}
-function sectionId(book: BookLike | null, cfi: string): string {
-  return `spine-${book?.spine.get(cfi)?.index ?? 0}`;
 }
 function exactSectionId(book: BookLike | null, cfi: string): string | null {
   const section = book?.spine.get(cfi);

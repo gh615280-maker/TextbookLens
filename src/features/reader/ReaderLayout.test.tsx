@@ -23,6 +23,36 @@ afterEach(() => {
 });
 
 describe('ReaderLayout', () => {
+  it('moves focus after a contents jump without scrolling the outer reader', async () => {
+    const locator = {
+      format: 'pdf' as const,
+      startPage: 10,
+      endPage: 10,
+      rectsByPage: null,
+    };
+    render(
+      <ReaderLayout
+        title="Fixture"
+        bookId="book-1"
+        sections={[
+          {
+            id: 'section',
+            parentId: null,
+            ordinal: 0,
+            title: 'Page ten',
+            locator,
+          },
+        ]}
+        onNavigate={async () => true}
+      />,
+    );
+    const main = screen.getByRole('main', { name: '阅读内容' });
+    const focus = vi.spyOn(main, 'focus');
+    await userEvent.click(screen.getByRole('button', { name: '目录' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Page ten' }));
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
   it('renders exactly the minimal toolbar contract and keeps the adapter mount stable across drawers', async () => {
     const user = userEvent.setup();
     const readerContainerRef = createRef<HTMLDivElement>();

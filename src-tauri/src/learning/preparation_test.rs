@@ -39,6 +39,62 @@ const MODEL_ID: &str = "gpt-5.6";
 const SELECTED_TEXT: &str = "PREPARATION_TEXT_SENTINEL spectral beacon selection";
 
 #[test]
+fn local_model_selection_prepares_and_consumes_without_credential_access() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        sqlx::query("UPDATE provider_profiles SET provider_kind='ollama',model_id='synthetic:small',context_window_tokens=8192,local_port=11434 WHERE id=?")
+            .bind(fixture.profile_id.to_string()).execute(fixture.pool()).await.unwrap();
+        fixture.access.set_credential_available(false);
+        let mut metadata = fixture.text_metadata();
+        metadata.model_id = "synthetic:small".to_owned();
+        let summary = fixture.service.prepare(metadata).await.unwrap();
+        fixture
+            .service
+            .consume(summary.preparation_id, None)
+            .await
+            .unwrap();
+        assert_eq!(fixture.access.credential_calls(), 0);
+    });
+}
+
+#[test]
+fn local_vision_prepares_authorizes_and_stages_without_cloud_credentials() {
+    let fixture = Fixture::new();
+    tauri::async_runtime::block_on(async {
+        sqlx::query("UPDATE provider_profiles SET provider_kind='ollama',model_id='synthetic:vision',context_window_tokens=16384,local_port=11434,local_vision=1 WHERE id=?")
+            .bind(fixture.profile_id.to_string()).execute(fixture.pool()).await.unwrap();
+        fixture.access.set_credential_available(false);
+        let bytes = include_bytes!("../../../fixtures/source/vision/tiny-blue.png").to_vec();
+        let mut metadata = fixture.visual_metadata(&bytes);
+        metadata.model_id = "synthetic:vision".into();
+        let summary = fixture.service.prepare(metadata).await.unwrap();
+        assert!(summary.will_send_image);
+        let token = fixture
+            .service
+            .authorize(summary.preparation_id, LearningAuthorizationDecision::Allow)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut capture = fixture.capture_metadata(summary.preparation_id, token, &bytes);
+        capture.model_id = "synthetic:vision".into();
+        fixture
+            .service
+            .stage_region_capture(capture, OwnedCaptureBytes::new(bytes))
+            .await
+            .unwrap();
+        let prepared = fixture
+            .service
+            .consume(summary.preparation_id, Some(token))
+            .await
+            .unwrap();
+        assert_eq!(prepared.model_id(), "synthetic:vision");
+        assert!(prepared.requires_vision());
+        assert!(prepared.capture().is_some());
+        assert_eq!(fixture.access.credential_calls(), 0);
+    });
+}
+
+#[test]
 fn preparation_requires_mandatory_packing_before_sensitive_access() {
     let fixture = Fixture::new();
     tauri::async_runtime::block_on(async {

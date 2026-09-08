@@ -26,6 +26,7 @@ interface Props {
 export function ProviderProfileRow(props: Props) {
   const message = useMessage();
   const { profile, registry } = props;
+  const local = profile.kind === 'ollama' || profile.kind === 'lm_studio';
   const [mode, setMode] = useState<'none' | 'delete' | 'replace'>('none');
   const [key, setKey] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
@@ -59,18 +60,31 @@ export function ProviderProfileRow(props: Props) {
     <article aria-label={profile.displayName}>
       <h3>{profile.displayName}</h3>
       <p>
-        {profile.credentialStatus === 'available'
-          ? message('aiServices.connected')
-          : message('aiServices.credentialMissing')}{' '}
+        <span>
+          {local
+            ? message('localModels.offline')
+            : profile.credentialStatus === 'available'
+              ? message('aiServices.connected')
+              : message('aiServices.credentialMissing')}
+        </span>{' '}
         · {profile.modelId}
       </p>
       <p>
         {message('aiServices.capability.text')}:{' '}
-        {capabilityLabel(message, model?.textChat ?? 'unknown')} ·{' '}
-        {message('aiServices.capability.vision')}:{' '}
-        {capabilityLabel(message, model?.imageInput ?? 'unknown')} ·{' '}
-        {message('aiServices.capability.structured')}:{' '}
-        {capabilityLabel(message, model?.strictStructuredOutput ?? 'unknown')}
+        {capabilityLabel(
+          message,
+          local ? 'supported' : (model?.textChat ?? 'unknown'),
+        )}{' '}
+        · {message('aiServices.capability.vision')}:{' '}
+        {capabilityLabel(
+          message,
+          model?.imageInput ?? (local ? 'unsupported' : 'unknown'),
+        )}{' '}
+        · {message('aiServices.capability.structured')}:{' '}
+        {capabilityLabel(
+          message,
+          local ? 'unsupported' : (model?.strictStructuredOutput ?? 'unknown'),
+        )}
       </p>
       {props.learningDefault || props.visionDefault ? (
         <p>
@@ -93,15 +107,18 @@ export function ProviderProfileRow(props: Props) {
       >
         {message('aiServices.useForVision')}
       </button>
+      {!local ? (
+        <button
+          ref={trigger}
+          type="button"
+          disabled={props.busy}
+          onClick={() => setMode('replace')}
+        >
+          {message('aiServices.replaceKey')}
+        </button>
+      ) : null}
       <button
-        ref={trigger}
-        type="button"
-        disabled={props.busy}
-        onClick={() => setMode('replace')}
-      >
-        {message('aiServices.replaceKey')}
-      </button>
-      <button
+        ref={local ? trigger : undefined}
         type="button"
         disabled={props.busy}
         onClick={() => setMode('delete')}
@@ -156,11 +173,13 @@ export function ProviderProfileRow(props: Props) {
           </button>
         </div>
       ) : null}
-      <ProviderConsentSettings
-        profile={profile}
-        busy={props.busy}
-        onReset={props.onResetConsents}
-      />
+      {!local ? (
+        <ProviderConsentSettings
+          profile={profile}
+          busy={props.busy}
+          onReset={props.onResetConsents}
+        />
+      ) : null}
     </article>
   );
 }

@@ -239,7 +239,7 @@ class SyntheticSelectionBackend {
         : format === 'epub'
           ? {
               format: 'epub',
-              cfi: 'epubcfi(/6/2)',
+              cfi: 'epubcfi(/6/2!/4/2)',
               sectionId: SECTIONS.epub,
             }
           : {
@@ -414,7 +414,7 @@ const selectionTest = test.extend<{ backend: SyntheticSelectionBackend }>({
 /* eslint-enable react-hooks/rules-of-hooks */
 
 selectionTest(
-  'PDF scroll viewport stays attached to every resized frame edge',
+  'PDF scroll viewport fills the content area while reserving resize gutters',
   async ({ page, backend }) => {
     backend.pdfZoom = 3;
     await page.addInitScript(() => {
@@ -461,8 +461,8 @@ selectionTest(
     expect(geometry.documentRegion).toEqual({
       left: geometry.frame.left + 1,
       top: geometry.frame.top + 1,
-      right: geometry.frame.right - 1,
-      bottom: geometry.frame.bottom - 1,
+      right: geometry.frame.right - 13,
+      bottom: geometry.frame.bottom - 13,
     });
     expect(geometry.viewport).toEqual(geometry.documentRegion);
     expect(geometry.documentZoom).toBe('1');

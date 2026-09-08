@@ -412,7 +412,7 @@ fn late_v1_migrations_upgrade_real_v12_rows_without_data_loss() {
                 .fetch_all(reopened.pool())
                 .await
                 .unwrap();
-        assert_eq!(versions, (1_i64..=15).collect::<Vec<_>>());
+        assert_eq!(versions, (1_i64..=17).collect::<Vec<_>>());
         let counts: (i64, i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM books), (SELECT COUNT(*) FROM annotations), (SELECT COUNT(*) FROM book_extractions), (SELECT COUNT(*) FROM provider_remote_resources)",
         )
