@@ -1,5 +1,7 @@
 # Offline local models
 
+[English](local-models.md) · [简体中文](local-models.zh-CN.md) · [繁體中文](local-models.zh-TW.md)
+
 In **Settings → AI services**, select **Auto-connect local AI**. The same button is available during onboarding. TextbookLens discovers an existing Ollama or LM Studio installation, starts its local service when needed, finds downloaded text models, and tests a model with a short synthetic question. It adds the discovered models and selects a tested model as the default for text answers. Repeating the action updates existing profiles instead of duplicating them.
 
 No API key is needed for the supported unauthenticated local services. The application does not install software, download models, use cloud models, or fall back to a cloud provider when a local request fails. A service that requires authentication is reported separately; TextbookLens does not change its authentication settings.
